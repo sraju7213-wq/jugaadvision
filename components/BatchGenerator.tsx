@@ -448,9 +448,9 @@ const BatchGenerator: React.FC<BatchGeneratorProps> = ({
               <div className="flex justify-between items-center">
                 <span className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase">Originality</span>
                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${originalityLevel <= 30 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
-                    originalityLevel <= 60 ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' :
-                      originalityLevel <= 85 ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300' :
-                        'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                  originalityLevel <= 60 ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' :
+                    originalityLevel <= 85 ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300' :
+                      'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
                   }`}>
                   {originalityLevel <= 30 ? 'Conservative' : originalityLevel <= 60 ? 'Balanced' : originalityLevel <= 85 ? 'Creative' : 'Avant-Garde'}
                 </span>
