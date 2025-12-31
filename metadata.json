@@ -1,0 +1,8 @@
+{
+  "name": "Jugaad Visuals update",
+  "description": "An all-in-one toolkit for AI art prompt engineering. Create, analyze, manage, and optimize prompts for leading AI image generators with a sophisticated, client-side web application.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

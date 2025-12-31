@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Jugaad Visuals</string>
+    <string name="title_activity_main">Jugaad Visuals</string>
+    <string name="package_name">com.jugaadvisuals.app</string>
+    <string name="custom_url_scheme">com.jugaadvisuals.app</string>
+</resources>
