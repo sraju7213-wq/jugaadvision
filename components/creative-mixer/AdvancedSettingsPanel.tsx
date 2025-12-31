@@ -513,7 +513,7 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
                     placeholder="e.g. Nostalgic, Luxurious, Calm..."
                     tags={settings.mood || []}
                     onChange={(tags) => updateField('mood', tags)}
-                    colorScheme="orange"
+                    colorScheme="amber"
                 />
             </Section>
 

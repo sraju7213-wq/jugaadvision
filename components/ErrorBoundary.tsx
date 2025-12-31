@@ -1,11 +1,11 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 
-interface Props {
+export interface Props {
     children: ReactNode;
     fallback?: ReactNode;
 }
 
-interface State {
+export interface State {
     hasError: boolean;
     error: Error | null;
 }

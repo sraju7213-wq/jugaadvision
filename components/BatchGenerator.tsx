@@ -64,7 +64,7 @@ const ResultCard = React.memo(
       >
         <div className="relative flex-grow">
           <textarea
-            ref={(el) => (resultRefs.current[index] = el)}
+            ref={(el) => { resultRefs.current[index] = el; }}
             value={prompt}
             onChange={(e) => onResultChange(index, e.target.value)}
             className="w-full h-full min-h-[140px] p-5 bg-transparent rounded-t-3xl text-gray-800 dark:text-gray-200 leading-relaxed resize-none focus:outline-none focus:bg-indigo-50/50 dark:focus:bg-indigo-900/10 transition-colors text-sm md:text-base font-medium"
