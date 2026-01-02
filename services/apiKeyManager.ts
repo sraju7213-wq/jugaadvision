@@ -8,6 +8,7 @@
  * - Intelligent rate-limit handling with suggested delays
  * - Model fallback support (2.5-flash → 1.5-flash)
  * - Automatic daily usage reset
+ * - **NEW:** Centralized Request Queue to prevent "thundering herd"
  */
 
 import { GoogleGenAI } from "@google/genai";
@@ -38,12 +39,36 @@ const ERROR_BACKOFF_MS = 60000;  // 1 minute backoff for errors
 const MAX_BACKOFF_MS = 300000;   // Max 5 minutes backoff
 const RATE_LIMIT_BACKOFF_MS = 10000; // Reduced to 10 seconds for rate limits (we have many keys)
 
+// Queue Constants
+const MAX_CONCURRENT_TEXT = 8;   // High concurrency for text (fast)
+const MAX_CONCURRENT_IMAGE = 3;  // Low concurrency for images (slow/expensive)
+
 // Models with fallback
 // Use flash 1.5 as it's the most stable/fastest for high volume
-export const PRIMARY_MODEL = 'gemini-1.5-flash';
+export const PRIMARY_MODEL = 'gemini-2.0-flash';
 // structured model
-export const STRUCTURED_MODEL = 'gemini-1.5-flash';
+export const STRUCTURED_MODEL = 'gemini-2.0-flash';
 export const FALLBACK_MODEL = 'gemini-1.5-pro';
+// Low-cost model for simple text tasks (prompt generation, enhancement)
+export const LOW_COST_MODEL = 'gemini-2.0-flash-lite';
+
+/**
+ * Get the appropriate model for a task type
+ * Uses low-cost models for simple text tasks, premium for complex/image tasks
+ */
+export function getModelForTask(taskType: TaskType): string {
+    switch (taskType) {
+        case 'prompt_enhancement':
+        case 'text_generation':
+            return LOW_COST_MODEL;
+        case 'structured_json':
+            return STRUCTURED_MODEL;
+        case 'image_generation':
+            return PRIMARY_MODEL;
+        default:
+            return LOW_COST_MODEL;
+    }
+}
 
 // === KEY POOLS ===
 
@@ -154,12 +179,98 @@ function initializeKeyStates(): void {
 // Initialize on module load
 initializeKeyStates();
 
+// === REQUEST QUEUE IMPLEMENTATION ===
+
+class RequestQueue {
+    private queue: { resolve: (val: any) => void; reject: (err: any) => void; task: () => Promise<any> }[] = [];
+    private activeCount = 0;
+    private maxConcurrent: number;
+    private paused = false;
+    private pausedUntil = 0;
+    private label: string;
+
+    constructor(maxConcurrent: number, label: string) {
+        this.maxConcurrent = maxConcurrent;
+        this.label = label;
+    }
+
+    /**
+     * Add a task to the queue and return a promise that resolves when the task completes
+     */
+    add<T>(task: () => Promise<T>): Promise<T> {
+        return new Promise((resolve, reject) => {
+            this.queue.push({ resolve, reject, task });
+            this.process();
+        });
+    }
+
+    /**
+     * Pause the queue for a specific duration (e.g., when rate limited)
+     */
+    pause(durationMs: number) {
+        if (this.paused) return; // Already paused
+
+        console.log(`⏸️ Pausing ${this.label} queue for ${Math.ceil(durationMs / 1000)}s`);
+        this.paused = true;
+        this.pausedUntil = Date.now() + durationMs;
+
+        setTimeout(() => {
+            this.paused = false;
+            console.log(`▶️ Resuming ${this.label} queue`);
+            this.process();
+        }, durationMs);
+    }
+
+    /**
+     * Process items in the queue
+     */
+    private async process() {
+        if (this.paused || this.activeCount >= this.maxConcurrent || this.queue.length === 0) {
+            return;
+        }
+
+        const item = this.queue.shift();
+        if (!item) return;
+
+        this.activeCount++;
+        // console.log(`🚀 Processing ${this.label} task. Active: ${this.activeCount}, Pending: ${this.queue.length}`);
+
+        try {
+            const result = await item.task();
+            item.resolve(result);
+        } catch (error) {
+            item.reject(error);
+        } finally {
+            this.activeCount--;
+            // Recursively try to process next item
+            this.process();
+        }
+    }
+
+    getStats() {
+        return {
+            label: this.label,
+            active: this.activeCount,
+            pending: this.queue.length,
+            paused: this.paused
+        };
+    }
+}
+
+// Instantiate Queues
+const textQueue = new RequestQueue(MAX_CONCURRENT_TEXT, 'Text');
+const imageQueue = new RequestQueue(MAX_CONCURRENT_IMAGE, 'Image');
+
 // === HELPER FUNCTIONS ===
 
 function getKeyPool(taskType: TaskType): KeyState[] {
     // Image generation uses premium-only pool
     // Everything else uses the combined pool (30 keys!)
     return taskType === 'image_generation' ? imageKeyStates : allKeyStates;
+}
+
+function getQueue(taskType: TaskType): RequestQueue {
+    return taskType === 'image_generation' ? imageQueue : textQueue;
 }
 
 function isKeyUsable(state: KeyState): boolean {
@@ -220,7 +331,7 @@ export function getApiKey(taskType: TaskType): string {
         usableKeys.sort((a, b) => a.requestCount - b.requestCount);
 
         const selected = usableKeys[0];
-        console.log(`🔑 Selected key ...${selected.key.slice(-4)} (${selected.requestCount} requests today)`);
+        // console.log(`🔑 Selected key ...${selected.key.slice(-4)} (${selected.requestCount} requests today)`);
         return selected.key;
     }
 
@@ -262,6 +373,11 @@ export function reportKeyError(key: string, taskType: TaskType, error?: any): vo
         const msg = error?.message?.toLowerCase() || '';
         const isRateLimit = msg.includes('429') || msg.includes('quota') || msg.includes('rate limit') || msg.includes('resource_exhausted');
         markKeyError(state, isRateLimit);
+
+        // Critical: If it's a rate limit, pause the queue briefly to let things cool down
+        if (isRateLimit) {
+            getQueue(taskType).pause(2000); // 2 second global pause on this queue
+        }
     }
 }
 
@@ -304,103 +420,108 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
  * Execute a function with automatic retry on different API keys
  * Enhanced with smart rate-limit handling and even distribution
  */
-export async function executeWithRetry<T>(
+export function executeWithRetry<T>(
     taskType: TaskType,
     fn: (client: GoogleGenAI, apiKey: string) => Promise<T>,
     maxRetries: number = 5  // More retries since we have 30 keys
 ): Promise<T> {
-    let lastError: Error | null = null;
-    let attempt = 0;
-    const triedKeys = new Set<string>();
-    let consecutiveRateLimits = 0;
-    const pool = getKeyPool(taskType);
-    let consecutiveTimeouts = 0;
+    const queue = getQueue(taskType);
 
-    while (attempt < maxRetries) {
-        let apiKey = getApiKey(taskType);
+    // Wrap the retry logic in a queuing mechanism
+    return queue.add(async () => {
+        let lastError: Error | null = null;
+        let attempt = 0;
+        const triedKeys = new Set<string>();
+        let consecutiveRateLimits = 0;
+        const pool = getKeyPool(taskType);
+        let consecutiveTimeouts = 0;
 
-        // Try to get a different key if we've already tried this one
-        let keyAttempts = 0;
-        while (triedKeys.has(apiKey) && keyAttempts < 3 && triedKeys.size < pool.length) {
-            apiKey = getApiKey(taskType);
-            keyAttempts++;
+        while (attempt < maxRetries) {
+            let apiKey = getApiKey(taskType);
+
+            // Try to get a different key if we've already tried this one
+            let keyAttempts = 0;
+            while (triedKeys.has(apiKey) && keyAttempts < 3 && triedKeys.size < pool.length) {
+                apiKey = getApiKey(taskType);
+                keyAttempts++;
+            }
+
+            triedKeys.add(apiKey);
+            const client = new GoogleGenAI({ apiKey });
+
+            try {
+                const result = await fn(client, apiKey);
+                reportKeySuccess(apiKey, taskType);
+                consecutiveRateLimits = 0; // Reset on success
+                return result;
+            } catch (error: any) {
+                lastError = error;
+                const errorMsg = error.message || '';
+
+                console.warn(`❌ Attempt ${attempt + 1}/${maxRetries} with key ...${apiKey.slice(-4)}: ${errorMsg.slice(0, 100)}`);
+                reportKeyError(apiKey, taskType, error);
+
+                const msg = errorMsg.toLowerCase();
+                const isRateLimit = msg.includes('429') || msg.includes('quota') || msg.includes('rate limit') || msg.includes('resource_exhausted') || msg.includes('403');
+                const isTimeout = msg.includes('timeout') || msg.includes('network') || msg.includes('fetch failed');
+
+                const isRetryable = isRateLimit ||
+                    msg.includes('503') ||
+                    msg.includes('server error') ||
+                    isTimeout;
+
+                if (isRateLimit) {
+                    consecutiveRateLimits++;
+
+                    // Parse suggested delay
+                    const suggestedDelay = parseRetryDelay(errorMsg);
+
+                    if (suggestedDelay > 0 && suggestedDelay <= 30000) {
+                        // Short delay suggested - wait and retry
+                        console.log(`⏳ Rate limited. Waiting ${Math.ceil(suggestedDelay / 1000)}s...`);
+                        await delay(suggestedDelay + 500);
+                    } else if (consecutiveRateLimits >= 3) {
+                        // Multiple rate limits - wait longer before trying more
+                        const backoffDelay = Math.min(10000 * consecutiveRateLimits, 60000);
+                        console.log(`⏳ Multiple rate limits. Waiting ${Math.ceil(backoffDelay / 1000)}s...`);
+                        await delay(backoffDelay);
+                    }
+                    // Otherwise, just try next key immediately
+                }
+
+                // Handle timeouts - stop assuming 5 retries is good. 
+                // If it times out twice, fail to avoid hanging the UI.
+                if (isTimeout) {
+                    consecutiveTimeouts++;
+                    if (consecutiveTimeouts >= 2) {
+                        console.warn("⚠️ Too many timeouts, aborting retries.");
+                        throw new Error("Request timed out repeatedly. Check connection.");
+                    }
+                }
+
+                // Don't retry non-retryable errors
+                if (!isRetryable) {
+                    if (msg.includes('safety') || msg.includes('blocked')) {
+                        throw error; // Safety blocks won't be helped by retries
+                    }
+                }
+
+                attempt++;
+            }
         }
 
-        triedKeys.add(apiKey);
-        const client = new GoogleGenAI({ apiKey });
-
-        try {
-            const result = await fn(client, apiKey);
-            reportKeySuccess(apiKey, taskType);
-            consecutiveRateLimits = 0; // Reset on success
-            return result;
-        } catch (error: any) {
-            lastError = error;
-            const errorMsg = error.message || '';
-
-            console.warn(`❌ Attempt ${attempt + 1}/${maxRetries} with key ...${apiKey.slice(-4)}: ${errorMsg.slice(0, 100)}`);
-            reportKeyError(apiKey, taskType, error);
-
-            const msg = errorMsg.toLowerCase();
-            const isRateLimit = msg.includes('429') || msg.includes('quota') || msg.includes('rate limit') || msg.includes('resource_exhausted');
-            const isTimeout = msg.includes('timeout') || msg.includes('network');
-
-            const isRetryable = isRateLimit ||
-                msg.includes('503') ||
-                msg.includes('server error') ||
-                isTimeout;
-
-            if (isRateLimit) {
-                consecutiveRateLimits++;
-
-                // Parse suggested delay
-                const suggestedDelay = parseRetryDelay(errorMsg);
-
-                if (suggestedDelay > 0 && suggestedDelay <= 30000) {
-                    // Short delay suggested - wait and retry
-                    console.log(`⏳ Rate limited. Waiting ${Math.ceil(suggestedDelay / 1000)}s...`);
-                    await delay(suggestedDelay + 500);
-                } else if (consecutiveRateLimits >= 3) {
-                    // Multiple rate limits - wait longer before trying more
-                    const backoffDelay = Math.min(10000 * consecutiveRateLimits, 60000);
-                    console.log(`⏳ Multiple rate limits. Waiting ${Math.ceil(backoffDelay / 1000)}s...`);
-                    await delay(backoffDelay);
-                }
-                // Otherwise, just try next key immediately
-            }
-
-            // Handle timeouts - stop assuming 5 retries is good. 
-            // If it times out twice, fail to avoid hanging the UI.
-            if (isTimeout) {
-                consecutiveTimeouts++;
-                if (consecutiveTimeouts >= 2) {
-                    console.warn("⚠️ Too many timeouts, aborting retries.");
-                    throw new Error("Request timed out repeatedly. Check connection.");
-                }
-            }
-
-            // Don't retry non-retryable errors
-            if (!isRetryable) {
-                if (msg.includes('safety') || msg.includes('blocked')) {
-                    throw error; // Safety blocks won't be helped by retries
-                }
-            }
-
-            attempt++;
+        // Enhanced error message
+        const poolSize = pool.length;
+        if (lastError?.message?.toLowerCase().includes('quota')) {
+            throw new Error(
+                `⚠️ API Quota Exceeded: Tried ${triedKeys.size}/${poolSize} keys. ` +
+                `All keys have hit their rate limits. ` +
+                `Wait a few minutes and try again, or upgrade at https://aistudio.google.com/`
+            );
         }
-    }
 
-    // Enhanced error message
-    const poolSize = pool.length;
-    if (lastError?.message?.toLowerCase().includes('quota')) {
-        throw new Error(
-            `⚠️ API Quota Exceeded: Tried ${triedKeys.size}/${poolSize} keys. ` +
-            `All keys have hit their rate limits. ` +
-            `Wait a few minutes and try again, or upgrade at https://aistudio.google.com/`
-        );
-    }
-
-    throw lastError || new Error(`All ${attempt} API attempts failed`);
+        throw lastError || new Error(`All ${attempt} API attempts failed`);
+    });
 }
 
 /**
@@ -428,6 +549,10 @@ export function getKeyPoolStats() {
     return {
         textPool: getPoolStats(allKeyStates, 'Text/JSON (All Keys)'),
         imagePool: getPoolStats(imageKeyStates, 'Image Generation (Premium)'),
+        queues: {
+            text: textQueue.getStats(),
+            image: imageQueue.getStats()
+        },
         date: getTodayString()
     };
 }

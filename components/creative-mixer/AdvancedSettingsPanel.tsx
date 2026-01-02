@@ -124,7 +124,18 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
         onChange(newSettings);
     };
 
-    const getKeys = (schema: any) => Object.keys(schema.Values || schema._def.values || {});
+    const getKeys = (schema: any) => {
+        if (!schema) return [];
+        // Handle Zod Enum
+        if (schema._def?.values) return schema._def.values;
+        // Handle Zod Object / other Zod types with .values
+        if (schema.values && typeof schema.values === 'object' && !Array.isArray(schema.values)) {
+            return Object.keys(schema.values);
+        }
+        // Handle plain objects (like labels)
+        if (typeof schema === 'object') return Object.keys(schema);
+        return [];
+    };
 
     return (
         <div className="space-y-4 pt-4 border-t border-gray-200 dark:border-white/10 animate-in fade-in slide-in-from-top-4 duration-500">
