@@ -72,6 +72,12 @@ export function getModelForTask(taskType: TaskType): string {
 
 // === KEY POOLS ===
 
+// FREE keys pool for primary text-based tasks
+const FREE_KEY_POOL = FREE_KEYS;
+
+// PREMIUM keys pool for fallback and image generation
+const PREMIUM_KEY_POOL = PREMIUM_KEYS;
+
 // Combined pool for text-based tasks (all keys)
 // We merge them all to have a massive pool for text generation
 const ALL_KEYS = [...FREE_KEYS, ...PREMIUM_KEYS];
@@ -81,7 +87,9 @@ const IMAGE_KEYS = PREMIUM_KEYS;
 
 // === STATE MANAGEMENT ===
 
-// Initialize states for both pools
+// Initialize states for all pools
+let freeKeyStates: KeyState[] = [];
+let premiumKeyStates: KeyState[] = [];
 let allKeyStates: KeyState[] = [];
 let imageKeyStates: KeyState[] = [];
 
@@ -162,15 +170,19 @@ function initializeKeyStates(): void {
     };
 
     // De-duplicate keys just in case
+    const uniqueFreeKeys = Array.from(new Set(FREE_KEY_POOL));
+    const uniquePremiumKeys = Array.from(new Set(PREMIUM_KEY_POOL));
     const uniqueAllKeys = Array.from(new Set(ALL_KEYS));
     const uniqueImageKeys = Array.from(new Set(IMAGE_KEYS));
 
+    freeKeyStates = uniqueFreeKeys.map(createState);
+    premiumKeyStates = uniquePremiumKeys.map(createState);
     allKeyStates = uniqueAllKeys.map(createState);
     imageKeyStates = uniqueImageKeys.map(createState);
 
     // Log initialization
     const totalRequests = allKeyStates.reduce((sum, s) => sum + s.requestCount, 0);
-    console.log(`🔑 API Key Manager initialized: ${allKeyStates.length} text keys, ${imageKeyStates.length} image keys`);
+    console.log(`🔑 API Key Manager initialized: ${freeKeyStates.length} FREE keys, ${premiumKeyStates.length} PREMIUM keys, ${imageKeyStates.length} image keys`);
     if (totalRequests > 0) {
         console.log(`📊 Loaded ${totalRequests} requests from today's session`);
     }
@@ -317,30 +329,46 @@ function markKeySuccess(state: KeyState): void {
 // === MAIN API ===
 
 /**
- * Get the next available API key using "Least-Used First" selection
- * This ensures even distribution across all available keys
+ * Get the next available API key using tiered selection:
+ * 1. Try FREE keys first (least-used in free pool)
+ * 2. Fall back to PREMIUM keys when FREE keys are exhausted/rate-limited
+ * This ensures cost-efficient key usage while maintaining availability
  */
 export function getApiKey(taskType: TaskType): string {
-    const pool = getKeyPool(taskType);
+    // Image generation always uses premium-only pool
+    if (taskType === 'image_generation') {
+        return getKeyFromPool(imageKeyStates);
+    }
 
-    // 1. Filter usable keys (not in backoff)
-    const usableKeys = pool.filter(isKeyUsable);
+    // For text/prompt tasks: try FREE first, then PREMIUM
+    const usableFreeKeys = freeKeyStates.filter(isKeyUsable);
 
-    if (usableKeys.length > 0) {
-        // 2. Sort by request count (ascending) - pick least used
-        usableKeys.sort((a, b) => a.requestCount - b.requestCount);
-
-        const selected = usableKeys[0];
-        // console.log(`🔑 Selected key ...${selected.key.slice(-4)} (${selected.requestCount} requests today)`);
+    if (usableFreeKeys.length > 0) {
+        // Sort by request count (ascending) - pick least used FREE key
+        usableFreeKeys.sort((a, b) => a.requestCount - b.requestCount);
+        const selected = usableFreeKeys[0];
+        console.log(`🆓 Using FREE key ...${selected.key.slice(-4)} (${selected.requestCount} requests today)`);
         return selected.key;
     }
 
-    // 3. All keys are in backoff - find one with shortest wait
-    let bestKey = pool[0];
+    // All FREE keys exhausted - fall back to PREMIUM
+    console.log(`⚠️ All FREE keys exhausted/rate-limited. Falling back to PREMIUM keys...`);
+    const usablePremiumKeys = premiumKeyStates.filter(isKeyUsable);
+
+    if (usablePremiumKeys.length > 0) {
+        usablePremiumKeys.sort((a, b) => a.requestCount - b.requestCount);
+        const selected = usablePremiumKeys[0];
+        console.log(`💎 Using PREMIUM key ...${selected.key.slice(-4)} (${selected.requestCount} requests today)`);
+        return selected.key;
+    }
+
+    // All keys in backoff - find one with shortest wait from any pool
+    const allKeys = [...freeKeyStates, ...premiumKeyStates];
+    let bestKey = allKeys[0];
     let minWait = Infinity;
     const now = Date.now();
 
-    for (const state of pool) {
+    for (const state of allKeys) {
         const wait = state.backoffUntil - now;
         if (wait < minWait) {
             minWait = wait;
@@ -353,13 +381,46 @@ export function getApiKey(taskType: TaskType): string {
 }
 
 /**
+ * Helper function to get key from a specific pool
+ */
+function getKeyFromPool(pool: KeyState[]): string {
+    const usableKeys = pool.filter(isKeyUsable);
+
+    if (usableKeys.length > 0) {
+        usableKeys.sort((a, b) => a.requestCount - b.requestCount);
+        return usableKeys[0].key;
+    }
+
+    // All keys in backoff - find one with shortest wait
+    let bestKey = pool[0];
+    let minWait = Infinity;
+    const now = Date.now();
+
+    for (const state of pool) {
+        const wait = state.backoffUntil - now;
+        if (wait < minWait) {
+            minWait = wait;
+            bestKey = state;
+        }
+    }
+
+    return bestKey.key;
+}
+
+/**
  * Report key success to clear error states and increment usage
  */
 export function reportKeySuccess(key: string, taskType: TaskType): void {
-    const pool = getKeyPool(taskType);
-    const state = pool.find(s => s.key === key);
-    if (state) {
-        markKeySuccess(state);
+    // Find and update in all relevant pools
+    const pools = taskType === 'image_generation'
+        ? [imageKeyStates]
+        : [freeKeyStates, premiumKeyStates, allKeyStates];
+
+    for (const pool of pools) {
+        const state = pool.find(s => s.key === key);
+        if (state) {
+            markKeySuccess(state);
+        }
     }
 }
 
@@ -367,16 +428,23 @@ export function reportKeySuccess(key: string, taskType: TaskType): void {
  * Report key error to trigger backoff
  */
 export function reportKeyError(key: string, taskType: TaskType, error?: any): void {
-    const pool = getKeyPool(taskType);
-    const state = pool.find(s => s.key === key);
-    if (state) {
-        const msg = error?.message?.toLowerCase() || '';
-        const isRateLimit = msg.includes('429') || msg.includes('quota') || msg.includes('rate limit') || msg.includes('resource_exhausted');
-        markKeyError(state, isRateLimit);
+    // Find and update in all relevant pools
+    const pools = taskType === 'image_generation'
+        ? [imageKeyStates]
+        : [freeKeyStates, premiumKeyStates, allKeyStates];
 
-        // Critical: If it's a rate limit, pause the queue briefly to let things cool down
-        if (isRateLimit) {
-            getQueue(taskType).pause(2000); // 2 second global pause on this queue
+    for (const pool of pools) {
+        const state = pool.find(s => s.key === key);
+        if (state) {
+            const msg = error?.message?.toLowerCase() || '';
+            const isRateLimit = msg.includes('429') || msg.includes('quota') || msg.includes('rate limit') || msg.includes('resource_exhausted');
+            markKeyError(state, isRateLimit);
+
+            // Critical: If it's a rate limit, pause the queue briefly to let things cool down
+            if (isRateLimit) {
+                getQueue(taskType).pause(2000); // 2 second global pause on this queue
+            }
+            break; // Only update once per key
         }
     }
 }
@@ -547,7 +615,8 @@ export function getKeyPoolStats() {
     });
 
     return {
-        textPool: getPoolStats(allKeyStates, 'Text/JSON (All Keys)'),
+        freePool: getPoolStats(freeKeyStates, 'FREE Keys (Primary)'),
+        premiumPool: getPoolStats(premiumKeyStates, 'PREMIUM Keys (Fallback)'),
         imagePool: getPoolStats(imageKeyStates, 'Image Generation (Premium)'),
         queues: {
             text: textQueue.getStats(),
