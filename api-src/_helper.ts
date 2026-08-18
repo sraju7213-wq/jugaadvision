@@ -1,7 +1,7 @@
+import { handleAIRequest } from '../server/ai/serverHandler';
+
 export async function forwardToHandler(defaultPath: string, req: any, res?: any) {
   try {
-    const { handleAIRequest } = await import('../server/ai/serverHandler');
-
     const isWebRequest = typeof Request !== 'undefined' && req instanceof Request;
     let url = isWebRequest ? (req as Request).url : (req?.url || defaultPath);
     let method = isWebRequest ? (req as Request).method : (req?.method || 'GET');
