@@ -6,6 +6,14 @@ import { modelDiscoveryService } from './discovery/discoveryService.ts';
 import { aiRouter } from './router/router.ts';
 import { getCustomEndpoint, setCustomEndpoint } from './customEndpoint.ts';
 import {
+  isSSRFSafeUrl,
+  sanitizeInput,
+  sanitizeAndRedactSecrets,
+  SECURITY_HEADERS,
+  generalRateLimiter,
+  aiGenerationRateLimiter,
+} from './security.ts';
+import {
   validateJsonSchema,
   validateExactTextPreservation,
   calculateVariationDiversity,
@@ -122,11 +130,34 @@ async function testProviderConnection(provider: ProviderName, testKey?: string):
 export async function handleAIRequest(
   path: string,
   method: string,
-  body: any = {}
+  body: any = {},
+  clientIp = '127.0.0.1'
 ): Promise<ServerResponse> {
   const requestUrl = new URL(path, 'http://localhost');
   const rawPathname = requestUrl.pathname.replace(/^\/api\/?/, '').toLowerCase();
   const normalizedPath = rawPathname.replace(/^ai\/?/, '');
+
+  // Rate Limiting Protection (sliding window per client IP)
+  const isHeavy = normalizedPath === 'generate' || normalizedPath === 'batch' || normalizedPath === 'vision' || normalizedPath === 'remove-bg';
+  const limiter = isHeavy ? aiGenerationRateLimiter : generalRateLimiter;
+  const rateLimit = limiter.check(clientIp);
+
+  if (!rateLimit.allowed) {
+    return {
+      status: 429,
+      headers: {
+        ...SECURITY_HEADERS,
+        'Retry-After': String(rateLimit.retryAfter || 5),
+        'X-RateLimit-Limit': String(rateLimit.limit),
+        'X-RateLimit-Remaining': '0',
+      },
+      data: {
+        success: false,
+        error: 'Too many requests. Please slow down and try again shortly.',
+        retryAfterSec: rateLimit.retryAfter || 5,
+      },
+    };
+  }
 
   // Check idempotency if requestId provided
   if (body?.requestId && method === 'POST') {
@@ -286,17 +317,23 @@ export async function handleAIRequest(
     // 5. GET & POST /api/settings/custom-endpoint
     if (rawPathname === 'settings/custom-endpoint') {
       if (method === 'GET') {
-        return { status: 200, data: { success: true, endpoint: getCustomEndpoint()?.endpoint || '', model: getCustomEndpoint()?.model || '' } };
+        return { status: 200, headers: SECURITY_HEADERS, data: { success: true, endpoint: getCustomEndpoint()?.endpoint || '', model: getCustomEndpoint()?.model || '' } };
       }
       if (method === 'POST') {
-        const endpoint = typeof body.endpoint === 'string' ? body.endpoint.trim() : '';
-        const model = typeof body.model === 'string' ? body.model.trim() : '';
-        if (!endpoint || !model) return { status: 400, data: { success: false, error: 'Endpoint URL and model are required.' } };
-        try { new URL(endpoint); } catch { return { status: 400, data: { success: false, error: 'Endpoint must be a valid URL.' } }; }
+        const endpoint = typeof body.endpoint === 'string' ? sanitizeInput(body.endpoint.trim()) : '';
+        const model = typeof body.model === 'string' ? sanitizeInput(body.model.trim()) : '';
+        if (!endpoint || !model) return { status: 400, headers: SECURITY_HEADERS, data: { success: false, error: 'Endpoint URL and model are required.' } };
+        
+        // SSRF Safety Guard
+        const ssrfCheck = isSSRFSafeUrl(endpoint);
+        if (!ssrfCheck.safe) {
+          return { status: 400, headers: SECURITY_HEADERS, data: { success: false, error: `Restricted custom endpoint URL: ${ssrfCheck.reason}` } };
+        }
+
         setCustomEndpoint({ endpoint, model });
         keyPoolManager.setProviderKeys('custom', typeof body.key === 'string' ? body.key : '__custom_endpoint__');
         freeModelRegistry.refreshInBackground(true);
-        return { status: 200, data: { success: true, endpoint, model, message: 'Custom endpoint saved securely on the server.' } };
+        return { status: 200, headers: SECURITY_HEADERS, data: { success: true, endpoint, model, message: 'Custom endpoint validated and saved securely on the server.' } };
       }
     }
 
@@ -400,6 +437,77 @@ export async function handleAIRequest(
       };
     }
 
+    // 8. POST /api/ai/remove-bg or POST /api/remove-bg (Secure Server Proxy)
+    if ((normalizedPath === 'remove-bg' || rawPathname === 'ai/remove-bg' || rawPathname === 'remove-bg') && method === 'POST') {
+      const imageBase64 = body?.imageBase64 || body?.image;
+      if (!imageBase64 || typeof imageBase64 !== 'string') {
+        return {
+          status: 400,
+          headers: SECURITY_HEADERS,
+          data: { success: false, error: 'imageBase64 parameter is required' },
+        };
+      }
+
+      if (imageBase64.length > 15 * 1024 * 1024) {
+        return {
+          status: 413,
+          headers: SECURITY_HEADERS,
+          data: { success: false, error: 'Image payload exceeds maximum limit of 10MB.' },
+        };
+      }
+
+      const removeBgKey = process.env.REMOVE_BG_API_KEY || 'PCH4kRJRG4gQQjhhpG6yNSi6';
+
+      try {
+        const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+        const binaryBuffer = Buffer.from(cleanBase64, 'base64');
+        const formData = new FormData();
+        const blob = new Blob([binaryBuffer], { type: 'image/png' });
+        formData.append('image_file', blob, 'image.png');
+        formData.append('size', typeof body.size === 'string' ? sanitizeInput(body.size, 20) : 'auto');
+
+        const bgRes = await fetch('https://api.remove.bg/v1.0/removebg', {
+          method: 'POST',
+          headers: {
+            'X-Api-Key': removeBgKey,
+          },
+          body: formData,
+        });
+
+        if (!bgRes.ok) {
+          const errText = await bgRes.text();
+          let parsedErr: any;
+          try { parsedErr = JSON.parse(errText); } catch {}
+          const errMsg = parsedErr?.errors?.[0]?.title || `RemoveBG API error (${bgRes.status})`;
+          return {
+            status: bgRes.status >= 500 ? 502 : bgRes.status,
+            headers: SECURITY_HEADERS,
+            data: { success: false, error: sanitizeAndRedactSecrets(errMsg) },
+          };
+        }
+
+        const arrayBuffer = await bgRes.arrayBuffer();
+        const outBase64 = Buffer.from(arrayBuffer).toString('base64');
+        return {
+          status: 200,
+          headers: SECURITY_HEADERS,
+          data: {
+            success: true,
+            imageBase64: `data:image/png;base64,${outBase64}`,
+          },
+        };
+      } catch (err: any) {
+        return {
+          status: 500,
+          headers: SECURITY_HEADERS,
+          data: {
+            success: false,
+            error: sanitizeAndRedactSecrets(err.message || 'Failed to process background removal'),
+          },
+        };
+      }
+    }
+
     // POST /api/ai/validate
     if (normalizedPath === 'validate') {
       const { raw, schema, payload } = body;
@@ -407,6 +515,7 @@ export async function handleAIRequest(
       const validation = validateJsonSchema(contentToValidate, schema);
       return {
         status: 200,
+        headers: SECURITY_HEADERS,
         data: {
           success: validation.valid,
           parsed: validation.parsed,
@@ -430,8 +539,8 @@ export async function handleAIRequest(
         diagnostics.push(...conflictDiag);
       }
 
-      let systemPrompt = req.systemPrompt || 'You are an avant-garde AI creative director.';
-      let userInput = req.prompt || req.baseConcept || '';
+      let systemPrompt = sanitizeInput(req.systemPrompt || 'You are an avant-garde AI creative director.');
+      let userInput = sanitizeInput(req.prompt || req.baseConcept || '');
 
       const isStructured = req.requestedOutput === 'json' || !!req.schema;
       const isVision = req.requestedOutput === 'vision' || (req.references && req.references.length > 0 && req.references[0]?.base64);
@@ -767,12 +876,14 @@ Output valid JSON adhering strictly to:
       },
     };
   } catch (err: any) {
-    console.error(`[ServerAI] Error handling ${normalizedPath}:`, err);
+    const safeError = sanitizeAndRedactSecrets(err?.message || 'Internal AI Server Error');
+    console.error(`[ServerAI] Error handling ${normalizedPath}:`, safeError);
     return {
       status: 500,
+      headers: SECURITY_HEADERS,
       data: {
         success: false,
-        error: err.message || 'Internal AI Server Error',
+        error: safeError,
       },
     };
   }

@@ -8,13 +8,25 @@ function aiDevServerPlugin(): Plugin {
     name: 'ai-dev-server-plugin',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
-        if (req.url && (req.url.startsWith('/api/ai') || req.url.startsWith('/api/settings') || req.url.startsWith('/api/creative-mix'))) {
+        if (req.url && (req.url.startsWith('/api/ai') || req.url.startsWith('/api/settings') || req.url.startsWith('/api/creative-mix') || req.url.startsWith('/api/remove-bg'))) {
           try {
             const { handleAIRequest } = await server.ssrLoadModule('./server/ai/serverHandler.ts');
+            const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket?.remoteAddress || '127.0.0.1';
+
             let body: any = {};
             if (req.method === 'POST' || req.method === 'PUT') {
               const buffers: any[] = [];
+              let totalBytes = 0;
+              const maxPayloadBytes = 15 * 1024 * 1024; // 15MB limit
+
               for await (const chunk of req) {
+                totalBytes += chunk.length;
+                if (totalBytes > maxPayloadBytes) {
+                  res.statusCode = 413;
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify({ success: false, error: 'Payload exceeds maximum limit (15MB)' }));
+                  return;
+                }
                 buffers.push(chunk);
               }
               const rawBody = Buffer.concat(buffers).toString('utf-8');
@@ -27,16 +39,23 @@ function aiDevServerPlugin(): Plugin {
               }
             }
 
-            const result = await handleAIRequest(req.url, req.method || 'GET', body);
+            const result = await handleAIRequest(req.url, req.method || 'GET', body, clientIp);
             res.statusCode = result.status;
             res.setHeader('Content-Type', 'application/json');
+            
+            if (result.headers) {
+              for (const [k, v] of Object.entries(result.headers)) {
+                res.setHeader(k, v);
+              }
+            }
+
             res.end(JSON.stringify(result.data));
             return;
           } catch (err: any) {
             console.error('[ViteDevServer] AI Middleware Error:', err);
             res.statusCode = 500;
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ success: false, error: err.message }));
+            res.end(JSON.stringify({ success: false, error: 'Internal server security error' }));
             return;
           }
         }

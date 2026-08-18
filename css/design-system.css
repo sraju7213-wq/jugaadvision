@@ -808,7 +808,6 @@ html.dark {
 .editorial-range::-webkit-slider-runnable-track {
   height: 0.625rem;
   border: 1px solid var(--range-accent);
-  border: 1px solid color-mix(in srgb, var(--range-accent) 72%, #ffffff);
   border-radius: 999px;
   background: linear-gradient(to right, var(--range-accent) 0 var(--range-progress), #07080d var(--range-progress) 100%);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.07);
@@ -829,9 +828,15 @@ html.dark {
 .editorial-range::-moz-range-track {
   height: 0.625rem;
   border: 1px solid var(--range-accent);
-  border: 1px solid color-mix(in srgb, var(--range-accent) 72%, #ffffff);
   border-radius: 999px;
   background: #07080d;
+}
+
+@supports (border-color: color-mix(in srgb, red, white)) {
+  .editorial-range::-webkit-slider-runnable-track,
+  .editorial-range::-moz-range-track {
+    border-color: color-mix(in srgb, var(--range-accent) 72%, #ffffff);
+  }
 }
 
 .editorial-range::-moz-range-progress { height: 0.625rem; border-radius: 999px; background: var(--range-accent); }

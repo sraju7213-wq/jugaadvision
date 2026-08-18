@@ -1,22 +1,14 @@
 import React from "react";
-import { ProcessingAnimation } from "./ProcessingAnimation";
 
 const Loading: React.FC = () => {
   return (
-    <ProcessingAnimation
-      variant="page"
-      theme="auto"
-      badge="00 / Environment"
-      title="Initializing Jugaad Visuals Studio"
-      stages={[
-        "Loading neural creative workspace...",
-        "Synchronizing model adapters...",
-        "Calibrating prompt engineering matrix...",
-        "Preparing visual synthesis canvas...",
-      ]}
-      stageIntervalMs={1800}
-      subtext="Loading high-precision creative AI tools and generative parameters."
-    />
+    <div
+      className="w-full min-h-[40vh] flex items-center justify-center py-12"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="w-5 h-5 border-2 border-[var(--editorial-rule)] border-t-[var(--editorial-coral)] rounded-full animate-spin" />
+    </div>
   );
 };
 
