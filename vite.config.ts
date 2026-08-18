@@ -45,7 +45,7 @@ function aiDevServerPlugin(): Plugin {
             
             if (result.headers) {
               for (const [k, v] of Object.entries(result.headers)) {
-                res.setHeader(k, v);
+                res.setHeader(k, v as string);
               }
             }
 
