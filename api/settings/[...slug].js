@@ -1811,38 +1811,6 @@ var ModelDiscoveryService = class {
       case "openrouter":
         return [
           {
-            id: "meta-llama/llama-3.2-11b-vision-instruct:free",
-            name: "Meta Llama 3.2 11B Vision (Free)",
-            provider: "openrouter",
-            inputCost: 0,
-            outputCost: 0,
-            contextLength: 131072,
-            capabilities: ["text", "vision", "json"],
-            modalities: ["text", "vision", "json"],
-            isFree: true,
-            freeEligibility: "free",
-            discoveredTimestamp: timestamp,
-            pricing: { prompt: 0, completion: 0, isZeroCost: true },
-            supportsStructuredJson: true,
-            tier: "balanced"
-          },
-          {
-            id: "qwen/qwen-2.5-vl-72b-instruct:free",
-            name: "Qwen 2.5 VL 72B Instruct (Free)",
-            provider: "openrouter",
-            inputCost: 0,
-            outputCost: 0,
-            contextLength: 32768,
-            capabilities: ["text", "vision", "json"],
-            modalities: ["text", "vision", "json"],
-            isFree: true,
-            freeEligibility: "free",
-            discoveredTimestamp: timestamp,
-            pricing: { prompt: 0, completion: 0, isZeroCost: true },
-            supportsStructuredJson: true,
-            tier: "quality"
-          },
-          {
             id: "google/gemma-2-9b-it:free",
             name: "Google Gemma 2 9B (Free)",
             provider: "openrouter",
@@ -1857,6 +1825,38 @@ var ModelDiscoveryService = class {
             pricing: { prompt: 0, completion: 0, isZeroCost: true },
             supportsStructuredJson: true,
             tier: "fast"
+          },
+          {
+            id: "meta-llama/llama-3.3-70b-instruct:free",
+            name: "Meta Llama 3.3 70B (Free)",
+            provider: "openrouter",
+            inputCost: 0,
+            outputCost: 0,
+            contextLength: 131072,
+            capabilities: ["text", "json", "reasoning"],
+            modalities: ["text", "json"],
+            isFree: true,
+            freeEligibility: "free",
+            discoveredTimestamp: timestamp,
+            pricing: { prompt: 0, completion: 0, isZeroCost: true },
+            supportsStructuredJson: true,
+            tier: "quality"
+          },
+          {
+            id: "z-ai/glm-5.2:free",
+            name: "GLM 5.2 (Free)",
+            provider: "openrouter",
+            inputCost: 0,
+            outputCost: 0,
+            contextLength: 32768,
+            capabilities: ["text", "json"],
+            modalities: ["text", "json"],
+            isFree: true,
+            freeEligibility: "free",
+            discoveredTimestamp: timestamp,
+            pricing: { prompt: 0, completion: 0, isZeroCost: true },
+            supportsStructuredJson: true,
+            tier: "balanced"
           }
         ];
       case "nim":
