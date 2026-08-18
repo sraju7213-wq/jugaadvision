@@ -1,7 +1,11 @@
 // Auto-generated bundled serverless function for JugaadVision
 
+var __create = Object.create;
 var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __esm = (fn, res) => function __init() {
   return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
 };
@@ -9,6 +13,23 @@ var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // server/ai/pools/keyPool.ts
 function maskApiKey(key) {
@@ -309,11 +330,11 @@ var init_keyPool = __esm({
 });
 
 // server/ai/health/modelHealthManager.ts
-import fs from "fs";
-import path from "path";
-var ModelHealthManager, modelHealthManager;
+var import_fs, import_path, ModelHealthManager, modelHealthManager;
 var init_modelHealthManager = __esm({
   "server/ai/health/modelHealthManager.ts"() {
+    import_fs = __toESM(require("fs"), 1);
+    import_path = __toESM(require("path"), 1);
     init_keyPool();
     ModelHealthManager = class {
       // 10s periodic recheck
@@ -324,7 +345,7 @@ var init_modelHealthManager = __esm({
         this.saveDebounceTimer = null;
         this.checkTimer = null;
         this.checkIntervalMs = 1e4;
-        this.storageFile = storagePath || path.resolve(".cache", "ai_health_state.json");
+        this.storageFile = storagePath || import_path.default.resolve(".cache", "ai_health_state.json");
         this.loadFromStorage();
         this.startPeriodicRecheck();
       }
@@ -579,9 +600,9 @@ var init_modelHealthManager = __esm({
       saveToStorage() {
         if (process.env.VERCEL === "1") return;
         try {
-          const dir = path.dirname(this.storageFile);
-          if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
+          const dir = import_path.default.dirname(this.storageFile);
+          if (!import_fs.default.existsSync(dir)) {
+            import_fs.default.mkdirSync(dir, { recursive: true });
           }
           const snapshot = {
             timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -589,7 +610,7 @@ var init_modelHealthManager = __esm({
             models: Array.from(this.modelHealthMap.entries()),
             providers: Array.from(this.providerHealthMap.entries())
           };
-          fs.writeFileSync(this.storageFile, JSON.stringify(snapshot, null, 2), "utf-8");
+          import_fs.default.writeFileSync(this.storageFile, JSON.stringify(snapshot, null, 2), "utf-8");
         } catch (err) {
           console.warn("[ModelHealthManager] Failed to persist health state:", err?.message || err);
         }
@@ -597,8 +618,8 @@ var init_modelHealthManager = __esm({
       loadFromStorage() {
         if (process.env.VERCEL === "1") return;
         try {
-          if (!fs.existsSync(this.storageFile)) return;
-          const content = fs.readFileSync(this.storageFile, "utf-8");
+          if (!import_fs.default.existsSync(this.storageFile)) return;
+          const content = import_fs.default.readFileSync(this.storageFile, "utf-8");
           const snapshot = JSON.parse(content);
           if (Array.isArray(snapshot.keys)) {
             for (const [id, data] of snapshot.keys) {
@@ -4112,6 +4133,14 @@ var init_serverHandler = __esm({
   }
 });
 
+// api-src/settings/providers.ts
+var providers_exports = {};
+__export(providers_exports, {
+  config: () => config2,
+  default: () => handler
+});
+module.exports = __toCommonJS(providers_exports);
+
 // api-src/_helper.ts
 async function forwardToHandler(defaultPath, req, res) {
   try {
@@ -4187,7 +4216,7 @@ var config2 = {
 async function handler(req, res) {
   return forwardToHandler("/api/settings/providers", req, res);
 }
-export {
-  config2 as config,
-  handler as default
-};
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  config
+});

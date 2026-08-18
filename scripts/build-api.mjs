@@ -34,7 +34,7 @@ await build({
   bundle: true,
   platform: 'node',
   target: 'node18',
-  format: 'esm',
+  format: 'cjs',
   outdir: outDir,
   outbase: srcDir,
   allowOverwrite: true,
