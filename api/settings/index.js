@@ -1,44 +1,9 @@
 // Auto-generated bundled serverless function for JugaadVision
 
-var __create = Object.create;
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-
-// api-src/settings/index.ts
-var settings_exports = {};
-__export(settings_exports, {
-  config: () => config2,
-  default: () => handler
-});
-module.exports = __toCommonJS(settings_exports);
 
 // server/ai/health/modelHealthManager.ts
-var import_fs = __toESM(require("fs"), 1);
-var import_path = __toESM(require("path"), 1);
+import fs from "fs";
+import path from "path";
 
 // server/ai/pools/keyPool.ts
 function maskApiKey(key) {
@@ -343,7 +308,7 @@ var ModelHealthManager = class {
     this.saveDebounceTimer = null;
     this.checkTimer = null;
     this.checkIntervalMs = 1e4;
-    this.storageFile = storagePath || import_path.default.resolve(".cache", "ai_health_state.json");
+    this.storageFile = storagePath || path.resolve(".cache", "ai_health_state.json");
     this.loadFromStorage();
     this.startPeriodicRecheck();
   }
@@ -598,9 +563,9 @@ var ModelHealthManager = class {
   saveToStorage() {
     if (process.env.VERCEL === "1") return;
     try {
-      const dir = import_path.default.dirname(this.storageFile);
-      if (!import_fs.default.existsSync(dir)) {
-        import_fs.default.mkdirSync(dir, { recursive: true });
+      const dir = path.dirname(this.storageFile);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
       }
       const snapshot = {
         timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -608,7 +573,7 @@ var ModelHealthManager = class {
         models: Array.from(this.modelHealthMap.entries()),
         providers: Array.from(this.providerHealthMap.entries())
       };
-      import_fs.default.writeFileSync(this.storageFile, JSON.stringify(snapshot, null, 2), "utf-8");
+      fs.writeFileSync(this.storageFile, JSON.stringify(snapshot, null, 2), "utf-8");
     } catch (err) {
       console.warn("[ModelHealthManager] Failed to persist health state:", err?.message || err);
     }
@@ -616,8 +581,8 @@ var ModelHealthManager = class {
   loadFromStorage() {
     if (process.env.VERCEL === "1") return;
     try {
-      if (!import_fs.default.existsSync(this.storageFile)) return;
-      const content = import_fs.default.readFileSync(this.storageFile, "utf-8");
+      if (!fs.existsSync(this.storageFile)) return;
+      const content = fs.readFileSync(this.storageFile, "utf-8");
       const snapshot = JSON.parse(content);
       if (Array.isArray(snapshot.keys)) {
         for (const [id, data] of snapshot.keys) {
@@ -4038,13 +4003,7 @@ async function handler(req, res) {
   }
   res.status(result.status).json(result.data);
 }
-// Annotate the CommonJS export names for ESM import in node:
-0 && (module.exports = {
-  config
-});
-
-if (typeof handler !== 'undefined') {
-  module.exports = handler;
-  module.exports.default = handler;
-}
-
+export {
+  config2 as config,
+  handler as default
+};

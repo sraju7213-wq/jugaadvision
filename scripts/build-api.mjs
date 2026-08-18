@@ -34,16 +34,13 @@ await build({
   bundle: true,
   platform: 'node',
   target: 'node18',
-  format: 'cjs',
+  format: 'esm',
   outdir: outDir,
   outbase: srcDir,
   allowOverwrite: true,
   sourcemap: false,
   banner: {
     js: `// Auto-generated bundled serverless function for JugaadVision\n`,
-  },
-  footer: {
-    js: `\nif (typeof handler !== 'undefined') {\n  module.exports = handler;\n  module.exports.default = handler;\n}\n`,
   },
 });
 
