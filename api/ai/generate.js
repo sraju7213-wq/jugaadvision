@@ -4112,7 +4112,7 @@ var init_serverHandler = __esm({
   }
 });
 
-// api/_helper.ts
+// api-src/_helper.ts
 async function forwardToHandler(defaultPath, req, res) {
   try {
     const { handleAIRequest: handleAIRequest2 } = await Promise.resolve().then(() => (init_serverHandler(), serverHandler_exports));
@@ -4180,7 +4180,7 @@ async function forwardToHandler(defaultPath, req, res) {
   }
 }
 
-// api/ai/generate.ts
+// api-src/ai/generate.ts
 var config2 = {
   maxDuration: 60,
   api: {

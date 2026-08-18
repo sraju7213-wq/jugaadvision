@@ -3975,7 +3975,7 @@ Output ONLY the enhanced prompt.`;
   }
 }
 
-// api/settings/index.ts
+// api-src/settings/index.ts
 var config2 = {
   maxDuration: 60,
   api: {

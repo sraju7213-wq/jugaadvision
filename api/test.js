@@ -1,7 +1,7 @@
 // Auto-generated bundled serverless function for JugaadVision
 
 
-// api/test.ts
+// api-src/test.ts
 async function handler(req, res) {
   const data = {
     success: true,
