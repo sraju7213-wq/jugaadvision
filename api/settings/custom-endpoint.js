@@ -4116,32 +4116,66 @@ var init_serverHandler = __esm({
 async function forwardToHandler(defaultPath, req, res) {
   try {
     const { handleAIRequest: handleAIRequest2 } = await Promise.resolve().then(() => (init_serverHandler(), serverHandler_exports));
-    let url = req.url || defaultPath;
+    const isWebRequest = typeof Request !== "undefined" && req instanceof Request;
+    let url = isWebRequest ? req.url : req?.url || defaultPath;
+    let method = isWebRequest ? req.method : req?.method || "GET";
+    let clientIp = "127.0.0.1";
+    let body = void 0;
+    if (isWebRequest) {
+      const webReq = req;
+      clientIp = webReq.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "127.0.0.1";
+      if (method !== "GET" && method !== "HEAD") {
+        try {
+          body = await webReq.json();
+        } catch {
+          body = void 0;
+        }
+      }
+    } else {
+      clientIp = req?.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || req?.socket?.remoteAddress || "127.0.0.1";
+      body = req?.body;
+      if (typeof body === "string") {
+        try {
+          body = JSON.parse(body);
+        } catch {
+        }
+      }
+    }
     if (!url.startsWith("/api/") && !url.startsWith("http")) {
       url = defaultPath + (url.startsWith("?") ? url : url ? `/${url}` : "");
     }
-    const method = req.method || "GET";
-    const clientIp = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket?.remoteAddress || "127.0.0.1";
-    let body = req.body;
-    if (typeof body === "string") {
-      try {
-        body = JSON.parse(body);
-      } catch {
-      }
-    }
     const result = await handleAIRequest2(url, method, body, clientIp);
-    if (result.headers) {
-      for (const [k, v] of Object.entries(result.headers)) {
-        res.setHeader(k, v);
+    if (res && typeof res.status === "function") {
+      if (result.headers) {
+        for (const [k, v] of Object.entries(result.headers)) {
+          res.setHeader(k, v);
+        }
       }
+      return res.status(result.status).json(result.data);
     }
-    res.status(result.status).json(result.data);
+    return new Response(JSON.stringify(result.data), {
+      status: result.status,
+      headers: {
+        "Content-Type": "application/json",
+        ...result.headers || {}
+      }
+    });
   } catch (err) {
     console.error("[API Error]:", err);
-    res.status(500).json({
+    if (res && typeof res.status === "function") {
+      return res.status(500).json({
+        success: false,
+        error: err?.message || "Serverless Execution Error",
+        stack: process.env.NODE_ENV === "production" ? void 0 : err?.stack
+      });
+    }
+    return new Response(JSON.stringify({
       success: false,
       error: err?.message || "Serverless Execution Error",
       stack: process.env.NODE_ENV === "production" ? void 0 : err?.stack
+    }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" }
     });
   }
 }
