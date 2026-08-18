@@ -1875,7 +1875,7 @@ var ModelDiscoveryService = class {
             discoveredTimestamp: timestamp,
             pricing: { prompt: 0, completion: 0, isZeroCost: true },
             supportsStructuredJson: true,
-            tier: "fast"
+            tier: "balanced"
           },
           {
             id: "nvidia/nemotron-nano-12b-v2-vl",
