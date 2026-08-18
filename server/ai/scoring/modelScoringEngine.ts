@@ -64,18 +64,19 @@ export class ModelScoringEngine {
 
     // 3. Capability Match Depth
     const requiredCap = this.getPrimaryCapabilityForTask(request.taskType);
-    if (model.capabilityMap[requiredCap] === 'supported') {
+    const capMap = model.capabilityMap;
+    if (capMap && capMap[requiredCap] === 'supported') {
       score += weights.capabilityMatchWeight;
     }
 
     // Task-specific secondary capability bonuses
-    if (request.taskType === 'reasoning' && model.capabilityMap.reasoning === 'supported') {
+    if (request.taskType === 'reasoning' && capMap?.reasoning === 'supported') {
       score += 25;
     }
-    if (request.taskType === 'coding' && model.capabilityMap.coding === 'supported') {
+    if (request.taskType === 'coding' && capMap?.coding === 'supported') {
       score += 25;
     }
-    if (request.taskType === 'advanced_image_analysis' && model.capabilityMap.vision === 'supported') {
+    if (request.taskType === 'advanced_image_analysis' && capMap?.vision === 'supported') {
       score += 20;
     }
 
@@ -86,15 +87,17 @@ export class ModelScoringEngine {
       score -= Math.round(weights.healthScoreWeight * 0.5);
     }
 
-    score += Math.round(model.successRate * weights.successRateWeight);
+    if (model.successRate !== undefined) {
+      score += Math.round(model.successRate * weights.successRateWeight);
+    }
 
     // 5. Recent Failure Penalty
-    if (model.failureCount > 0) {
+    if (model.failureCount !== undefined && model.failureCount > 0) {
       score -= Math.min(45, model.failureCount * weights.failurePenaltyWeight);
     }
 
     // 6. Latency & Speed Preference
-    if (model.averageLatency > 0) {
+    if (model.averageLatency !== undefined && model.averageLatency > 0) {
       if (model.averageLatency < 1200) {
         score += weights.latencyBonusWeight;
       } else if (model.averageLatency > 5000) {
@@ -107,7 +110,7 @@ export class ModelScoringEngine {
     }
 
     // 7. Context Window Size
-    if (model.contextWindow >= 65536) {
+    if (model.contextWindow !== undefined && model.contextWindow >= 65536) {
       score += weights.contextWindowBonus;
     }
 

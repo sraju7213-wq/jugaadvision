@@ -127,7 +127,7 @@ async function testProviderConnection(provider: ProviderName, testKey?: string):
   }
 }
 
-export async function handleAIRequest(
+async function internalHandleAIRequest(
   path: string,
   method: string,
   body: any = {},
@@ -239,7 +239,7 @@ export async function handleAIRequest(
       if (freeModelRegistry.isRefreshDue()) {
         freeModelRegistry.refreshInBackground(true);
       }
-      const providers: ProviderName[] = ['openrouter', 'nim', 'custom'];
+      const providers: ProviderName[] = ['nim', 'openrouter', 'huggingface', 'cloudflare', 'custom'];
       const keyStats: Record<string, { active: number; total: number }> = {};
       const modelCounts: Record<string, number> = {};
       const providerStatuses: Record<string, {
@@ -456,7 +456,17 @@ export async function handleAIRequest(
         };
       }
 
-      const removeBgKey = process.env.REMOVE_BG_API_KEY || 'PCH4kRJRG4gQQjhhpG6yNSi6';
+      const removeBgKey = process.env.REMOVE_BG_API_KEY;
+      if (!removeBgKey) {
+        return {
+          status: 503,
+          headers: SECURITY_HEADERS,
+          data: {
+            success: false,
+            error: 'Background removal service is not configured on the server. Please set REMOVE_BG_API_KEY in environment variables.',
+          },
+        };
+      }
 
       try {
         const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
@@ -888,3 +898,24 @@ Output valid JSON adhering strictly to:
     };
   }
 }
+
+/**
+ * Universal Secure Entrypoint
+ * Guarantees hardened HTTP security headers on 100% of all API responses.
+ */
+export async function handleAIRequest(
+  path: string,
+  method: string,
+  body: any = {},
+  clientIp = '127.0.0.1'
+): Promise<ServerResponse> {
+  const res = await internalHandleAIRequest(path, method, body, clientIp);
+  return {
+    ...res,
+    headers: {
+      ...SECURITY_HEADERS,
+      ...(res.headers || {}),
+    },
+  };
+}
+

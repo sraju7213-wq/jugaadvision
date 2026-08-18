@@ -78,12 +78,12 @@ export class AIRouter {
     // 3. Remove unhealthy models
     candidates = candidates.filter(m => {
       if (m.status === 'disabled') return false;
-      return modelHealthManager.isModelAvailable(m.provider, m.providerModelId);
+      return modelHealthManager.isModelAvailable(m.provider, m.providerModelId || m.id);
     });
 
     // 4. Remove models currently in cooldown
     candidates = candidates.filter(m => {
-      if (m.cooldownUntil > now || m.status === 'cooldown') {
+      if ((m.cooldownUntil || 0) > now || m.status === 'cooldown') {
         return false;
       }
       return true;
@@ -92,11 +92,11 @@ export class AIRouter {
     // 5. Filter by required capability
     candidates = candidates.filter(m => {
       for (const cap of requiredCaps) {
-        if (m.capabilityMap[cap] !== 'supported') {
+        if (!m.capabilityMap || m.capabilityMap[cap] !== 'supported') {
           return false;
         }
       }
-      if (request.taskType === 'structured_json' && m.capabilityMap.structured_output !== 'supported') {
+      if (request.taskType === 'structured_json' && m.capabilityMap?.structured_output !== 'supported') {
         return false;
       }
       return true;
@@ -108,11 +108,11 @@ export class AIRouter {
       candidates = allModels.filter(m => {
         if (preferFree && m.provider !== 'custom' && !(m.verifiedFree === true && m.eligibilityStatus === 'free') && m.eligibilityStatus !== 'eligible_unknown') return false;
         for (const cap of requiredCaps) {
-          if (m.capabilityMap[cap] !== 'supported') return false;
+          if (!m.capabilityMap || m.capabilityMap[cap] !== 'supported') return false;
         }
         // Allow degraded but not disabled/cooldown-active models
         if (m.status === 'disabled') return false;
-        if (m.cooldownUntil > now) return false;
+        if ((m.cooldownUntil || 0) > now) return false;
         return true;
       });
     }
@@ -207,14 +207,15 @@ export class AIRouter {
 
         try {
           // 8. Execute request
-          const response = await adapter.generate(request, apiKey, candidate.providerModelId);
+          const modelIdToUse = candidate.providerModelId || candidate.id;
+          const response = await adapter.generate(request, apiKey, modelIdToUse);
           const duration = Date.now() - startTime;
 
           // 9. Record success
           keyPoolManager.reportSuccess(candidate.provider, apiKey, duration);
-          modelHealthManager.recordModelSuccess(candidate.provider, candidate.providerModelId, duration);
+          modelHealthManager.recordModelSuccess(candidate.provider, modelIdToUse, duration);
           modelHealthManager.recordKeySuccess(candidate.provider, apiKey, duration);
-          freeModelRegistry.recordModelSuccess(candidate.provider, candidate.providerModelId, duration);
+          freeModelRegistry.recordModelSuccess(candidate.provider, modelIdToUse, duration);
 
           return {
             content: response.content,
@@ -230,15 +231,16 @@ export class AIRouter {
           // 9. Record failure
           const statusCode = err instanceof AdapterError ? err.statusCode : undefined;
           const errMsg = err.message || 'Unknown provider error';
+          const modelIdToUse = candidate.providerModelId || candidate.id;
 
           keyPoolManager.reportError(candidate.provider, apiKey, statusCode, errMsg);
-          modelHealthManager.recordModelFailure(candidate.provider, candidate.providerModelId, errMsg, statusCode);
+          modelHealthManager.recordModelFailure(candidate.provider, modelIdToUse, errMsg, statusCode);
           modelHealthManager.recordKeyFailure(candidate.provider, apiKey, errMsg, statusCode);
-          freeModelRegistry.recordModelFailure(candidate.provider, candidate.providerModelId, errMsg, statusCode);
+          freeModelRegistry.recordModelFailure(candidate.provider, modelIdToUse, errMsg, statusCode);
 
           errors.push({
             provider: candidate.provider,
-            model: candidate.providerModelId,
+            model: modelIdToUse,
             error: errMsg,
             status: statusCode,
           });

@@ -101,7 +101,11 @@ var KeyPoolManager = class {
    * 5. Oldest last request time (LRU tie-breaker)
    */
   getAvailableKey(provider, excludeKeys = []) {
-    const pool = this.pools.get(provider);
+    let pool = this.pools.get(provider);
+    if (!pool || pool.length === 0) {
+      this.reloadFromEnv();
+      pool = this.pools.get(provider);
+    }
     if (!pool || pool.length === 0) return null;
     const now = Date.now();
     for (const state of pool) {
@@ -201,13 +205,22 @@ var KeyPoolManager = class {
     }
   }
   isProviderAvailable(provider) {
-    const pool = this.pools.get(provider);
+    let pool = this.pools.get(provider);
+    if (!pool || pool.length === 0) {
+      this.reloadFromEnv();
+      pool = this.pools.get(provider);
+    }
     if (!pool || pool.length === 0) return false;
     const now = Date.now();
     return pool.some((k) => !k.isExhausted && k.backoffUntil <= now);
   }
   getPoolStats(provider) {
-    const pool = this.pools.get(provider) || [];
+    let pool = this.pools.get(provider);
+    if (!pool || pool.length === 0) {
+      this.reloadFromEnv();
+      pool = this.pools.get(provider);
+    }
+    pool = pool || [];
     const now = Date.now();
     const keys = pool.map((k) => {
       const inCooldown2 = !k.isExhausted && k.backoffUntil > now;
@@ -291,7 +304,7 @@ var KeyPoolManager = class {
 };
 function redactSecrets(text) {
   if (!text || typeof text !== "string") return "";
-  return text.replace(/Bearer\s+[a-zA-Z0-9_\-\.]{8,}/gi, "Bearer [REDACTED]").replace(/sk-[a-zA-Z0-9_\-]{8,}/gi, "sk-[REDACTED]").replace(/nvapi-[a-zA-Z0-9_\-]{16,}/gi, "nvapi-[REDACTED]").replace(/hf_[a-zA-Z0-9_\-]{16,}/gi, "hf_[REDACTED]").replace(/cfut_[a-zA-Z0-9_\-]{16,}/gi, "cfut_[REDACTED]").replace(/((?:key|apikey|api_key|token|auth)\s*[:=]\s*)[a-zA-Z0-9_\-\.]{8,}/gi, "$1[REDACTED]").replace(/(with\s+key\s+)[a-zA-Z0-9_\-\.]{8,}/gi, "$1[REDACTED]");
+  return text.replace(/AIza[0-9A-Za-z\-_]{35}/g, "AIza[REDACTED]").replace(/Bearer\s+[a-zA-Z0-9_\-\.]{8,}/gi, "Bearer [REDACTED]").replace(/sk-[a-zA-Z0-9_\-]{8,}/gi, "sk-[REDACTED]").replace(/nvapi-[a-zA-Z0-9_\-]{16,}/gi, "nvapi-[REDACTED]").replace(/hf_[a-zA-Z0-9_\-]{16,}/gi, "hf_[REDACTED]").replace(/cfut_[a-zA-Z0-9_\-]{16,}/gi, "cfut_[REDACTED]").replace(/((?:key|apikey|api_key|token|auth)\s*[:=]\s*)[a-zA-Z0-9_\-\.]{8,}/gi, "$1[REDACTED]").replace(/(with\s+key\s+)[a-zA-Z0-9_\-\.]{8,}/gi, "$1[REDACTED]");
 }
 var keyPoolManager = new KeyPoolManager();
 
@@ -768,11 +781,11 @@ var CapabilityClassifier = class {
   classifyNim(raw) {
     const id = raw.id.toLowerCase();
     const desc = (raw.description || "").toLowerCase();
-    const isChat = id.includes("instruct") || id.includes("chat") || id.includes("llama") || id.includes("nemotron") || id.includes("mistral") || id.includes("qwen");
+    const isChat = id.includes("instruct") || id.includes("chat") || id.includes("llama") || id.includes("nemotron") || id.includes("mistral") || id.includes("qwen") || id.includes("gpt-oss") || id.includes("step") || id.includes("glm") || id.includes("muse") || id.includes("minimax") || id.includes("gemma") || id.includes("diffusiongemma");
     const chat = isChat ? "supported" : "unknown";
-    const isVision = id.includes("vision") || id.includes("vlm") || id.includes("multimodal") || id.includes("neva") || id.includes("florence") || id.includes("kosmos");
+    const isVision = id.includes("vision") || id.includes("-vl") || id.includes("vl-") || id.includes("vlm") || id.includes("multimodal") || id.includes("neva") || id.includes("florence") || id.includes("kosmos") || Array.isArray(raw.modalities) && raw.modalities.includes("vision") || Array.isArray(raw.capabilities) && raw.capabilities.includes("vision");
     const vision = isVision ? "supported" : isChat ? "unsupported" : "unknown";
-    const isReasoning = id.includes("r1") || id.includes("reason") || id.includes("qwq") || desc.includes("reasoning");
+    const isReasoning = id.includes("r1") || id.includes("reason") || id.includes("qwq") || id.includes("gpt-oss") || desc.includes("reasoning");
     const reasoning = isReasoning ? "supported" : "unknown";
     const isCoding = id.includes("coder") || id.includes("code");
     const coding = isCoding ? "supported" : "unknown";
@@ -1297,11 +1310,27 @@ ${schemaInstruction}`;
 
 // server/ai/adapters/nimAdapter.ts
 var KNOWN_FREE_NIM_MODEL_IDS = /* @__PURE__ */ new Set([
-  "meta/llama-3.2-11b-vision-instruct",
-  "meta/llama-3.2-90b-vision-instruct",
+  "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
+  "nvidia/nemotron-nano-12b-v2-vl",
   "meta/llama-3.1-8b-instruct",
   "meta/llama-3.1-70b-instruct",
   "meta/llama-3.1-405b-instruct",
+  "openai/gpt-oss-120b",
+  "openai/gpt-oss-20b",
+  "stepfun-ai/step-3.7-flash",
+  "z-ai/glm-5.2",
+  "meta/muse-glimmer-30b",
+  "google/diffusiongemma-26b-a4b-it",
+  "minimaxai/minimax-m3",
+  "nvidia/llama-3.3-nemotron-super-49b-v1",
+  "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+  "nvidia/nemotron-mini-4b-instruct",
+  "nvidia/nvidia-nemotron-nano-9b-v2",
+  "nvidia/nemotron-3-nano-30b-a3b",
+  "nvidia/nemotron-3-super-120b-a12b",
+  "nvidia/nemotron-3-ultra-550b-a55b",
+  "meta/llama-3.2-11b-vision-instruct",
+  "meta/llama-3.2-90b-vision-instruct",
   "mistralai/mistral-7b-instruct-v0.3",
   "mistralai/mixtral-8x7b-instruct-v0.1",
   "mistralai/mixtral-8x22b-instruct-v0.1",
@@ -1368,7 +1397,7 @@ var NvidiaNimAdapter = class {
         }
         const capabilities = ["text", "json"];
         const modalities = ["text", "json"];
-        if (lowerId.includes("vision") || lowerId.includes("vlm") || lowerId.includes("multimodal") || lowerId.includes("neva") || lowerId.includes("florence") || lowerId.includes("kosmos")) {
+        if (lowerId.includes("vision") || lowerId.includes("-vl") || lowerId.includes("vl-") || lowerId.includes("vlm") || lowerId.includes("multimodal") || lowerId.includes("neva") || lowerId.includes("florence") || lowerId.includes("kosmos")) {
           capabilities.push("vision");
           modalities.push("vision");
         }
@@ -1833,8 +1862,24 @@ var ModelDiscoveryService = class {
       case "nim":
         return [
           {
-            id: "meta/llama-3.2-11b-vision-instruct",
-            name: "Meta Llama 3.2 11B Vision Instruct",
+            id: "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
+            name: "NVIDIA Nemotron Nano VL 8B (Vision)",
+            provider: "nim",
+            inputCost: 0,
+            outputCost: 0,
+            contextLength: 131072,
+            capabilities: ["text", "vision", "json"],
+            modalities: ["text", "vision", "json"],
+            isFree: true,
+            freeEligibility: "free",
+            discoveredTimestamp: timestamp,
+            pricing: { prompt: 0, completion: 0, isZeroCost: true },
+            supportsStructuredJson: true,
+            tier: "fast"
+          },
+          {
+            id: "nvidia/nemotron-nano-12b-v2-vl",
+            name: "NVIDIA Nemotron Nano 12B VL (Vision)",
             provider: "nim",
             inputCost: 0,
             outputCost: 0,
@@ -1849,14 +1894,30 @@ var ModelDiscoveryService = class {
             tier: "balanced"
           },
           {
-            id: "meta/llama-3.2-90b-vision-instruct",
-            name: "Meta Llama 3.2 90B Vision Instruct",
+            id: "meta/llama-3.1-8b-instruct",
+            name: "Meta Llama 3.1 8B Instruct",
             provider: "nim",
             inputCost: 0,
             outputCost: 0,
             contextLength: 131072,
-            capabilities: ["text", "vision", "json"],
-            modalities: ["text", "vision", "json"],
+            capabilities: ["text", "json"],
+            modalities: ["text", "json"],
+            isFree: true,
+            freeEligibility: "free",
+            discoveredTimestamp: timestamp,
+            pricing: { prompt: 0, completion: 0, isZeroCost: true },
+            supportsStructuredJson: true,
+            tier: "fast"
+          },
+          {
+            id: "meta/llama-3.1-70b-instruct",
+            name: "Meta Llama 3.1 70B Instruct",
+            provider: "nim",
+            inputCost: 0,
+            outputCost: 0,
+            contextLength: 131072,
+            capabilities: ["text", "json", "reasoning"],
+            modalities: ["text", "json"],
             isFree: true,
             freeEligibility: "free",
             discoveredTimestamp: timestamp,
@@ -1865,36 +1926,52 @@ var ModelDiscoveryService = class {
             tier: "quality"
           },
           {
-            id: "meta/llama-3.1-8b-instruct",
-            name: "Llama 3.1 8B Instruct",
+            id: "openai/gpt-oss-120b",
+            name: "GPT-OSS 120B Instruct",
             provider: "nim",
-            inputCost: -1,
-            outputCost: -1,
+            inputCost: 0,
+            outputCost: 0,
             contextLength: 131072,
+            capabilities: ["text", "json", "reasoning"],
+            modalities: ["text", "json"],
+            isFree: true,
+            freeEligibility: "free",
+            discoveredTimestamp: timestamp,
+            pricing: { prompt: 0, completion: 0, isZeroCost: true },
+            supportsStructuredJson: true,
+            tier: "quality"
+          },
+          {
+            id: "stepfun-ai/step-3.7-flash",
+            name: "Step 3.7 Flash",
+            provider: "nim",
+            inputCost: 0,
+            outputCost: 0,
+            contextLength: 65536,
             capabilities: ["text", "json"],
             modalities: ["text", "json"],
-            isFree: false,
-            freeEligibility: "eligible_unknown",
+            isFree: true,
+            freeEligibility: "free",
             discoveredTimestamp: timestamp,
-            pricing: { prompt: 0, completion: 0, isZeroCost: false },
+            pricing: { prompt: 0, completion: 0, isZeroCost: true },
             supportsStructuredJson: true,
             tier: "fast"
           },
           {
-            id: "meta/llama-3.1-70b-instruct",
-            name: "Llama 3.1 70B Instruct",
+            id: "meta/muse-glimmer-30b",
+            name: "Meta Muse Glimmer 30B (Creative)",
             provider: "nim",
-            inputCost: -1,
-            outputCost: -1,
-            contextLength: 131072,
+            inputCost: 0,
+            outputCost: 0,
+            contextLength: 65536,
             capabilities: ["text", "json"],
             modalities: ["text", "json"],
-            isFree: false,
-            freeEligibility: "eligible_unknown",
+            isFree: true,
+            freeEligibility: "free",
             discoveredTimestamp: timestamp,
-            pricing: { prompt: 0, completion: 0, isZeroCost: false },
+            pricing: { prompt: 0, completion: 0, isZeroCost: true },
             supportsStructuredJson: true,
-            tier: "quality"
+            tier: "balanced"
           }
         ];
       case "huggingface":
@@ -2174,7 +2251,7 @@ var FreeModelRegistry = class {
     const targetCap = requiredCapability || (taskType ? this.mapTaskToCapability(taskType) : void 0);
     return all.filter((m) => {
       if (!m.verifiedFree || m.eligibilityStatus !== "free") return false;
-      if (targetCap && m.capabilityMap[targetCap] !== "supported") {
+      if (targetCap && (!m.capabilityMap || m.capabilityMap[targetCap] !== "supported")) {
         return false;
       }
       return m.status === "available" || m.status === "degraded";
@@ -2244,22 +2321,22 @@ var FreeModelRegistry = class {
       return { fast, balanced, quality };
     };
     const visionModels = filtered.filter(
-      (m) => m.capabilityMap.vision === "supported" || m.capabilities.includes("vision") || m.modalities.includes("vision")
+      (m) => m.capabilityMap?.vision === "supported" || m.capabilities.includes("vision") || m.modalities.includes("vision")
     );
     const structuredJsonModels = filtered.filter(
-      (m) => m.capabilityMap.structured_output === "supported" || m.supportsStructuredJson || m.capabilities.includes("structured_output")
+      (m) => m.capabilityMap?.structured_output === "supported" || m.supportsStructuredJson || m.capabilities.includes("structured_output")
     );
     const promptEnhanceModels = filtered.filter(
-      (m) => m.capabilityMap.chat === "supported" || m.capabilities.includes("chat") || m.capabilities.includes("text")
+      (m) => m.capabilityMap?.chat === "supported" || m.capabilities.includes("chat") || m.capabilities.includes("text")
     );
     const textGenModels = filtered.filter(
-      (m) => m.capabilityMap.chat === "supported" || m.capabilities.includes("chat") || m.capabilities.includes("text")
+      (m) => m.capabilityMap?.chat === "supported" || m.capabilities.includes("chat") || m.capabilities.includes("text")
     );
     const reasoningModels = filtered.filter(
-      (m) => m.capabilityMap.reasoning === "supported" || m.capabilities.includes("reasoning")
+      (m) => m.capabilityMap?.reasoning === "supported" || m.capabilities.includes("reasoning")
     );
     const codingModels = filtered.filter(
-      (m) => m.capabilityMap.coding === "supported" || m.capabilities.includes("coding")
+      (m) => m.capabilityMap?.coding === "supported" || m.capabilities.includes("coding")
     );
     const imageGenModels = filtered.filter(
       (m) => (
@@ -2302,12 +2379,13 @@ var FreeModelRegistry = class {
       if (m.verifiedFree) stats.verifiedFreeModels++;
       if (m.eligibilityStatus === "eligible_unknown") stats.eligibleUnknownModels++;
       if (m.eligibilityStatus === "paid") stats.paidModels++;
-      if (m.capabilityMap.vision === "supported" || m.capabilities.includes("vision") || m.modalities.includes("vision")) {
+      if (m.capabilityMap && m.capabilityMap.vision === "supported" || m.capabilities.includes("vision") || m.modalities.includes("vision")) {
         visionModelsCount++;
       }
       for (const cap of m.capabilities) {
-        if (stats.capabilitiesCount[cap] !== void 0) {
-          stats.capabilitiesCount[cap]++;
+        const capKey = cap;
+        if (stats.capabilitiesCount[capKey] !== void 0) {
+          stats.capabilitiesCount[capKey]++;
         }
       }
       if (!stats.byProvider[m.provider]) {
@@ -2475,10 +2553,10 @@ var ModelFilterService = class {
     const requiredCap = criteria.requiredCapability || this.getRequiredCapabilityForTask(criteria.taskType);
     const preferFree = criteria.preferFree !== void 0 ? criteria.preferFree : true;
     let candidates = models.filter((m) => {
-      if (m.capabilityMap[requiredCap] !== "supported") {
+      if (!m.capabilityMap || m.capabilityMap[requiredCap] !== "supported") {
         return false;
       }
-      if (criteria.minContextLength && m.contextWindow < criteria.minContextLength) {
+      if (criteria.minContextLength && (m.contextWindow || 0) < criteria.minContextLength) {
         return false;
       }
       if (criteria.taskType === "structured_json" && m.capabilityMap.structured_output !== "supported") {
@@ -2506,7 +2584,7 @@ var ModelFilterService = class {
   getVerifiedFreeModels(models, capability) {
     return models.filter((m) => {
       if (!m.verifiedFree || m.eligibilityStatus !== "free") return false;
-      if (capability && m.capabilityMap[capability] !== "supported") return false;
+      if (capability && (!m.capabilityMap || m.capabilityMap[capability] !== "supported")) return false;
       return true;
     });
   }
@@ -2535,17 +2613,17 @@ var ModelFilterService = class {
     } else if (model.eligibilityStatus === "eligible_unknown") {
       score += 10;
     }
-    if (requiredCap === "chat" && model.capabilityMap.reasoning === "supported") {
+    if (requiredCap === "chat" && model.capabilityMap?.reasoning === "supported") {
       score += 15;
     }
-    if (requiredCap === "structured_output" && model.capabilityMap.coding === "supported") {
+    if (requiredCap === "structured_output" && model.capabilityMap?.coding === "supported") {
       score += 10;
     }
     const targetTier = criteria.tierPreference || this.getDefaultTierForTask(criteria.taskType);
     if (model.tier === targetTier) {
       score += 20;
     }
-    if (model.contextWindow >= 32768) {
+    if (model.contextWindow !== void 0 && model.contextWindow >= 32768) {
       score += 10;
     }
     const lowerId = model.id.toLowerCase();
@@ -2617,16 +2695,17 @@ var ModelScoringEngine = class {
       score -= weights.tierMismatchPenalty;
     }
     const requiredCap = this.getPrimaryCapabilityForTask(request.taskType);
-    if (model.capabilityMap[requiredCap] === "supported") {
+    const capMap = model.capabilityMap;
+    if (capMap && capMap[requiredCap] === "supported") {
       score += weights.capabilityMatchWeight;
     }
-    if (request.taskType === "reasoning" && model.capabilityMap.reasoning === "supported") {
+    if (request.taskType === "reasoning" && capMap?.reasoning === "supported") {
       score += 25;
     }
-    if (request.taskType === "coding" && model.capabilityMap.coding === "supported") {
+    if (request.taskType === "coding" && capMap?.coding === "supported") {
       score += 25;
     }
-    if (request.taskType === "advanced_image_analysis" && model.capabilityMap.vision === "supported") {
+    if (request.taskType === "advanced_image_analysis" && capMap?.vision === "supported") {
       score += 20;
     }
     if (model.status === "available") {
@@ -2634,11 +2713,13 @@ var ModelScoringEngine = class {
     } else if (model.status === "degraded") {
       score -= Math.round(weights.healthScoreWeight * 0.5);
     }
-    score += Math.round(model.successRate * weights.successRateWeight);
-    if (model.failureCount > 0) {
+    if (model.successRate !== void 0) {
+      score += Math.round(model.successRate * weights.successRateWeight);
+    }
+    if (model.failureCount !== void 0 && model.failureCount > 0) {
       score -= Math.min(45, model.failureCount * weights.failurePenaltyWeight);
     }
-    if (model.averageLatency > 0) {
+    if (model.averageLatency !== void 0 && model.averageLatency > 0) {
       if (model.averageLatency < 1200) {
         score += weights.latencyBonusWeight;
       } else if (model.averageLatency > 5e3) {
@@ -2648,7 +2729,7 @@ var ModelScoringEngine = class {
     if (request.speedPreference === "fastest" && model.tier === "fast") {
       score += 20;
     }
-    if (model.contextWindow >= 65536) {
+    if (model.contextWindow !== void 0 && model.contextWindow >= 65536) {
       score += weights.contextWindowBonus;
     }
     if (request.preferredProvider && model.provider === request.preferredProvider) {
@@ -2778,21 +2859,21 @@ var AIRouter = class {
     });
     candidates = candidates.filter((m) => {
       if (m.status === "disabled") return false;
-      return modelHealthManager.isModelAvailable(m.provider, m.providerModelId);
+      return modelHealthManager.isModelAvailable(m.provider, m.providerModelId || m.id);
     });
     candidates = candidates.filter((m) => {
-      if (m.cooldownUntil > now || m.status === "cooldown") {
+      if ((m.cooldownUntil || 0) > now || m.status === "cooldown") {
         return false;
       }
       return true;
     });
     candidates = candidates.filter((m) => {
       for (const cap of requiredCaps) {
-        if (m.capabilityMap[cap] !== "supported") {
+        if (!m.capabilityMap || m.capabilityMap[cap] !== "supported") {
           return false;
         }
       }
-      if (request.taskType === "structured_json" && m.capabilityMap.structured_output !== "supported") {
+      if (request.taskType === "structured_json" && m.capabilityMap?.structured_output !== "supported") {
         return false;
       }
       return true;
@@ -2801,10 +2882,10 @@ var AIRouter = class {
       candidates = allModels.filter((m) => {
         if (preferFree && m.provider !== "custom" && !(m.verifiedFree === true && m.eligibilityStatus === "free") && m.eligibilityStatus !== "eligible_unknown") return false;
         for (const cap of requiredCaps) {
-          if (m.capabilityMap[cap] !== "supported") return false;
+          if (!m.capabilityMap || m.capabilityMap[cap] !== "supported") return false;
         }
         if (m.status === "disabled") return false;
-        if (m.cooldownUntil > now) return false;
+        if ((m.cooldownUntil || 0) > now) return false;
         return true;
       });
     }
@@ -2876,12 +2957,13 @@ var AIRouter = class {
         attemptsCount++;
         const startTime = Date.now();
         try {
-          const response = await adapter.generate(request, apiKey, candidate.providerModelId);
+          const modelIdToUse = candidate.providerModelId || candidate.id;
+          const response = await adapter.generate(request, apiKey, modelIdToUse);
           const duration = Date.now() - startTime;
           keyPoolManager.reportSuccess(candidate.provider, apiKey, duration);
-          modelHealthManager.recordModelSuccess(candidate.provider, candidate.providerModelId, duration);
+          modelHealthManager.recordModelSuccess(candidate.provider, modelIdToUse, duration);
           modelHealthManager.recordKeySuccess(candidate.provider, apiKey, duration);
-          freeModelRegistry.recordModelSuccess(candidate.provider, candidate.providerModelId, duration);
+          freeModelRegistry.recordModelSuccess(candidate.provider, modelIdToUse, duration);
           return {
             content: response.content,
             parsedJson: response.parsedJson,
@@ -2895,13 +2977,14 @@ var AIRouter = class {
         } catch (err) {
           const statusCode = err instanceof AdapterError ? err.statusCode : void 0;
           const errMsg = err.message || "Unknown provider error";
+          const modelIdToUse = candidate.providerModelId || candidate.id;
           keyPoolManager.reportError(candidate.provider, apiKey, statusCode, errMsg);
-          modelHealthManager.recordModelFailure(candidate.provider, candidate.providerModelId, errMsg, statusCode);
+          modelHealthManager.recordModelFailure(candidate.provider, modelIdToUse, errMsg, statusCode);
           modelHealthManager.recordKeyFailure(candidate.provider, apiKey, errMsg, statusCode);
-          freeModelRegistry.recordModelFailure(candidate.provider, candidate.providerModelId, errMsg, statusCode);
+          freeModelRegistry.recordModelFailure(candidate.provider, modelIdToUse, errMsg, statusCode);
           errors.push({
             provider: candidate.provider,
-            model: candidate.providerModelId,
+            model: modelIdToUse,
             error: errMsg,
             status: statusCode
           });
@@ -3108,7 +3191,7 @@ function sanitizeInput(input, maxLength = 5e4) {
 }
 function sanitizeAndRedactSecrets(text) {
   if (!text || typeof text !== "string") return "";
-  return text.replace(/sk-or-v1-[a-zA-Z0-9_\-]{16,}/gi, "sk-or-v1-[REDACTED]").replace(/sk-[a-zA-Z0-9_\-]{20,}/gi, "sk-[REDACTED]").replace(/nvapi-[a-zA-Z0-9_\-]{16,}/gi, "nvapi-[REDACTED]").replace(/hf_[a-zA-Z0-9_\-]{16,}/gi, "hf_[REDACTED]").replace(/cfut_[a-zA-Z0-9_\-]{16,}/gi, "cfut_[REDACTED]").replace(/PCH4k[a-zA-Z0-9]{15,}/gi, "[REDACTED_REMOVEBG_KEY]").replace(/Bearer\s+[a-zA-Z0-9_\-\.]{8,}/gi, "Bearer [REDACTED]").replace(/((?:api_?key|auth_?token|secret_?key|password|access_?token)\s*[:=]\s*)[a-zA-Z0-9_\-\.]{8,}/gi, "$1[REDACTED]").replace(/(?:key|token|auth)=([a-zA-Z0-9_-]{24,})/gi, "token=[REDACTED]");
+  return text.replace(/AIza[0-9A-Za-z\-_]{35}/g, "AIza[REDACTED]").replace(/sk-or-v1-[a-zA-Z0-9_\-]{16,}/gi, "sk-or-v1-[REDACTED]").replace(/sk-[a-zA-Z0-9_\-]{20,}/gi, "sk-[REDACTED]").replace(/nvapi-[a-zA-Z0-9_\-]{16,}/gi, "nvapi-[REDACTED]").replace(/hf_[a-zA-Z0-9_\-]{16,}/gi, "hf_[REDACTED]").replace(/cfut_[a-zA-Z0-9_\-]{16,}/gi, "cfut_[REDACTED]").replace(/PCH4k[a-zA-Z0-9]{15,}/gi, "[REDACTED_REMOVEBG_KEY]").replace(/Bearer\s+[a-zA-Z0-9_\-\.]{8,}/gi, "Bearer [REDACTED]").replace(/((?:api_?key|auth_?token|secret_?key|password|access_?token)\s*[:=]\s*)[a-zA-Z0-9_\-\.]{8,}/gi, "$1[REDACTED]").replace(/(?:key|token|auth)=([a-zA-Z0-9_-]{24,})/gi, "token=[REDACTED]");
 }
 var SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
@@ -3328,7 +3411,7 @@ async function testProviderConnection(provider, testKey) {
     };
   }
 }
-async function handleAIRequest(path2, method, body = {}, clientIp = "127.0.0.1") {
+async function internalHandleAIRequest(path2, method, body = {}, clientIp = "127.0.0.1") {
   const requestUrl = new URL(path2, "http://localhost");
   const rawPathname = requestUrl.pathname.replace(/^\/api\/?/, "").toLowerCase();
   const normalizedPath = rawPathname.replace(/^ai\/?/, "");
@@ -3413,7 +3496,7 @@ async function handleAIRequest(path2, method, body = {}, clientIp = "127.0.0.1")
       if (freeModelRegistry.isRefreshDue()) {
         freeModelRegistry.refreshInBackground(true);
       }
-      const providers = ["openrouter", "nim", "custom"];
+      const providers = ["nim", "openrouter", "huggingface", "cloudflare", "custom"];
       const keyStats = {};
       const modelCounts = {};
       const providerStatuses = {};
@@ -3590,7 +3673,17 @@ async function handleAIRequest(path2, method, body = {}, clientIp = "127.0.0.1")
           data: { success: false, error: "Image payload exceeds maximum limit of 10MB." }
         };
       }
-      const removeBgKey = process.env.REMOVE_BG_API_KEY || "PCH4kRJRG4gQQjhhpG6yNSi6";
+      const removeBgKey = process.env.REMOVE_BG_API_KEY;
+      if (!removeBgKey) {
+        return {
+          status: 503,
+          headers: SECURITY_HEADERS,
+          data: {
+            success: false,
+            error: "Background removal service is not configured on the server. Please set REMOVE_BG_API_KEY in environment variables."
+          }
+        };
+      }
       try {
         const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
         const binaryBuffer = Buffer.from(cleanBase64, "base64");
@@ -3970,6 +4063,16 @@ Output ONLY the enhanced prompt.`;
       }
     };
   }
+}
+async function handleAIRequest(path2, method, body = {}, clientIp = "127.0.0.1") {
+  const res = await internalHandleAIRequest(path2, method, body, clientIp);
+  return {
+    ...res,
+    headers: {
+      ...SECURITY_HEADERS,
+      ...res.headers || {}
+    }
+  };
 }
 
 // api-src/_helper.ts

@@ -192,7 +192,7 @@ export class FreeModelRegistry {
     return all.filter(m => {
       if (!m.verifiedFree || m.eligibilityStatus !== 'free') return false;
 
-      if (targetCap && m.capabilityMap[targetCap] !== 'supported') {
+      if (targetCap && (!m.capabilityMap || m.capabilityMap[targetCap] !== 'supported')) {
         return false;
       }
 
@@ -279,41 +279,41 @@ export class FreeModelRegistry {
 
     // 1. Vision / Image Analysis
     const visionModels = filtered.filter(m =>
-      m.capabilityMap.vision === 'supported' ||
+      m.capabilityMap?.vision === 'supported' ||
       m.capabilities.includes('vision') ||
       m.modalities.includes('vision')
     );
 
     // 2. Structured JSON
     const structuredJsonModels = filtered.filter(m =>
-      m.capabilityMap.structured_output === 'supported' ||
+      m.capabilityMap?.structured_output === 'supported' ||
       m.supportsStructuredJson ||
       m.capabilities.includes('structured_output')
     );
 
     // 3. Prompt Enhancement
     const promptEnhanceModels = filtered.filter(m =>
-      m.capabilityMap.chat === 'supported' ||
+      m.capabilityMap?.chat === 'supported' ||
       m.capabilities.includes('chat') ||
       m.capabilities.includes('text')
     );
 
     // 4. Text Generation
     const textGenModels = filtered.filter(m =>
-      m.capabilityMap.chat === 'supported' ||
+      m.capabilityMap?.chat === 'supported' ||
       m.capabilities.includes('chat') ||
       m.capabilities.includes('text')
     );
 
     // 5. Reasoning
     const reasoningModels = filtered.filter(m =>
-      m.capabilityMap.reasoning === 'supported' ||
+      m.capabilityMap?.reasoning === 'supported' ||
       m.capabilities.includes('reasoning')
     );
 
     // 6. Coding
     const codingModels = filtered.filter(m =>
-      m.capabilityMap.coding === 'supported' ||
+      m.capabilityMap?.coding === 'supported' ||
       m.capabilities.includes('coding')
     );
 
@@ -363,13 +363,14 @@ export class FreeModelRegistry {
       if (m.eligibilityStatus === 'eligible_unknown') stats.eligibleUnknownModels++;
       if (m.eligibilityStatus === 'paid') stats.paidModels++;
 
-      if (m.capabilityMap.vision === 'supported' || m.capabilities.includes('vision') || m.modalities.includes('vision')) {
+      if ((m.capabilityMap && m.capabilityMap.vision === 'supported') || m.capabilities.includes('vision') || m.modalities.includes('vision')) {
         visionModelsCount++;
       }
 
       for (const cap of m.capabilities) {
-        if (stats.capabilitiesCount[cap] !== undefined) {
-          stats.capabilitiesCount[cap]++;
+        const capKey = cap as ModelCapabilityType;
+        if (stats.capabilitiesCount[capKey] !== undefined) {
+          stats.capabilitiesCount[capKey]++;
         }
       }
 

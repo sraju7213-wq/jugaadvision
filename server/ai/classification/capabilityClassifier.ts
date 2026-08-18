@@ -132,15 +132,36 @@ export class CapabilityClassifier {
     const desc = (raw.description || '').toLowerCase();
 
     // 1. Chat
-    const isChat = id.includes('instruct') || id.includes('chat') || id.includes('llama') || id.includes('nemotron') || id.includes('mistral') || id.includes('qwen');
+    const isChat = id.includes('instruct') ||
+                   id.includes('chat') ||
+                   id.includes('llama') ||
+                   id.includes('nemotron') ||
+                   id.includes('mistral') ||
+                   id.includes('qwen') ||
+                   id.includes('gpt-oss') ||
+                   id.includes('step') ||
+                   id.includes('glm') ||
+                   id.includes('muse') ||
+                   id.includes('minimax') ||
+                   id.includes('gemma') ||
+                   id.includes('diffusiongemma');
     const chat = isChat ? 'supported' : 'unknown';
 
     // 2. Vision
-    const isVision = id.includes('vision') || id.includes('vlm') || id.includes('multimodal') || id.includes('neva') || id.includes('florence') || id.includes('kosmos');
+    const isVision = id.includes('vision') ||
+                     id.includes('-vl') ||
+                     id.includes('vl-') ||
+                     id.includes('vlm') ||
+                     id.includes('multimodal') ||
+                     id.includes('neva') ||
+                     id.includes('florence') ||
+                     id.includes('kosmos') ||
+                     (Array.isArray(raw.modalities) && raw.modalities.includes('vision')) ||
+                     (Array.isArray(raw.capabilities) && raw.capabilities.includes('vision'));
     const vision = isVision ? 'supported' : (isChat ? 'unsupported' : 'unknown');
 
     // 3. Reasoning
-    const isReasoning = id.includes('r1') || id.includes('reason') || id.includes('qwq') || desc.includes('reasoning');
+    const isReasoning = id.includes('r1') || id.includes('reason') || id.includes('qwq') || id.includes('gpt-oss') || desc.includes('reasoning');
     const reasoning = isReasoning ? 'supported' : 'unknown';
 
     // 4. Coding

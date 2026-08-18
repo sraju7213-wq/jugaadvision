@@ -128,7 +128,11 @@ export class KeyPoolManager {
    * 5. Oldest last request time (LRU tie-breaker)
    */
   public getAvailableKey(provider: ProviderName, excludeKeys: string[] = []): string | null {
-    const pool = this.pools.get(provider);
+    let pool = this.pools.get(provider);
+    if (!pool || pool.length === 0) {
+      this.reloadFromEnv();
+      pool = this.pools.get(provider);
+    }
     if (!pool || pool.length === 0) return null;
 
     const now = Date.now();
@@ -264,7 +268,11 @@ export class KeyPoolManager {
   }
 
   public isProviderAvailable(provider: ProviderName): boolean {
-    const pool = this.pools.get(provider);
+    let pool = this.pools.get(provider);
+    if (!pool || pool.length === 0) {
+      this.reloadFromEnv();
+      pool = this.pools.get(provider);
+    }
     if (!pool || pool.length === 0) return false;
     const now = Date.now();
     return pool.some(k => !k.isExhausted && k.backoffUntil <= now);
@@ -277,7 +285,12 @@ export class KeyPoolManager {
     exhausted: number;
     keys: KeyHealthStats[];
   } {
-    const pool = this.pools.get(provider) || [];
+    let pool = this.pools.get(provider);
+    if (!pool || pool.length === 0) {
+      this.reloadFromEnv();
+      pool = this.pools.get(provider);
+    }
+    pool = pool || [];
     const now = Date.now();
 
     const keys: KeyHealthStats[] = pool.map(k => {
@@ -388,6 +401,8 @@ export class KeyPoolManager {
 export function redactSecrets(text: string): string {
   if (!text || typeof text !== 'string') return '';
   return text
+    // Redact Google Gemini API keys (AIza...)
+    .replace(/AIza[0-9A-Za-z\-_]{35}/g, 'AIza[REDACTED]')
     // Redact Bearer tokens
     .replace(/Bearer\s+[a-zA-Z0-9_\-\.]{8,}/gi, 'Bearer [REDACTED]')
     // Redact sk-... keys

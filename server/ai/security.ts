@@ -187,8 +187,9 @@ export function sanitizeInput(input: string, maxLength = 50000): string {
  */
 export function sanitizeAndRedactSecrets(text: string): string {
   if (!text || typeof text !== 'string') return '';
-  
   return text
+    // Google Gemini API keys (AIza...)
+    .replace(/AIza[0-9A-Za-z\-_]{35}/g, 'AIza[REDACTED]')
     // OpenRouter keys
     .replace(/sk-or-v1-[a-zA-Z0-9_\-]{16,}/gi, 'sk-or-v1-[REDACTED]')
     // Standard OpenAI/Generic sk- keys

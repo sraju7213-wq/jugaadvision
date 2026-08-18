@@ -132,7 +132,7 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
         onChange(newSettings);
     };
 
-    const getKeys = (schema: any) => {
+    const getKeys = (schema: any): string[] => {
         if (!schema) return [];
         // Handle Zod Enum
         if (schema._def?.values) return schema._def.values;
@@ -144,6 +144,12 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
         if (typeof schema === 'object') return Object.keys(schema);
         return [];
     };
+
+    const getPurposeLabel = (k: string) => (PURPOSE_LABELS as Record<string, string>)[k] || k;
+    const getEnvironmentLabel = (k: string) => (ENVIRONMENT_LABELS as Record<string, string>)[k] || k;
+    const getArrangementLabel = (k: string) => (ARRANGEMENT_LABELS as Record<string, string>)[k] || k;
+    const getLightingTypeLabel = (k: string) => (LIGHTING_TYPE_LABELS as Record<string, string>)[k] || k;
+    const getOutputRatioLabel = (k: string) => (OUTPUT_RATIO_LABELS as Record<string, string>)[k] || k;
 
     return (
         <div className="space-y-4 pt-4 border-t border-[var(--ui-border)] motion-section-enter">
@@ -161,7 +167,7 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
                 icon={TargetIcon}
                 isOpen={expandedSections.has('purpose')}
                 onToggle={toggleSection}
-                badge={settings.image_purpose ? PURPOSE_LABELS[settings.image_purpose] : 'Automatic'}
+                badge={settings.image_purpose ? getPurposeLabel(settings.image_purpose) : 'Automatic'}
             >
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -172,7 +178,7 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
                             className="editorial-select cursor-pointer"
                         >
                             <option value="">AI Suggested</option>
-                            {getKeys(ImagePurposeEnum).map(k => <option key={k} value={k}>{PURPOSE_LABELS[k] || k}</option>)}
+                            {getKeys(ImagePurposeEnum).map(k => <option key={k} value={k}>{getPurposeLabel(k)}</option>)}
                         </select>
                     </div>
                 </div>
@@ -185,7 +191,7 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
                 icon={HomeIcon}
                 isOpen={expandedSections.has('environment')}
                 onToggle={toggleSection}
-                badge={settings.scene?.environment ? ENVIRONMENT_LABELS[settings.scene.environment] : 'Automatic'}
+                badge={settings.scene?.environment ? getEnvironmentLabel(settings.scene.environment) : 'Automatic'}
             >
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -196,7 +202,7 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
                             className="editorial-select"
                         >
                             <option value="">AI Suggested</option>
-                            {getKeys(EnvironmentEnum).map(k => <option key={k} value={k}>{ENVIRONMENT_LABELS[k] || k}</option>)}
+                            {getKeys(EnvironmentEnum).map(k => <option key={k} value={k}>{getEnvironmentLabel(k)}</option>)}
                         </select>
                     </div>
                     <div className="space-y-2">
@@ -262,7 +268,7 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
                             className="editorial-select"
                         >
                             <option value="">AI Suggested</option>
-                            {getKeys(ArrangementEnum).map(k => <option key={k} value={k}>{ARRANGEMENT_LABELS[k] || k}</option>)}
+                            {getKeys(ArrangementEnum).map(k => <option key={k} value={k}>{getArrangementLabel(k)}</option>)}
                         </select>
                     </div>
                 </div>
@@ -338,7 +344,7 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
                             className="editorial-select"
                         >
                             <option value="">AI Suggested</option>
-                            {getKeys(LIGHTING_TYPE_LABELS).map(k => <option key={k} value={k}>{LIGHTING_TYPE_LABELS[k] || k}</option>)}
+                            {getKeys(LIGHTING_TYPE_LABELS).map(k => <option key={k} value={k}>{getLightingTypeLabel(k)}</option>)}
                         </select>
                     </div>
                     <div className="space-y-2">
@@ -387,7 +393,7 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
                                 className="editorial-select"
                             >
                                 <option value="">None / AI Suggested</option>
-                                {getKeys(LIGHTING_TYPE_LABELS).map(k => <option key={k} value={k}>{LIGHTING_TYPE_LABELS[k] || k}</option>)}
+                                {getKeys(LIGHTING_TYPE_LABELS).map(k => <option key={k} value={k}>{getLightingTypeLabel(k)}</option>)}
                             </select>
                         </div>
                         <div className="space-y-2">
@@ -552,7 +558,7 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
                             className="editorial-select"
                         >
                             <option value="">AI Suggested</option>
-                            {getKeys(OutputRatioEnum).map(k => <option key={k} value={k}>{OUTPUT_RATIO_LABELS[k] || k}</option>)}
+                            {getKeys(OutputRatioEnum).map(k => <option key={k} value={k}>{getOutputRatioLabel(k)}</option>)}
                         </select>
                     </div>
                     <div className="space-y-2">

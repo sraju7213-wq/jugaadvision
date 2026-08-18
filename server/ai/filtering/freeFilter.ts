@@ -22,11 +22,11 @@ export class ModelFilterService {
     // 1. Filter ONLY models where the required capability is strictly 'supported'
     let candidates = models.filter(m => {
       // Must have verified capability
-      if (m.capabilityMap[requiredCap] !== 'supported') {
+      if (!m.capabilityMap || m.capabilityMap[requiredCap] !== 'supported') {
         return false;
       }
 
-      if (criteria.minContextLength && m.contextWindow < criteria.minContextLength) {
+      if (criteria.minContextLength && (m.contextWindow || 0) < criteria.minContextLength) {
         return false;
       }
 
@@ -61,7 +61,7 @@ export class ModelFilterService {
   public getVerifiedFreeModels(models: AIModel[], capability?: ModelCapabilityType): AIModel[] {
     return models.filter(m => {
       if (!m.verifiedFree || m.eligibilityStatus !== 'free') return false;
-      if (capability && m.capabilityMap[capability] !== 'supported') return false;
+      if (capability && (!m.capabilityMap || m.capabilityMap[capability] !== 'supported')) return false;
       return true;
     });
   }
@@ -96,10 +96,10 @@ export class ModelFilterService {
     }
 
     // Capability depth bonus: if model supports secondary helpful capabilities
-    if (requiredCap === 'chat' && model.capabilityMap.reasoning === 'supported') {
+    if (requiredCap === 'chat' && model.capabilityMap?.reasoning === 'supported') {
       score += 15;
     }
-    if (requiredCap === 'structured_output' && model.capabilityMap.coding === 'supported') {
+    if (requiredCap === 'structured_output' && model.capabilityMap?.coding === 'supported') {
       score += 10;
     }
 
@@ -110,7 +110,7 @@ export class ModelFilterService {
     }
 
     // Context length bonus
-    if (model.contextWindow >= 32768) {
+    if (model.contextWindow !== undefined && model.contextWindow >= 32768) {
       score += 10;
     }
 

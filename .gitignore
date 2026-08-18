@@ -23,5 +23,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# Environment and API credentials
 .env
+.env.*
+!.env.example
 api list.txt
+*.pem
+*.key
+*.cert
