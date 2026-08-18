@@ -4230,3 +4230,9 @@ async function handler(req, res) {
 0 && (module.exports = {
   config
 });
+
+if (typeof handler !== 'undefined') {
+  module.exports = handler;
+  module.exports.default = handler;
+}
+

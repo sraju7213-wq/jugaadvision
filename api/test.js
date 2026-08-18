@@ -41,3 +41,9 @@ async function handler(req, res) {
     headers: { "Content-Type": "application/json" }
   });
 }
+
+if (typeof handler !== 'undefined') {
+  module.exports = handler;
+  module.exports.default = handler;
+}
+

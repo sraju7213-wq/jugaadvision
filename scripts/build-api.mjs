@@ -42,6 +42,9 @@ await build({
   banner: {
     js: `// Auto-generated bundled serverless function for JugaadVision\n`,
   },
+  footer: {
+    js: `\nif (typeof handler !== 'undefined') {\n  module.exports = handler;\n  module.exports.default = handler;\n}\n`,
+  },
 });
 
 console.log('[build-api] Successfully bundled all API serverless endpoints to api/ !');
