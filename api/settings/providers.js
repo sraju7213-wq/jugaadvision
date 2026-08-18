@@ -4007,13 +4007,16 @@ async function forwardToHandler(defaultPath, req, res) {
       url = defaultPath + (url.startsWith("?") ? url : url ? `/${url}` : "");
     }
     const result = await handleAIRequest(url, method, body, clientIp);
-    if (res && typeof res.status === "function") {
+    if (res && typeof res.setHeader === "function") {
+      res.setHeader("Content-Type", "application/json");
       if (result.headers) {
         for (const [k, v] of Object.entries(result.headers)) {
           res.setHeader(k, v);
         }
       }
-      return res.status(result.status).json(result.data);
+      res.statusCode = result.status;
+      res.end(JSON.stringify(result.data));
+      return;
     }
     return new Response(JSON.stringify(result.data), {
       status: result.status,
@@ -4024,17 +4027,18 @@ async function forwardToHandler(defaultPath, req, res) {
     });
   } catch (err) {
     console.error("[API Error]:", err);
-    if (res && typeof res.status === "function") {
-      return res.status(500).json({
+    if (res && typeof res.setHeader === "function") {
+      res.setHeader("Content-Type", "application/json");
+      res.statusCode = 500;
+      res.end(JSON.stringify({
         success: false,
-        error: err?.message || "Serverless Execution Error",
-        stack: process.env.NODE_ENV === "production" ? void 0 : err?.stack
-      });
+        error: err?.message || "Serverless Execution Error"
+      }));
+      return;
     }
     return new Response(JSON.stringify({
       success: false,
-      error: err?.message || "Serverless Execution Error",
-      stack: process.env.NODE_ENV === "production" ? void 0 : err?.stack
+      error: err?.message || "Serverless Execution Error"
     }), {
       status: 500,
       headers: { "Content-Type": "application/json" }

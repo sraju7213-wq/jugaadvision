@@ -37,13 +37,16 @@ export async function forwardToHandler(defaultPath: string, req: any, res?: any)
 
     const result = await handleAIRequest(url, method, body, clientIp);
 
-    if (res && typeof res.status === 'function') {
+    if (res && typeof res.setHeader === 'function') {
+      res.setHeader('Content-Type', 'application/json');
       if (result.headers) {
         for (const [k, v] of Object.entries(result.headers)) {
           res.setHeader(k, v);
         }
       }
-      return res.status(result.status).json(result.data);
+      res.statusCode = result.status;
+      res.end(JSON.stringify(result.data));
+      return;
     }
 
     return new Response(JSON.stringify(result.data), {
@@ -55,17 +58,18 @@ export async function forwardToHandler(defaultPath: string, req: any, res?: any)
     });
   } catch (err: any) {
     console.error('[API Error]:', err);
-    if (res && typeof res.status === 'function') {
-      return res.status(500).json({
+    if (res && typeof res.setHeader === 'function') {
+      res.setHeader('Content-Type', 'application/json');
+      res.statusCode = 500;
+      res.end(JSON.stringify({
         success: false,
         error: err?.message || 'Serverless Execution Error',
-        stack: process.env.NODE_ENV === 'production' ? undefined : err?.stack,
-      });
+      }));
+      return;
     }
     return new Response(JSON.stringify({
       success: false,
       error: err?.message || 'Serverless Execution Error',
-      stack: process.env.NODE_ENV === 'production' ? undefined : err?.stack,
     }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
