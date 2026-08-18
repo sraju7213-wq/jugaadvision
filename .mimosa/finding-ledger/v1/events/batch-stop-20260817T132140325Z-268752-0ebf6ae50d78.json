@@ -1,0 +1,164 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20260817T132140325Z-268752-0ebf6ae50d78",
+  "runId": "20260817T132140325Z-268752-0ebf6ae50d78",
+  "runStatus": "inconclusive",
+  "coverage": {
+    "status": "partial",
+    "reasons": [
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "types.ts",
+        "detail": "spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/ai/types.ts",
+        "detail": "spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/ai/serverHandler.ts",
+        "detail": "spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "services/aiGatewayClient.ts",
+        "detail": "spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "services/apiKeyManager.ts",
+        "detail": "spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "services/geminiService.ts",
+        "detail": "spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "components/StudioWorkspace.tsx",
+        "detail": "spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "vite.config.ts",
+        "detail": "spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/ai/registry/freeModelRegistry.ts",
+        "detail": "spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "scanner_failed",
+        "stage": "scan",
+        "target": "server/ai/classification/capabilityClassifier.ts",
+        "detail": "spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "types.ts",
+        "detail": "scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/ai/types.ts",
+        "detail": "scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/ai/serverHandler.ts",
+        "detail": "scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "services/aiGatewayClient.ts",
+        "detail": "scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "services/apiKeyManager.ts",
+        "detail": "scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "services/geminiService.ts",
+        "detail": "scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "components/StudioWorkspace.tsx",
+        "detail": "scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "vite.config.ts",
+        "detail": "scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/ai/registry/freeModelRegistry.ts",
+        "detail": "scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "scan",
+        "target": "server/ai/classification/capabilityClassifier.ts",
+        "detail": "scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+        "affectsCompletion": true
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": null,
+  "diffHash": "208057e38dd3928ae242c6a90bce7fdd0fc1d5e8c17e65756bf7c5a2ed8d6748",
+  "rulesVersion": "unavailable",
+  "sessionHash": "de470ae0ebf20ea61a694ad7739a72fc4ceea68d136a02efd9921b731e04774e",
+  "reportRef": ".mimosa/reports/task-review-sess_a52c67bc-1fd8-4b86-ab27-6f8dea71bfe5-20260817T132140325Z-268752-0ebf6ae50d78.json",
+  "events": [],
+  "observedFindingIds": [],
+  "verifiedFiles": [],
+  "recordedAt": "2026-08-17T13:21:41.505Z"
+}

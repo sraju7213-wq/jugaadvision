@@ -21,10 +21,10 @@ const MultiTagInput = memo(({
     const [input, setInput] = useState('');
 
     const colors = {
-        amber: 'text-amber-600 bg-amber-100 dark:bg-amber-900/30 border-amber-200 dark:border-amber-800/30',
-        violet: 'text-violet-600 bg-violet-100 dark:bg-violet-900/30 border-violet-200 dark:border-violet-800/30',
-        emerald: 'text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800/30',
-        pink: 'text-pink-600 bg-pink-100 dark:bg-pink-900/30 border-pink-200 dark:border-pink-800/30'
+        amber: 'text-[var(--ui-gold)] bg-[var(--ui-gold-soft)] border-[var(--ui-gold)]/40',
+        violet: 'text-[var(--ui-violet)] bg-[var(--ui-violet-soft)] border-[var(--ui-violet)]/40',
+        emerald: 'text-[var(--ui-teal)] bg-[var(--ui-teal-soft)] border-[var(--ui-teal)]/40',
+        pink: 'text-[var(--ui-pink)] bg-[var(--ui-pink-soft)] border-[var(--ui-pink)]/40'
     };
 
     const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -49,26 +49,27 @@ const MultiTagInput = memo(({
     };
 
     return (
-        <div className="space-y-3">
+        <div className="space-y-2">
             <div className="flex justify-between items-center">
-                <label className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest pl-1">
+                <label className="font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider">
                     {label}
                 </label>
-                <span className="text-[10px] font-medium text-gray-400">
+                <span className="font-mono text-[10px] text-[var(--editorial-muted)]">
                     {tags.length}/{maxTags}
                 </span>
             </div>
 
-            <div className="flex flex-wrap gap-2 p-2 min-h-[50px] bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl focus-within:ring-1 focus-within:ring-[#BF953F]/50 transition-all">
+            <div className="flex flex-wrap gap-1.5 p-2 min-h-[44px] bg-[var(--editorial-surface)] border border-[var(--editorial-rule)] focus-within:border-[var(--editorial-pink)] transition-all">
                 {tags.map((tag, i) => (
                     <span
                         key={i}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border ${colors[colorScheme]} animate-in zoom-in duration-200`}
+                        className={`flex items-center gap-1 px-2 py-0.5 font-mono text-xs border ${colors[colorScheme]}`}
                     >
                         {tag}
                         <button
+                            type="button"
                             onClick={() => removeTag(i)}
-                            className="hover:scale-110 transition-transform"
+                            className="hover:text-[var(--editorial-coral)] transition-colors"
                         >
                             <XIcon className="w-3 h-3" />
                         </button>
@@ -84,7 +85,7 @@ const MultiTagInput = memo(({
                             onKeyDown={handleKeyDown}
                             onBlur={addTag}
                             placeholder={tags.length === 0 ? placeholder : ''}
-                            className="w-full bg-transparent border-none focus:ring-0 text-sm py-1 text-gray-900 dark:text-white placeholder-gray-400"
+                            className="w-full bg-transparent border-none focus:outline-none font-mono text-xs py-0.5 text-[var(--editorial-ink)] placeholder-[var(--editorial-muted)]"
                         />
                     </div>
                 )}

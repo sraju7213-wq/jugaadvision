@@ -65,33 +65,41 @@ const Section = memo(({
     children: React.ReactNode;
     badge?: string;
 }) => (
-    <div className="border border-gray-200 dark:border-white/10 rounded-2xl overflow-hidden transition-all duration-300">
+    <div className="editorial-panel transition-all">
         <button
+            type="button"
             onClick={() => onToggle(id)}
-            className={`w-full flex items-center justify-between p-4 transition-colors ${isOpen
-                ? 'bg-[#BF953F]/10 dark:bg-[#BF953F]/5'
-                : 'bg-white dark:bg-white/5 hover:bg-gray-50 dark:hover:bg-white/10'
+            className={`w-full flex items-center justify-between p-3.5 sm:p-4 text-left transition-colors ${isOpen
+                ? 'bg-[var(--ui-surface)]'
+                : 'bg-[var(--ui-surface-muted)] hover:bg-[var(--ui-surface)]'
                 }`}
         >
             <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-xl border ${isOpen
-                    ? 'bg-[#BF953F] text-black border-[#BF953F]'
-                    : 'bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-gray-400 border-transparent'
+                <div className={`w-7 h-7 flex items-center justify-center border transition-colors ${isOpen
+                    ? 'bg-[var(--ui-pink)] text-white border-[var(--ui-pink)]'
+                    : 'bg-[var(--ui-surface)] text-[var(--ui-pink)] border-[var(--ui-border)]'
                     }`}>
-                    <Icon className="w-4 h-4" />
+                    <Icon className="w-3.5 h-3.5" />
                 </div>
-                <div className="text-left">
-                    <p className={`text-sm font-bold tracking-tight ${isOpen ? 'text-[#BF953F]' : 'text-gray-900 dark:text-white'
-                        }`}>
+                <div>
+                    <p className="m-0 font-serif text-sm font-normal text-[var(--ui-ink)]">
                         {label}
                     </p>
-                    {badge && <p className="text-[10px] text-gray-400 font-medium uppercase">{badge}</p>}
+                    {badge && (
+                        <p className="m-0 font-mono text-[10px] text-[var(--ui-muted)] uppercase tracking-wider">
+                            {badge}
+                        </p>
+                    )}
                 </div>
             </div>
-            {isOpen ? <ChevronUpIcon className="w-5 h-5 text-[#BF953F]" /> : <ChevronDownIcon className="w-5 h-5 text-gray-400" />}
+            {isOpen ? (
+                <ChevronUpIcon className="w-4 h-4 text-[var(--ui-pink)]" />
+            ) : (
+                <ChevronDownIcon className="w-4 h-4 text-[var(--ui-muted)]" />
+            )}
         </button>
         {isOpen && (
-            <div className="p-4 sm:p-6 bg-white/50 dark:bg-black/20 border-t border-gray-200 dark:border-white/10 space-y-6 animate-in slide-in-from-top-2 duration-300">
+            <div className="p-4 sm:p-5 bg-[var(--ui-surface)] border-t border-[var(--ui-border)] space-y-5 motion-fade">
                 {children}
             </div>
         )}
@@ -138,10 +146,10 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
     };
 
     return (
-        <div className="space-y-4 pt-4 border-t border-gray-200 dark:border-white/10 animate-in fade-in slide-in-from-top-4 duration-500">
+        <div className="space-y-4 pt-4 border-t border-[var(--ui-border)] motion-section-enter">
             <div className="flex items-center gap-2 mb-2 px-1">
-                <ZapIcon className="w-4 h-4 text-amber-500" />
-                <h3 className="text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-[0.2em]">
+                <ZapIcon className="w-4 h-4 text-[var(--ui-pink)]" />
+                <h3 className="text-xs font-mono font-bold text-[var(--ui-muted)] uppercase tracking-[0.2em]">
                     Pro Alchemy Controls
                 </h3>
             </div>
@@ -157,11 +165,11 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
             >
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500">Primary Purpose</label>
+                        <label className="editorial-label">Primary Purpose</label>
                         <select
                             value={settings.image_purpose || ''}
                             onChange={(e) => updateField('image_purpose', e.target.value)}
-                            className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm focus:ring-1 focus:ring-amber-500/50 outline-none appearance-none cursor-pointer"
+                            className="editorial-select cursor-pointer"
                         >
                             <option value="">AI Suggested</option>
                             {getKeys(ImagePurposeEnum).map(k => <option key={k} value={k}>{PURPOSE_LABELS[k] || k}</option>)}
@@ -179,45 +187,45 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
                 onToggle={toggleSection}
                 badge={settings.scene?.environment ? ENVIRONMENT_LABELS[settings.scene.environment] : 'Automatic'}
             >
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500">Environment</label>
+                        <label className="editorial-label">Environment</label>
                         <select
                             value={settings.scene?.environment || ''}
                             onChange={(e) => updateField('scene.environment', e.target.value)}
-                            className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm"
+                            className="editorial-select"
                         >
                             <option value="">AI Suggested</option>
                             {getKeys(EnvironmentEnum).map(k => <option key={k} value={k}>{ENVIRONMENT_LABELS[k] || k}</option>)}
                         </select>
                     </div>
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500">Background Tone</label>
+                        <label className="editorial-label">Background Tone</label>
                         <select
                             value={settings.scene?.background?.tone || ''}
                             onChange={(e) => updateField('scene.background.tone', e.target.value)}
-                            className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm"
+                            className="editorial-select"
                         >
                             <option value="">AI Suggested</option>
                             {getKeys(BackgroundToneEnum).map(k => <option key={k} value={k}>{k}</option>)}
                         </select>
                     </div>
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500">Surface Material</label>
+                        <label className="editorial-label">Surface Material</label>
                         <input
                             type="text"
                             placeholder="e.g. Marble, Aged Oak..."
                             value={settings.scene?.surface?.material || ''}
                             onChange={(e) => updateField('scene.surface.material', e.target.value)}
-                            className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm outline-none focus:ring-1 focus:ring-amber-500/50"
+                            className="editorial-input"
                         />
                     </div>
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500">Surface Finish</label>
+                        <label className="editorial-label">Surface Finish</label>
                         <select
                             value={settings.scene?.surface?.finish || ''}
                             onChange={(e) => updateField('scene.surface.finish', e.target.value)}
-                            className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm"
+                            className="editorial-select"
                         >
                             <option value="">AI Suggested</option>
                             {getKeys(SurfaceFinishEnum).map(k => <option key={k} value={k}>{k}</option>)}
@@ -236,22 +244,22 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
             >
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500">Camera Height</label>
+                        <label className="editorial-label">Camera Height</label>
                         <select
                             value={settings.composition?.camera_height || ''}
                             onChange={(e) => updateField('composition.camera_height', e.target.value)}
-                            className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm"
+                            className="editorial-select"
                         >
                             <option value="">AI Suggested</option>
                             {getKeys(CameraHeightEnum).map(k => <option key={k} value={k}>{k}</option>)}
                         </select>
                     </div>
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500">Arrangement</label>
+                        <label className="editorial-label">Arrangement</label>
                         <select
                             value={settings.composition?.arrangement || ''}
                             onChange={(e) => updateField('composition.arrangement', e.target.value)}
-                            className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm"
+                            className="editorial-select"
                         >
                             <option value="">AI Suggested</option>
                             {getKeys(ArrangementEnum).map(k => <option key={k} value={k}>{ARRANGEMENT_LABELS[k] || k}</option>)}
@@ -262,7 +270,7 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
 
             {/* Section 4: Camera */}
             <Section id="camera" label="Optics & Focus" icon={CameraIcon} isOpen={expandedSections.has('camera')} onToggle={toggleSection}>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                     <SliderInput
                         label="Focal Length"
                         value={settings.camera?.focal_length_mm || 35}
@@ -296,24 +304,24 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500">Lens Type</label>
+                        <label className="editorial-label">Lens Type</label>
                         <select
                             value={settings.camera?.lens_type || ''}
                             onChange={(e) => updateField('camera.lens_type', e.target.value)}
-                            className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm"
+                            className="editorial-select"
                         >
                             <option value="">AI Suggested</option>
                             {getKeys(LensTypeEnum).map(k => <option key={k} value={k}>{k}</option>)}
                         </select>
                     </div>
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500">Focus Strategy</label>
+                        <label className="editorial-label">Focus Strategy</label>
                         <input
                             type="text"
                             placeholder="e.g. sharp eyes, blur background..."
                             value={settings.camera?.focus_strategy || ''}
                             onChange={(e) => updateField('camera.focus_strategy', e.target.value)}
-                            className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm outline-none"
+                            className="editorial-input"
                         />
                     </div>
                 </div>
@@ -321,46 +329,46 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
 
             {/* Section 5: Lighting */}
             <Section id="lighting" label="Light & Shadows" icon={SunIcon} isOpen={expandedSections.has('lighting')} onToggle={toggleSection}>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500">Primary Source</label>
+                        <label className="editorial-label">Primary Source</label>
                         <select
                             value={settings.lighting?.primary?.type || ''}
                             onChange={(e) => updateField('lighting.primary.type', e.target.value)}
-                            className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm"
+                            className="editorial-select"
                         >
                             <option value="">AI Suggested</option>
                             {getKeys(LIGHTING_TYPE_LABELS).map(k => <option key={k} value={k}>{LIGHTING_TYPE_LABELS[k] || k}</option>)}
                         </select>
                     </div>
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500">Direction</label>
+                        <label className="editorial-label">Direction</label>
                         <select
                             value={settings.lighting?.primary?.direction || ''}
                             onChange={(e) => updateField('lighting.primary.direction', e.target.value)}
-                            className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm"
+                            className="editorial-select"
                         >
                             <option value="">AI Suggested</option>
                             {getKeys(LightingDirectionEnum).map(k => <option key={k} value={k}>{k}</option>)}
                         </select>
                     </div>
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500">Temp / Mood</label>
+                        <label className="editorial-label">Temp / Mood</label>
                         <select
                             value={settings.lighting?.color_temperature || ''}
                             onChange={(e) => updateField('lighting.color_temperature', e.target.value)}
-                            className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm"
+                            className="editorial-select"
                         >
                             <option value="">AI Suggested</option>
                             {getKeys(ColorTemperatureEnum).map(k => <option key={k} value={k}>{k.replace(/_/g, ' ')}</option>)}
                         </select>
                     </div>
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500">Shadows</label>
+                        <label className="editorial-label">Shadows</label>
                         <select
                             value={settings.lighting?.shadow_behavior || ''}
                             onChange={(e) => updateField('lighting.shadow_behavior', e.target.value)}
-                            className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm"
+                            className="editorial-select"
                         >
                             <option value="">AI Suggested</option>
                             {getKeys(ShadowBehaviorEnum).map(k => <option key={k} value={k}>{k}</option>)}
@@ -368,28 +376,28 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
                     </div>
                 </div>
 
-                <div className="space-y-4 pt-4 border-t border-gray-100 dark:border-white/5">
-                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Secondary Lighting</p>
+                <div className="space-y-4 pt-4 border-t border-[var(--ui-border)]">
+                    <p className="font-mono text-xs font-bold text-[var(--ui-muted)] uppercase tracking-widest">Secondary Lighting</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
-                            <label className="text-xs font-bold text-gray-500">Fill / Accent Type</label>
+                            <label className="editorial-label">Fill / Accent Type</label>
                             <select
                                 value={settings.lighting?.secondary?.type || ''}
                                 onChange={(e) => updateField('lighting.secondary.type', e.target.value)}
-                                className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm"
+                                className="editorial-select"
                             >
                                 <option value="">None / AI Suggested</option>
                                 {getKeys(LIGHTING_TYPE_LABELS).map(k => <option key={k} value={k}>{LIGHTING_TYPE_LABELS[k] || k}</option>)}
                             </select>
                         </div>
                         <div className="space-y-2">
-                            <label className="text-xs font-bold text-gray-500">Secondary Position</label>
+                            <label className="editorial-label">Secondary Position</label>
                             <input
                                 type="text"
                                 placeholder="e.g. Right fill, Hair light..."
                                 value={settings.lighting?.secondary?.position || ''}
                                 onChange={(e) => updateField('lighting.secondary.position', e.target.value)}
-                                className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm outline-none"
+                                className="editorial-input"
                             />
                         </div>
                     </div>
@@ -403,26 +411,26 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
                     placeholder="Type a color (e.g. Sage Green)..."
                     tags={settings.color_grading?.palette || []}
                     onChange={(tags) => updateField('color_grading.palette', tags)}
-                    colorScheme="emerald"
+                    colorScheme="pink"
                 />
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500">Warmth</label>
+                        <label className="editorial-label">Warmth</label>
                         <select
                             value={settings.color_grading?.warmth || ''}
                             onChange={(e) => updateField('color_grading.warmth', e.target.value)}
-                            className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm"
+                            className="editorial-select"
                         >
                             <option value="">AI Suggested</option>
                             {getKeys(WarmthEnum).map(k => <option key={k} value={k}>{k}</option>)}
                         </select>
                     </div>
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500">Saturation</label>
+                        <label className="editorial-label">Saturation</label>
                         <select
                             value={settings.color_grading?.saturation || ''}
                             onChange={(e) => updateField('color_grading.saturation', e.target.value)}
-                            className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm"
+                            className="editorial-select"
                         >
                             <option value="">AI Suggested</option>
                             {getKeys(SaturationEnum).map(k => <option key={k} value={k}>{k}</option>)}
@@ -438,44 +446,49 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
                     placeholder="e.g. Brushed Gold, Velvet..."
                     tags={settings.materials?.primary || []}
                     onChange={(tags) => updateField('materials.primary', tags)}
-                    colorScheme="amber"
+                    colorScheme="pink"
                 />
 
-                <div className="space-y-2">
-                    <label className="text-xs font-bold text-gray-500">Texture Notes</label>
+                <div className="space-y-2 mt-4">
+                    <label className="editorial-label">Texture Notes</label>
                     <input
                         type="text"
                         placeholder="e.g. Fine grain, hand-stitched, micro-scratches..."
                         value={settings.materials?.texture_notes || ''}
                         onChange={(e) => updateField('materials.texture_notes', e.target.value)}
-                        className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm outline-none"
+                        className="editorial-input"
                     />
                 </div>
 
-                <div className="p-4 bg-white dark:bg-white/5 rounded-xl border border-gray-100 dark:border-white/10 mt-6 space-y-4">
+                <div className="p-4 bg-[var(--ui-surface-muted)] border border-[var(--ui-border)] mt-4 space-y-4">
                     <div className="flex items-center justify-between">
                         <div>
-                            <p className="text-sm font-bold text-gray-900 dark:text-white">Authentic Imperfections</p>
-                            <p className="text-xs text-gray-500">Adds organic realism to the shot</p>
+                            <p className="font-serif text-sm font-bold text-[var(--ui-ink)] m-0">Authentic Imperfections</p>
+                            <p className="font-mono text-xs text-[var(--ui-muted)] m-0 mt-0.5">Adds organic realism to the shot</p>
                         </div>
                         <button
+                            type="button"
                             onClick={() => updateField('materials.imperfections.include', !settings.materials?.imperfections?.include)}
-                            className={`relative w-12 h-6 rounded-full transition-colors ${settings.materials?.imperfections?.include ? 'bg-amber-500' : 'bg-gray-200 dark:bg-white/10'
+                            className={`relative w-11 h-6 transition-colors border ${settings.materials?.imperfections?.include
+                                ? 'bg-[var(--ui-pink)] border-[var(--ui-pink)]'
+                                : 'bg-[var(--ui-surface)] border-[var(--ui-border-strong)]'
                                 }`}
                         >
-                            <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${settings.materials?.imperfections?.include ? 'translate-x-6' : ''
+                            <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-[var(--ui-ink)] transition-transform ${settings.materials?.imperfections?.include
+                                ? 'translate-x-5 bg-white'
+                                : ''
                                 }`} />
                         </button>
                     </div>
 
                     {settings.materials?.imperfections?.include && (
-                        <div className="animate-in fade-in zoom-in-95 duration-200">
+                        <div className="motion-fade pt-2">
                             <MultiTagInput
                                 label="Imperfection Types"
                                 placeholder="e.g. Dust, Fingerprints, Scratches..."
                                 tags={settings.materials?.imperfections?.types || []}
                                 onChange={(tags) => updateField('materials.imperfections.types', tags)}
-                                colorScheme="amber"
+                                colorScheme="pink"
                             />
                         </div>
                     )}
@@ -484,26 +497,26 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
 
             {/* Section 8: Subject Details */}
             <Section id="subject" label="Subject Mastery" icon={SparklesIcon} isOpen={expandedSections.has('subject')} onToggle={toggleSection}>
-                <div className="space-y-6">
+                <div className="space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
-                            <label className="text-xs font-bold text-gray-500">Pose / Orientation</label>
+                            <label className="editorial-label">Pose / Orientation</label>
                             <input
                                 type="text"
                                 placeholder="e.g. 3/4 view, Dynamic action..."
                                 value={settings.subject?.pose_or_orientation || ''}
                                 onChange={(e) => updateField('subject.pose_or_orientation', e.target.value)}
-                                className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm outline-none focus:ring-1 focus:ring-amber-500/50"
+                                className="editorial-input"
                             />
                         </div>
                         <div className="space-y-2">
-                            <label className="text-xs font-bold text-gray-500">Condition</label>
+                            <label className="editorial-label">Condition</label>
                             <input
                                 type="text"
                                 placeholder="e.g. Pristine, Weathered, Handmade..."
                                 value={settings.subject?.condition || ''}
                                 onChange={(e) => updateField('subject.condition', e.target.value)}
-                                className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm outline-none focus:ring-1 focus:ring-amber-500/50"
+                                className="editorial-input"
                             />
                         </div>
                     </div>
@@ -512,7 +525,7 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
                         placeholder="e.g. Hand-painted details, Embossed logo..."
                         tags={settings.subject?.features || []}
                         onChange={(tags) => updateField('subject.features', tags)}
-                        colorScheme="amber"
+                        colorScheme="pink"
                     />
                 </div>
             </Section>
@@ -524,30 +537,30 @@ const AdvancedSettingsPanel = memo(({ settings, onChange }: AdvancedSettingsPane
                     placeholder="e.g. Nostalgic, Luxurious, Calm..."
                     tags={settings.mood || []}
                     onChange={(tags) => updateField('mood', tags)}
-                    colorScheme="amber"
+                    colorScheme="pink"
                 />
             </Section>
 
             {/* Section 10: Output */}
             <Section id="output" label="Finishing & Export" icon={ShareIcon} isOpen={expandedSections.has('output')} onToggle={toggleSection}>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500">Aspect Ratio</label>
+                        <label className="editorial-label">Aspect Ratio</label>
                         <select
                             value={settings.post_processing?.output_ratio || ''}
                             onChange={(e) => updateField('post_processing.output_ratio', e.target.value)}
-                            className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm"
+                            className="editorial-select"
                         >
                             <option value="">AI Suggested</option>
                             {getKeys(OutputRatioEnum).map(k => <option key={k} value={k}>{OUTPUT_RATIO_LABELS[k] || k}</option>)}
                         </select>
                     </div>
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500">Film Grain</label>
+                        <label className="editorial-label">Film Grain</label>
                         <select
                             value={settings.post_processing?.grain || ''}
                             onChange={(e) => updateField('post_processing.grain', e.target.value)}
-                            className="w-full h-11 px-4 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm"
+                            className="editorial-select"
                         >
                             <option value="">AI Suggested</option>
                             {getKeys(GrainEnum).map(k => <option key={k} value={k}>{k}</option>)}

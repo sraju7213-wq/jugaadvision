@@ -15,17 +15,49 @@ export enum Workflow {
   PromptLibrary = "My Prompt Library",
   Help = "Help & Resources",
   CreativeMixer = "Creative Mixer",
-  GenerateImage = "Generate Images",
-  ImageEditor = "Image Editor",
 }
 
 export type Theme = "light" | "dark";
 
-export interface Prompt {
+export type WorkflowFeature =
+  | "prompt-builder"
+  | "image-to-prompt"
+  | "creative-mixer"
+  | "batch-generator"
+  | "pro-prompter"
+  | "studio"
+  | "general";
+
+export type LifecycleState =
+  | "idle"
+  | "validating"
+  | "queued"
+  | "generating"
+  | "validating_result"
+  | "success"
+  | "partial_success"
+  | "cancelled"
+  | "error";
+
+export interface UniversalPromptRecord {
   id: string;
   text: string;
+  title?: string;
   platform: Platform;
   tags: string[];
   createdAt: string;
+  updatedAt?: string;
+  // Deprecated: retained for reference-image migration; will remove after migration
   imageUrl?: string;
+  negativePrompt?: string;
+  sourceFeature?: WorkflowFeature | string;
+  mode?: string;
+  model?: string;
+  structuredResult?: Record<string, any>;
+  references?: Array<{ url?: string; base64?: string; mimeType?: string; name?: string }>;
+  originalInput?: Record<string, any>;
+  version?: number;
 }
+
+// Backward compatibility alias
+export type Prompt = UniversalPromptRecord;

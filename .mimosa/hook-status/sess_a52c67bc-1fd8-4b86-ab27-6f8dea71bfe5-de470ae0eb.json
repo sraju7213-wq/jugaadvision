@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-08-17T13:20:03.218Z",
+  "sessionId": "sess_a52c67bc-1fd8-4b86-ab27-6f8dea71bfe5",
+  "event": "PostToolUse",
+  "toolName": "Edit",
+  "file": "server/ai/registry/freeModelRegistry.ts",
+  "outcome": "clear",
+  "coverage": "complete",
+  "findingCount": 0,
+  "durationMs": 42,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}

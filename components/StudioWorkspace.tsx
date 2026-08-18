@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ProcessingAnimation } from "./ProcessingAnimation";
 import {
   describeImageToText,
-  generateImage,
   rewritePrompt,
   extractPromptFromImage,
 } from "../services/geminiService";
+import useLocalStorage from "../hooks/useLocalStorage";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -22,41 +23,55 @@ import {
   RefreshIcon,
   MicIcon,
   MicOffIcon,
+  SparklesIcon,
+  TrashIcon,
+  XIcon,
 } from "./icons";
+import { Loader2 } from "lucide-react";
 import useSpeechToText from "../hooks/useSpeechToText";
 
 interface StudioWorkspaceProps {
   onSendToBuilder: (prompt: string) => void;
-  onJumpToImage: (prompt: string) => void;
-  onSaveToLibrary: (prompt: string) => void;
+  onSaveToLibrary: (prompt: string, platform?: any, imageUrl?: string, tags?: string[]) => void;
 }
 
 type PersonaId = "photographer" | "painter" | "cgi" | "illustrator" | "anime";
 type AspectRatio = "1:1" | "16:9" | "9:16";
 type ImageAction = "reference" | "extract";
 
-type ResultItem = {
+interface ResultItem {
   prompt: string;
-  image?: string;
   status: "pending" | "done" | "error";
   error?: string;
-};
+}
+
+interface StudioHistoryItem {
+  id: string;
+  timestamp: string;
+  input: string;
+  persona: PersonaId;
+  lighting: string;
+  angle: string;
+  palette: string;
+  promptAdherence: number;
+  promptLength: number;
+  results: Array<{ prompt: string }>;
+}
 
 const personas = [
-  { id: "photographer", label: "Photographer", Icon: CameraIcon },
-  { id: "painter", label: "Painter", Icon: BrushIcon },
-  { id: "cgi", label: "CGI", Icon: LayersIcon },
-  { id: "illustrator", label: "Illustrator", Icon: PaletteIcon },
-  { id: "anime", label: "Anime", Icon: MagicWandIcon },
+  { id: "photographer" as PersonaId, label: "Photographer", Icon: CameraIcon },
+  { id: "painter" as PersonaId, label: "Painter", Icon: BrushIcon },
+  { id: "cgi" as PersonaId, label: "CGI Master", Icon: LayersIcon },
+  { id: "illustrator" as PersonaId, label: "Illustrator", Icon: PaletteIcon },
+  { id: "anime" as PersonaId, label: "Anime Director", Icon: MagicWandIcon },
 ];
 
-const lightingOptions = ["Cinematic", "Golden Hour", "Soft Diffused", "Neon"];
-const cameraAngles = ["Eye Level", "Low Angle", "High Angle", "Dutch Tilt"];
-const colorPalettes = ["Vibrant", "Muted Pastel", "Monochrome", "Warm"];
+const lightingOptions = ["Cinematic", "Golden Hour", "Soft Diffused", "Neon / Cyberpunk", "Studio Spotlight"];
+const cameraAngles = ["Eye Level", "Low Angle", "High Overhead", "Dutch Tilt", "Macro Close-Up"];
+const colorPalettes = ["Vibrant / Rich", "Muted Pastel", "Monochrome High-Contrast", "Warm Analog", "Cool Sci-Fi"];
 
 const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
   onSendToBuilder,
-  onJumpToImage,
   onSaveToLibrary,
 }) => {
   const [leftOpen, setLeftOpen] = useState(true);
@@ -71,15 +86,17 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     name: string;
   } | null>(null);
 
-  const [persona, setPersona] = useState<PersonaId>("painter");
-  const [promptAdherence, setPromptAdherence] = useState(0.45);
-  const [promptLength, setPromptLength] = useState(0.35);
+  // Settings
+  const [persona, setPersona] = useState<PersonaId>("photographer");
+  const [promptAdherence, setPromptAdherence] = useState(0.5);
+  const [promptLength, setPromptLength] = useState(0.5);
   const [lighting, setLighting] = useState(lightingOptions[0]);
   const [angle, setAngle] = useState(cameraAngles[0]);
   const [palette, setPalette] = useState(colorPalettes[0]);
   const [imageAction, setImageAction] = useState<ImageAction>("reference");
 
-  const [count, setCount] = useState(3);
+  // Output state
+  const [count, setCount] = useState(2);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
   const [results, setResults] = useState<ResultItem[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -87,6 +104,10 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
   const [isExtracting, setIsExtracting] = useState(false);
   const [inputStatus, setInputStatus] = useState("");
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [savedIndex, setSavedIndex] = useState<number | null>(null);
+
+  // Persistent History
+  const [history, setHistory] = useLocalStorage<StudioHistoryItem[]>("studio-history", []);
 
   const [highlightBatch, setHighlightBatch] = useState(false);
   const bottomInputRef = useRef<HTMLInputElement>(null);
@@ -156,7 +177,7 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     if (!uploadedImage || isExtracting) return;
     try {
       setIsExtracting(true);
-      setInputStatus("Scanning image...");
+      setInputStatus("Scanning visual elements...");
       const description = await extractPromptFromImage(
         uploadedImage.base64,
         uploadedImage.mimeType,
@@ -165,7 +186,7 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
         setInput(description);
         setTimeout(() => setInputStatus(""), 1500);
       } else {
-        setInputStatus("Could not read image.");
+        setInputStatus("Could not extract details.");
       }
     } catch (error: any) {
       setInputStatus(error?.message || "Vision extraction failed.");
@@ -174,50 +195,40 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     }
   };
 
-  const handleImageActionSelect = (mode: ImageAction) => {
-    setImageAction(mode);
-    if (mode === "extract" && uploadedImage) {
-      triggerExtractPrompt();
-    } else {
-      setInputStatus("");
-    }
-  };
-
   const adornPrompt = (p: string) =>
-    `${p}\n\nStyle cues: Lighting (${lighting}), Camera (${angle}), Palette (${palette}). Prompt adherence ${Math.round(promptAdherence * 100)}%.`;
+    `${p}, ${lighting} lighting, ${angle} angle, ${palette} color grading`;
 
   const runGeneration = async (quick = false) => {
-    if (isExtracting) return;
+    if (isExtracting || isGenerating) return;
     if (!input.trim() && !uploadedImage) return;
     const finalCount = quick ? 1 : count;
 
     setIsGenerating(true);
-    setStatusMessage("");
+    setStatusMessage("Consulting AI Persona...");
     setResults([]);
 
     try {
       let thinkerInput = input.trim();
       if (uploadedImage && imageAction === "reference") {
-        setStatusMessage("Reading image reference...");
+        setStatusMessage("Analyzing visual reference...");
         const desc = await describeImageToText(
           uploadedImage.base64,
           uploadedImage.mimeType,
         );
-        thinkerInput = thinkerInput
-          ? `${desc}\nUser note: ${thinkerInput}`
-          : desc;
+        thinkerInput = thinkerInput ? `${desc}\nUser note: ${thinkerInput}` : desc;
       }
 
       if (!thinkerInput) {
-        thinkerInput = "High quality creative concept.";
+        thinkerInput = "Cinematic visual masterpiece.";
       }
 
-      setStatusMessage("Thinking + rewriting prompt...");
+      setStatusMessage("Synthesizing prompt blueprint...");
       const thinkerPrompts = await rewritePrompt(
         thinkerInput,
         persona,
         promptLength,
       );
+
       const queue: ResultItem[] = Array.from({ length: finalCount }).map(
         (_, idx) => ({
           prompt: adornPrompt(
@@ -227,38 +238,53 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
         }),
       );
 
-      setResults(queue);
+      // Apply all prompts (no image rendering)
+      const updated: ResultItem[] = queue.map((item) => ({ ...item, status: "done" as const }));
+      setResults(updated);
 
-      const updated: ResultItem[] = [];
-      for (let i = 0; i < queue.length; i++) {
-        const prompt = queue[i].prompt;
-        try {
-          setStatusMessage(`Rendering image ${i + 1}/${queue.length}...`);
-          const img = await generateImage(prompt, "fast", aspectRatio);
-          updated.push({ ...queue[i], image: img, status: "done" });
-        } catch (err: any) {
-          updated.push({
-            ...queue[i],
-            status: "error",
-            error: err?.message || "Failed to render",
-          });
-        }
-        setResults([...updated, ...queue.slice(i + 1)]);
-      }
+      // Save to Session History
+      const newHistoryItem: StudioHistoryItem = {
+        id: `studio_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        input: thinkerInput,
+        persona,
+        lighting,
+        angle,
+        palette,
+        promptAdherence,
+        promptLength,
+        results: updated.map((u) => ({ prompt: u.prompt })),
+      };
+
+      setHistory((prev) => [newHistoryItem, ...prev.slice(0, 20)]);
     } catch (error) {
-      setStatusMessage("");
-      setResults([]);
+      console.error("Studio generation failed:", error);
     } finally {
       setIsGenerating(false);
       setStatusMessage("");
     }
   };
 
-  const handleQuickEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && !e.shiftKey && !isExtracting) {
-      e.preventDefault();
-      runGeneration(true);
+  const handleRestoreHistoryItem = (item: StudioHistoryItem) => {
+    setInput(item.input);
+    setPersona(item.persona);
+    setLighting(item.lighting);
+    setAngle(item.angle);
+    setPalette(item.palette);
+    setPromptAdherence(item.promptAdherence);
+    setPromptLength(item.promptLength);
+    if (item.results && item.results.length > 0) {
+      setResults(
+        item.results.map((r) => ({
+          prompt: r.prompt,
+          status: "done",
+        }))
+      );
     }
+  };
+
+  const handleClearHistory = () => {
+    setHistory([]);
   };
 
   const handleCopy = (text: string, index: number) => {
@@ -267,117 +293,142 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     setTimeout(() => setCopiedIndex(null), 1500);
   };
 
+  const handleSave = (text: string, index?: number) => {
+    onSaveToLibrary(text, undefined, undefined, ["studio", persona]);
+    if (index !== undefined) {
+      setSavedIndex(index);
+      setTimeout(() => setSavedIndex(null), 1500);
+    }
+  };
+
   const mobileToggleLeft = () => setLeftOpen((p) => !p);
   const mobileToggleRight = () => setRightOpen((p) => !p);
 
   return (
     <div
-      className="relative h-[calc(100vh-7rem)] min-h-[640px] w-full overflow-hidden rounded-3xl border border-gray-200 dark:border-white/10 bg-gradient-to-br from-slate-50 to-white dark:from-[#0d1015] dark:to-[#0f1724] shadow-2xl"
+      className="feature-theme-studio relative h-[calc(100vh-7rem)] min-h-[640px] w-full overflow-hidden editorial-panel shadow-sm"
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
     >
-      <div className="absolute top-2 left-2 z-20 flex gap-2 lg:hidden">
+      {/* Mobile Sidebar Toggles */}
+      <div className="absolute top-3 left-3 z-20 flex gap-2 lg:hidden">
         <button
+          type="button"
           onClick={mobileToggleLeft}
-          className="p-2 rounded-xl bg-white/70 dark:bg-white/10 border border-gray-200 dark:border-white/10 shadow"
+          className="editorial-button editorial-button--sm editorial-button--secondary p-2 shadow-sm"
         >
           <ListIcon className="w-4 h-4" />
         </button>
         <button
+          type="button"
           onClick={mobileToggleRight}
-          className="p-2 rounded-xl bg-white/70 dark:bg-white/10 border border-gray-200 dark:border-white/10 shadow"
+          className="editorial-button editorial-button--sm editorial-button--secondary p-2 shadow-sm"
         >
           <SlidersIcon className="w-4 h-4" />
         </button>
       </div>
 
       <div className="absolute inset-0 flex">
+        {/* Left Panel: Real History & Batch Logic */}
         <div
-          className={`transition-all duration-300 bg-white/80 dark:bg-white/5 backdrop-blur-xl border-r border-gray-200 dark:border-white/10 h-full flex flex-col ${
+          className={`transition-all duration-300 bg-[var(--editorial-surface)] border-r border-[var(--editorial-rule)] h-full flex flex-col ${
             leftOpen ? "w-[300px]" : "w-0"
-          } overflow-hidden`}
+          } overflow-hidden z-10`}
         >
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-white/10">
+          <div className="flex items-center justify-between px-4 py-3 bg-[var(--editorial-surface-strong)] border-b border-[var(--editorial-rule)]">
             <div className="flex items-center gap-2">
-              <ListIcon className="w-4 h-4 text-emerald-500" />
-              <span className="text-xs font-semibold uppercase text-gray-700 dark:text-gray-200">
-                Logic & History
+              <ListIcon className="w-3.5 h-3.5 text-[var(--editorial-coral)]" />
+              <span className="font-mono text-xs font-bold uppercase tracking-wider text-[var(--editorial-ink)]">
+                Studio Archive
               </span>
             </div>
             <button
+              type="button"
               onClick={() => setLeftOpen(false)}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/10"
+              className="p-1 text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
             >
-              <ArrowLeftIcon className="w-4 h-4" />
+              <ArrowLeftIcon className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          <div className="flex border-b border-gray-200 dark:border-white/10 text-sm font-semibold">
+          <div className="flex border-b border-[var(--editorial-rule)] font-mono text-[11px] font-bold uppercase tracking-wider">
             <button
+              type="button"
               onClick={() => setLeftTab("history")}
-              className={`flex-1 py-2 ${leftTab === "history" ? "text-emerald-600 border-b-2 border-emerald-500" : "text-gray-500"}`}
+              className={`flex-1 py-2.5 transition-all text-center ${
+                leftTab === "history"
+                  ? "text-[var(--editorial-coral)] border-b-2 border-[var(--editorial-coral)] bg-[var(--editorial-surface-strong)]"
+                  : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
+              }`}
             >
-              History
+              Archive ({history.length})
             </button>
             <button
+              type="button"
               onClick={() => setLeftTab("batch")}
-              className={`flex-1 py-2 ${leftTab === "batch" ? "text-emerald-600 border-b-2 border-emerald-500" : "text-gray-500"}`}
+              className={`flex-1 py-2.5 transition-all text-center ${
+                leftTab === "batch"
+                  ? "text-[var(--editorial-coral)] border-b-2 border-[var(--editorial-coral)] bg-[var(--editorial-surface-strong)]"
+                  : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
+              }`}
             >
-              Batch
+              Settings
             </button>
           </div>
 
-          <div className="p-4 flex-1 overflow-auto space-y-4">
+          <div className="p-3.5 flex-1 overflow-y-auto space-y-3 custom-scrollbar">
             {leftTab === "history" ? (
-              <div className="text-sm text-gray-500 dark:text-gray-400">
-                History feed coming soon. Generated prompts will appear here.
-              </div>
+              history.length === 0 ? (
+                <div className="font-mono text-xs text-[var(--editorial-muted)] text-center py-10">
+                  No previous sessions in archive.
+                </div>
+              ) : (
+                <>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="font-mono text-[10px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider">Recent Sessions</span>
+                    <button
+                      type="button"
+                      onClick={handleClearHistory}
+                      className="font-mono text-[10px] text-red-500 hover:underline uppercase"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  {history.map((h) => (
+                    <div
+                      key={h.id}
+                      onClick={() => handleRestoreHistoryItem(h)}
+                      className="p-3 bg-[var(--editorial-paper)] border border-[var(--editorial-rule)] hover:border-[var(--editorial-coral)] cursor-pointer transition-all hover:shadow-[2px_2px_0_var(--editorial-coral)] space-y-1.5"
+                    >
+                      <div className="flex justify-between items-center">
+                        <span className="editorial-badge editorial-badge--violet">
+                          {h.persona}
+                        </span>
+                        <span className="font-mono text-[10px] text-[var(--editorial-muted)]">
+                          {new Date(h.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      </div>
+                      <p className="font-serif text-xs text-[var(--editorial-ink)] line-clamp-2 m-0">
+                        {h.input}
+                      </p>
+                    </div>
+                  ))}
+                </>
+              )
             ) : (
               <div className="space-y-4">
-                <div
-                  className={`p-4 rounded-2xl border ${
-                    highlightBatch
-                      ? "border-emerald-400 shadow-[0_0_0_3px_rgba(16,185,129,0.25)]"
-                      : "border-gray-200 dark:border-white/10"
-                  } bg-white/70 dark:bg-white/5`}
-                >
-                  <div className="flex items-center justify-between text-sm font-semibold mb-2">
-                    <span>Count: {count}</span>
-                    <span className="text-xs text-gray-500">1 - 50</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={1}
-                    max={50}
-                    value={count}
-                    onChange={(e) => setCount(parseInt(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
-
-                <div className="p-4 rounded-2xl border border-gray-200 dark:border-white/10 bg-white/70 dark:bg-white/5">
-                  <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-                    Variables
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Use {"{curly braces}"} in the input for variables. Smart
-                    detection auto-opens this tab.
-                  </p>
-                </div>
-
-                <div className="p-4 rounded-2xl border border-gray-200 dark:border-white/10 bg-white/70 dark:bg-white/5 space-y-3">
-                  <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-                    Aspect Ratio
-                  </p>
-                  <div className="flex gap-2">
+                <div className="p-3.5 bg-[var(--editorial-surface-strong)] border border-[var(--editorial-rule)] space-y-2">
+                  <span className="font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider block">Aspect Ratio</span>
+                  <div className="grid grid-cols-3 gap-1.5">
                     {(["1:1", "16:9", "9:16"] as AspectRatio[]).map((ar) => (
                       <button
                         key={ar}
+                        type="button"
                         onClick={() => setAspectRatio(ar)}
-                        className={`flex-1 py-2 rounded-xl text-sm font-semibold border ${
+                        className={`py-1.5 text-xs font-mono font-bold uppercase border transition-all ${
                           aspectRatio === ar
-                            ? "bg-emerald-500 text-white border-emerald-500"
-                            : "bg-white dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-700 dark:text-gray-200"
+                            ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)] shadow-[2px_2px_0_var(--editorial-coral)]"
+                            : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-[var(--editorial-rule)] hover:border-[var(--editorial-coral)] hover:text-[var(--editorial-ink)]"
                         }`}
                       >
                         {ar}
@@ -386,84 +437,85 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                   </div>
                 </div>
 
-                <button className="w-full py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-indigo-500 to-emerald-500 shadow-lg hover:shadow-xl flex items-center justify-center gap-2">
-                  <RefreshIcon className="w-4 h-4" />
-                  Zip Download
-                </button>
+                <div className="p-3.5 bg-[var(--editorial-surface-strong)] border border-[var(--editorial-rule)] space-y-1">
+                  <p className="font-mono text-[10.5px] font-bold text-[var(--editorial-ink)] uppercase tracking-wider m-0">Dynamic Variables</p>
+                  <p className="font-mono text-[11px] text-[var(--editorial-muted)] m-0">
+                    Use <code className="text-[var(--editorial-coral)] font-mono">{"{brackets}"}</code> in your prompt to spawn batch variants automatically.
+                  </p>
+                </div>
               </div>
             )}
           </div>
         </div>
 
-        <div className="flex-1 relative overflow-hidden">
-          <div className="absolute inset-0 overflow-auto px-4 py-6">
-            <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4 pb-28">
-              {results.length === 0 ? (
-                <div className="col-span-full h-[320px] border-2 border-dashed border-gray-200 dark:border-white/10 rounded-3xl flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">
-                  Generated images and prompts will appear here.
+        {/* Central Visual Canvas */}
+        <div className="flex-1 relative overflow-hidden flex flex-col bg-[var(--editorial-surface)]">
+          <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 custom-scrollbar">
+            {isGenerating && (
+              <div className="mb-6">
+                <ProcessingAnimation
+                  variant="panel"
+                  theme="violet"
+                  badge="Studio Synthesis"
+                  title="Studio Workspace Generation"
+                  status={statusMessage || undefined}
+                  stages={[
+                    "Ingesting creative canvas tokens...",
+                    "Synthesizing compositional parameters...",
+                    "Resolving style keywords & bracket permutations...",
+                    "Emitting master studio prompt directives...",
+                  ]}
+                  stageIntervalMs={2100}
+                  subtext="Real-time studio intelligence engine actively computing outputs."
+                />
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-28">
+              {results.length === 0 && !isGenerating ? (
+                <div className="col-span-full h-[320px] border border-dashed border-[var(--editorial-rule-strong)] bg-[var(--editorial-surface-strong)] flex flex-col items-center justify-center text-center p-6 text-[var(--editorial-muted)]">
+                  <SparklesIcon className="w-8 h-8 mb-2 text-[var(--editorial-coral)] opacity-60" />
+                  <h3 className="font-serif text-base text-[var(--editorial-ink)] mb-1">
+                    Studio Canvas Ready
+                  </h3>
+                  <p className="font-mono text-xs max-w-sm m-0">
+                    Enter your scene concept below or select creative parameters on the right to synthesize master prompts.
+                  </p>
                 </div>
               ) : (
                 results.map((item, idx) => (
                   <div
                     key={idx}
-                    className="bg-white/80 dark:bg-white/5 backdrop-blur-xl rounded-2xl border border-gray-200 dark:border-white/10 shadow-lg overflow-hidden flex flex-col"
+                    className="editorial-panel overflow-hidden flex flex-col justify-between animate-fade-in"
                   >
-                    {item.image ? (
-                      <img
-                        src={item.image}
-                        alt={`result-${idx}`}
-                        className="w-full h-48 object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-48 bg-gray-100 dark:bg-white/5 flex items-center justify-center text-xs text-gray-500">
-                        {item.status === "pending"
-                          ? "Rendering..."
-                          : item.error || "No image"}
-                      </div>
-                    )}
-                    <div className="p-4 space-y-3">
-                      <p className="text-xs text-gray-600 dark:text-gray-300 font-mono leading-relaxed">
+                    <div className="p-4 space-y-3 flex-grow flex flex-col justify-between">
+                      <p className="font-mono text-xs text-[var(--editorial-ink)] leading-relaxed m-0">
                         {item.prompt}
                       </p>
-                      <div className="flex gap-2">
+
+                      <div className="flex flex-wrap gap-2 pt-2 border-t border-[var(--editorial-rule)]">
                         <button
-                          onClick={() => onSendToBuilder(item.prompt)}
-                          className="flex-1 py-2 rounded-xl bg-gray-100 dark:bg-white/10 text-xs font-semibold"
-                        >
-                          Edit Prompt
-                        </button>
-                        <button
-                          onClick={() => onJumpToImage(item.prompt)}
-                          className="flex-1 py-2 rounded-xl bg-emerald-500 text-white text-xs font-semibold"
-                        >
-                          Reuse
-                        </button>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
+                          type="button"
                           onClick={() => handleCopy(item.prompt, idx)}
-                          className="flex-1 py-2 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 text-xs font-semibold"
+                          className="editorial-button editorial-button--sm editorial-button--secondary flex-1 justify-center"
                         >
-                          {copiedIndex === idx ? (
-                            <span className="flex items-center justify-center gap-2">
-                              <CheckIcon className="w-4 h-4" />
-                              Copied
-                            </span>
-                          ) : (
-                            <span className="flex items-center justify-center gap-2">
-                              <CopyIcon className="w-4 h-4" />
-                              Copy
-                            </span>
-                          )}
+                          {copiedIndex === idx ? <CheckIcon className="w-3.5 h-3.5 text-emerald-500" /> : <CopyIcon className="w-3.5 h-3.5" />}
+                          <span>{copiedIndex === idx ? "Copied" : "Copy"}</span>
                         </button>
                         <button
-                          onClick={() => onSaveToLibrary(item.prompt)}
-                          className="flex-1 py-2 rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 text-xs font-semibold"
+                          type="button"
+                          onClick={() => handleSave(item.prompt, idx)}
+                          className="editorial-button editorial-button--sm editorial-button--secondary flex-1 justify-center"
                         >
-                          <span className="flex items-center justify-center gap-2">
-                            <FolderIcon className="w-4 h-4" />
-                            Save
-                          </span>
+                          {savedIndex === idx ? <CheckIcon className="w-3.5 h-3.5 text-emerald-500" /> : <FolderIcon className="w-3.5 h-3.5" />}
+                          <span>{savedIndex === idx ? "Saved" : "Save"}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onSendToBuilder(item.prompt)}
+                          className="editorial-button editorial-button--sm editorial-button--primary"
+                        >
+                          <span>To Builder ➔</span>
                         </button>
                       </div>
                     </div>
@@ -472,136 +524,185 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
               )}
             </div>
           </div>
+
+          {/* Bottom Command Bar */}
+          <div className="absolute bottom-4 left-4 right-4 z-20">
+            <div className="editorial-panel p-2 shadow-lg flex items-center gap-2 max-w-4xl mx-auto bg-[var(--editorial-paper)] border-[var(--editorial-rule-strong)]">
+              {isSupported && (
+                <button
+                  type="button"
+                  onClick={startListening}
+                  className={`p-2 border transition-all ${
+                    isListening ? "bg-red-500 text-white border-red-500 animate-pulse" : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-[var(--editorial-rule)] hover:text-[var(--editorial-coral)]"
+                  }`}
+                  title="Voice Input"
+                >
+                  {isListening ? <MicOffIcon className="w-4 h-4" /> : <MicIcon className="w-4 h-4" />}
+                </button>
+              )}
+
+              <input
+                ref={bottomInputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !isGenerating) {
+                    runGeneration();
+                  }
+                }}
+                placeholder="Describe what you want to synthesize..."
+                className="flex-grow bg-transparent border-none outline-none font-mono text-xs text-[var(--editorial-ink)] placeholder-[var(--editorial-muted)] px-2"
+              />
+
+              <button
+                type="button"
+                onClick={() => runGeneration()}
+                disabled={isGenerating || !input.trim()}
+                className="editorial-button editorial-button--sm editorial-button--primary editorial-button--coral"
+              >
+                {isGenerating ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1 shrink-0" />
+                ) : (
+                  <SparklesIcon className="w-3.5 h-3.5" />
+                )}
+                <span>{isGenerating ? "Synthesizing..." : "Synthesize"}</span>
+              </button>
+            </div>
+          </div>
         </div>
 
+        {/* Right Panel: Persona & Semantic Sliders */}
         <div
-          className={`transition-all duration-300 bg-white/80 dark:bg-white/5 backdrop-blur-xl border-l border-gray-200 dark:border-white/10 h-full flex flex-col ${
-            rightOpen ? "w-[320px]" : "w-0"
-          } overflow-hidden`}
+          className={`transition-all duration-300 bg-[var(--editorial-surface)] border-l border-[var(--editorial-rule)] h-full flex flex-col ${
+            rightOpen ? "w-[300px]" : "w-0"
+          } overflow-hidden z-10`}
         >
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-white/10">
+          <div className="flex items-center justify-between px-4 py-3 bg-[var(--editorial-surface-strong)] border-b border-[var(--editorial-rule)]">
             <div className="flex items-center gap-2">
-              <SlidersIcon className="w-4 h-4 text-emerald-500" />
-              <span className="text-xs font-semibold uppercase text-gray-700 dark:text-gray-200">
-                Thinker & Style
+              <SlidersIcon className="w-3.5 h-3.5 text-[var(--editorial-coral)]" />
+              <span className="font-mono text-xs font-bold uppercase tracking-wider text-[var(--editorial-ink)]">
+                Persona & Controls
               </span>
             </div>
             <button
+              type="button"
               onClick={() => setRightOpen(false)}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/10"
+              className="p-1 text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
             >
-              <ArrowRightIcon className="w-4 h-4" />
+              <ArrowRightIcon className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          <div className="p-4 space-y-4 overflow-auto">
-            <div className="space-y-2">
-              <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                Thinker Persona
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                {personas.map(({ id, label, Icon }) => (
-                  <button
-                    key={id}
-                    onClick={() => setPersona(id as PersonaId)}
-                    className={`p-3 rounded-2xl border flex items-center gap-2 ${persona === id ? "border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-200" : "border-gray-200 dark:border-white/10 bg-white/60 dark:bg-white/5"}`}
-                  >
-                    <span
-                      className={`p-2 rounded-xl ${
-                        persona === id
-                          ? "bg-emerald-500 text-white"
-                          : "bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-gray-200"
+          <div className="p-3.5 flex-1 overflow-y-auto space-y-4 custom-scrollbar">
+            {/* Persona Selector */}
+            <div className="space-y-1.5">
+              <span className="font-mono text-[10px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider">AI Persona Lens</span>
+              <div className="grid grid-cols-1 gap-1">
+                {personas.map((p) => {
+                  const Icon = p.Icon;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setPersona(p.id)}
+                      className={`p-2 border text-xs font-mono flex items-center gap-2 transition-all ${
+                        persona === p.id
+                          ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)] font-bold shadow-[2px_2px_0_var(--editorial-coral)]"
+                          : "bg-[var(--editorial-paper)] text-[var(--editorial-muted)] border-[var(--editorial-rule)] hover:border-[var(--editorial-coral)] hover:text-[var(--editorial-ink)]"
                       }`}
                     >
-                      <Icon className="w-4 h-4" />
-                    </span>
-                    <span className="text-sm font-semibold">{label}</span>
-                  </button>
-                ))}
+                      <Icon className="w-3.5 h-3.5" />
+                      <span>{p.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <div className="flex justify-between text-xs font-semibold text-gray-600 dark:text-gray-300">
-                  <span>Prompt Adherence</span>
-                  <span>{Math.round(promptAdherence * 100)}%</span>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={promptAdherence}
-                  onChange={(e) =>
-                    setPromptAdherence(parseFloat(e.target.value))
-                  }
-                  className="w-full"
-                />
+            {/* Semantic Slider: Adherence */}
+            <div className="space-y-1.5 p-3 bg-[var(--editorial-surface-strong)] border border-[var(--editorial-rule)]">
+              <div className="flex justify-between items-center font-mono text-[10px] font-bold text-[var(--editorial-muted)] uppercase">
+                <span>Adherence</span>
+                <span className="text-[var(--editorial-coral)]">
+                  {promptAdherence <= 0.35 ? "Creative Expansion" : promptAdherence >= 0.65 ? "Strict Wording" : "Balanced"}
+                </span>
               </div>
-              <div>
-                <div className="flex justify-between text-xs font-semibold text-gray-600 dark:text-gray-300">
-                  <span>Prompt Length</span>
-                  <span>
-                    {promptLength <= 0.33
-                      ? "Short"
-                      : promptLength >= 0.67
-                        ? "Verbose"
-                        : "Balanced"}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={promptLength}
-                  onChange={(e) => setPromptLength(parseFloat(e.target.value))}
-                  className="w-full"
-                />
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={promptAdherence}
+                onChange={(e) => setPromptAdherence(parseFloat(e.target.value))}
+                className="w-full h-1 bg-[var(--editorial-rule)] rounded-none appearance-none cursor-pointer accent-[var(--editorial-coral)]"
+              />
+              <div className="flex justify-between font-mono text-[9px] text-[var(--editorial-muted)]">
+                <span>Exploration</span>
+                <span>Strict</span>
               </div>
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <p className="text-xs font-semibold text-gray-600 dark:text-gray-300">
-                  Lighting
-                </p>
+            {/* Semantic Slider: Length */}
+            <div className="space-y-1.5 p-3 bg-[var(--editorial-surface-strong)] border border-[var(--editorial-rule)]">
+              <div className="flex justify-between items-center font-mono text-[10px] font-bold text-[var(--editorial-muted)] uppercase">
+                <span>Prompt Length</span>
+                <span className="text-[var(--editorial-coral)]">
+                  {promptLength <= 0.33 ? "Concise" : promptLength >= 0.67 ? "Exhaustive" : "Balanced"}
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={promptLength}
+                onChange={(e) => setPromptLength(parseFloat(e.target.value))}
+                className="w-full h-1 bg-[var(--editorial-rule)] rounded-none appearance-none cursor-pointer accent-[var(--editorial-coral)]"
+              />
+              <div className="flex justify-between font-mono text-[9px] text-[var(--editorial-muted)]">
+                <span>Punchy</span>
+                <span>Detailed</span>
+              </div>
+            </div>
+
+            {/* Aesthetic Selectors */}
+            <div className="space-y-2.5 pt-1">
+              <div className="space-y-1">
+                <span className="font-mono text-[10px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider block">Lighting Style</span>
                 <select
                   value={lighting}
                   onChange={(e) => setLighting(e.target.value)}
-                  className="w-full mt-1 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-[#111827] px-3 py-2 text-sm"
+                  className="editorial-select w-full text-xs font-mono"
                 >
                   {lightingOptions.map((opt) => (
-                    <option key={opt}>{opt}</option>
+                    <option key={opt} value={opt}>{opt}</option>
                   ))}
                 </select>
               </div>
-              <div>
-                <p className="text-xs font-semibold text-gray-600 dark:text-gray-300">
-                  Camera Angle
-                </p>
+
+              <div className="space-y-1">
+                <span className="font-mono text-[10px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider block">Camera Angle</span>
                 <select
                   value={angle}
                   onChange={(e) => setAngle(e.target.value)}
-                  className="w-full mt-1 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-[#111827] px-3 py-2 text-sm"
+                  className="editorial-select w-full text-xs font-mono"
                 >
                   {cameraAngles.map((opt) => (
-                    <option key={opt}>{opt}</option>
+                    <option key={opt} value={opt}>{opt}</option>
                   ))}
                 </select>
               </div>
-              <div>
-                <p className="text-xs font-semibold text-gray-600 dark:text-gray-300">
-                  Color Palette
-                </p>
+
+              <div className="space-y-1">
+                <span className="font-mono text-[10px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider block">Color Palette</span>
                 <select
                   value={palette}
                   onChange={(e) => setPalette(e.target.value)}
-                  className="w-full mt-1 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-[#111827] px-3 py-2 text-sm"
+                  className="editorial-select w-full text-xs font-mono"
                 >
                   {colorPalettes.map((opt) => (
-                    <option key={opt}>{opt}</option>
+                    <option key={opt} value={opt}>{opt}</option>
                   ))}
                 </select>
               </div>
@@ -609,120 +710,6 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
           </div>
         </div>
       </div>
-
-      <div className="absolute inset-x-0 bottom-5 flex justify-center pointer-events-none">
-        <div className="w-full max-w-4xl px-4 pointer-events-auto">
-          <div className="relative bg-white/80 dark:bg-white/10 backdrop-blur-2xl border border-gray-200 dark:border-white/10 shadow-2xl rounded-full flex items-center gap-3 px-4 py-3">
-            {uploadedImage && (
-              <div className="absolute -top-16 left-4 bg-white dark:bg-[#0f172a] border border-gray-200 dark:border-white/10 rounded-2xl shadow-xl flex items-center gap-3 px-3 py-2">
-                <img
-                  src={uploadedImage.preview}
-                  alt="attached reference"
-                  className="w-10 h-10 rounded-xl object-cover"
-                />
-                <div className="text-xs text-gray-600 dark:text-gray-200">
-                  <p className="font-semibold">Image attached</p>
-                  <p className="w-32 truncate">{uploadedImage.name}</p>
-                </div>
-                <button
-                  onClick={clearUploadedImage}
-                  className="text-[11px] font-semibold px-2 py-1 rounded-lg bg-gray-100 dark:bg-white/10"
-                >
-                  X
-                </button>
-              </div>
-            )}
-
-            {uploadedImage && (
-              <div className="absolute left-28 -top-5 flex items-center gap-2 bg-white/90 dark:bg-white/10 border border-gray-200 dark:border-white/10 rounded-full px-2 py-1 shadow-md text-[11px]">
-                <button
-                  onClick={() => handleImageActionSelect("reference")}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-full font-semibold ${
-                    imageAction === "reference"
-                      ? "bg-emerald-500 text-white"
-                      : "text-gray-600 dark:text-gray-300"
-                  }`}
-                >
-                  <span>{"\u{1F5BC}"}</span>
-                  <span className="hidden sm:inline">Image Reference</span>
-                </button>
-                <button
-                  onClick={() => handleImageActionSelect("extract")}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-full font-semibold ${
-                    imageAction === "extract"
-                      ? "bg-cyan-500 text-white"
-                      : "text-gray-600 dark:text-gray-300"
-                  }`}
-                >
-                  <span>{"\u{1F441}"}</span>
-                  <span className="hidden sm:inline">Extract Prompt</span>
-                </button>
-              </div>
-            )}
-
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="p-2 rounded-full bg-gray-100 dark:bg-white/10 hover:bg-gray-200 dark:hover:bg-white/20"
-              title="Upload image"
-            >
-              <ImagePlusIcon className="w-5 h-5 text-gray-600 dark:text-gray-200" />
-            </button>
-            {isSupported && (
-              <button
-                onClick={startListening}
-                className={`p-2 rounded-full ${isListening ? "bg-gradient-to-r from-red-500 to-pink-500 text-white animate-pulse" : "bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-200"}`}
-              >
-                {isListening ? (
-                  <MicOffIcon className="w-5 h-5" />
-                ) : (
-                  <MicIcon className="w-5 h-5" />
-                )}
-              </button>
-            )}
-            <input
-              ref={bottomInputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleQuickEnter}
-              readOnly={isExtracting}
-              className="flex-1 bg-transparent outline-none text-sm text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
-              placeholder="Describe your imagination..."
-            />
-            <button
-              onClick={() => runGeneration(false)}
-              disabled={isGenerating || isExtracting}
-              className="px-4 py-2 rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500 text-white text-sm font-semibold shadow-lg hover:shadow-xl disabled:opacity-60"
-            >
-              {isGenerating ? "Working..." : "Generate"}
-            </button>
-            <input
-              type="file"
-              ref={fileInputRef}
-              className="hidden"
-              accept="image/*"
-              onChange={(e) => handleFile(e.target.files?.[0])}
-            />
-
-            {isExtracting && (
-              <div className="absolute inset-0 rounded-full bg-white/80 dark:bg-black/40 flex items-center justify-center gap-2 text-sm font-semibold text-emerald-700 dark:text-emerald-200">
-                <span className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></span>
-                Scanning image...
-              </div>
-            )}
-            {!isExtracting && inputStatus && (
-              <div className="absolute inset-x-6 -bottom-7 text-xs text-gray-500 dark:text-gray-300">
-                {inputStatus}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {statusMessage && (
-        <div className="absolute right-4 bottom-28 bg-white/90 dark:bg-white/10 border border-gray-200 dark:border-white/10 rounded-xl px-3 py-2 text-xs text-gray-700 dark:text-gray-200 shadow">
-          {statusMessage}
-        </div>
-      )}
     </div>
   );
 };

@@ -1,4 +1,5 @@
 import React, { useState, useCallback, memo, useRef, useEffect, useMemo, Suspense, lazy } from "react";
+import { ProcessingAnimation } from "./ProcessingAnimation";
 import {
     generateBannerPrompt,
     generateBannerFromImages,
@@ -25,6 +26,7 @@ import {
     ChevronDownIcon,
     ChevronUpIcon,
 } from "./icons";
+import { Loader2 } from "lucide-react";
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -32,8 +34,7 @@ import {
 
 interface BannerPrompterProps {
     onSendToBuilder: (prompt: string) => void;
-    onJumpToImage: (prompt: string) => void;
-    onSaveToLibrary: (prompt: string) => void;
+    onSaveToLibrary: (prompt: string, platform?: any, imageUrl?: string, tags?: string[]) => void;
 }
 
 interface DropdownOption {
@@ -108,19 +109,19 @@ const ImageUploadBox = memo(
         };
 
         return (
-            <div className="space-y-2">
-                <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide pl-1">
+            <div className="space-y-1.5">
+                <p className="m-0 font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider">
                     {label}
                 </p>
                 <div className="relative aspect-video group">
                     <label
                         onDragOver={onDragOver}
                         onDrop={onDrop}
-                        className={`flex flex-col items-center justify-center w-full h-full border-2 border-dashed rounded-xl cursor-pointer transition-all duration-300 overflow-hidden relative will-change-transform
-                            ${image
-                                ? "border-transparent"
-                                : "bg-gray-50 dark:bg-white/5 border-gray-300 dark:border-white/10 hover:bg-gray-100 dark:hover:bg-white/10 hover:border-emerald-500/50"
-                            }`}
+                        className={`flex flex-col items-center justify-center w-full h-full border border-dashed cursor-pointer transition-colors duration-200 overflow-hidden relative ${
+                            image
+                                ? "border-[var(--editorial-rule)] bg-black/5 dark:bg-black/30"
+                                : "border-[var(--editorial-rule-strong)] bg-[var(--editorial-surface)] hover:border-[var(--editorial-teal)] hover:bg-[var(--editorial-teal-soft)]"
+                        }`}
                     >
                         {image ? (
                             <>
@@ -129,17 +130,21 @@ const ImageUploadBox = memo(
                                     alt={label}
                                     decoding="async"
                                     loading="lazy"
-                                    className="h-full w-full object-cover rounded-xl"
+                                    className="h-full w-full object-cover"
                                 />
-                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors rounded-2xl" />
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                    <span className="px-2.5 py-1 bg-[var(--editorial-paper)] text-[var(--editorial-ink)] font-mono text-[10px] font-bold border border-[var(--editorial-rule)]">
+                                        Replace
+                                    </span>
+                                </div>
                             </>
                         ) : (
                             <div className="flex flex-col items-center justify-center text-center p-2">
-                                <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-white/10 mb-2 flex items-center justify-center text-gray-400 dark:text-gray-500 group-hover:text-emerald-500 transition-colors">
+                                <div className="w-7 h-7 flex items-center justify-center text-[var(--editorial-teal)] mb-1">
                                     <ImagePlusIcon className="w-4 h-4" />
                                 </div>
-                                <p className="text-[10px] font-medium text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300">
-                                    Click or Drop
+                                <p className="m-0 font-mono text-[10px] text-[var(--editorial-muted)] group-hover:text-[var(--editorial-ink)] uppercase tracking-wider">
+                                    Drop / Browse
                                 </p>
                             </div>
                         )}
@@ -152,11 +157,12 @@ const ImageUploadBox = memo(
                     </label>
                     {image && (
                         <button
+                            type="button"
                             onClick={(e) => {
                                 e.preventDefault();
                                 onRemove(index);
                             }}
-                            className="absolute -top-2 -right-2 p-1.5 bg-red-500 text-white rounded-full shadow-md hover:bg-red-600 transition-transform hover:scale-110 opacity-0 group-hover:opacity-100"
+                            className="absolute top-1.5 right-1.5 p-1 bg-red-500 text-white shadow-sm hover:bg-red-600 transition-opacity"
                             title="Remove image"
                         >
                             <XIcon className="h-3 w-3" />
@@ -179,61 +185,81 @@ const INDUSTRY_OPTIONS: DropdownOption[] = [
     { key: "food_beverage", label: "🍔 Food & Beverage" },
     { key: "healthcare", label: "🏥 Healthcare" },
     { key: "automotive", label: "🚗 Automotive" },
-    { key: "beauty", label: "💄 Beauty & Cosmetics" },
     { key: "real_estate", label: "🏠 Real Estate" },
-    { key: "finance", label: "💰 Finance" },
-    { key: "sports", label: "⚽ Sports & Fitness" },
-    { key: "entertainment", label: "🎬 Entertainment" },
+    { key: "finance", label: "💰 Finance & Fintech" },
+    { key: "beauty", label: "💄 Beauty & Cosmetics" },
+    { key: "travel", label: "✈️ Travel & Hospitality" },
+    { key: "fitness", label: "🏋️ Fitness & Wellness" },
+    { key: "entertainment", label: "🎬 Entertainment & Media" },
+    { key: "education", label: "🎓 Education & EdTech" },
+    { key: "ecommerce", label: "🛒 E-Commerce & Retail" },
+    { key: "luxury", label: "💎 Luxury Goods" },
+    { key: "gaming", label: "🎮 Gaming & Esports" },
+    { key: "sustainability", label: "🌱 Sustainability & Eco" },
+    { key: "b2b_saas", label: "☁️ B2B SaaS" },
+    { key: "crypto_web3", label: "🪙 Crypto & Web3" },
+    { key: "pet_care", label: "🐾 Pet Care" },
+    { key: "home_decor", label: "🛋️ Home & Interior" },
 ];
 
 const PRODUCT_TYPE_OPTIONS: DropdownOption[] = [
     { key: "", label: "None" },
-    { key: "physical", label: "📦 Physical Product" },
-    { key: "digital", label: "💻 Digital Product" },
-    { key: "service", label: "🛎️ Service" },
-    { key: "campaign", label: "📢 Marketing Campaign" },
-    { key: "event", label: "🎉 Event" },
-    { key: "app", label: "📱 Mobile App" },
-    { key: "subscription", label: "🔄 Subscription" },
-    { key: "brand", label: "🏷️ Brand Identity" },
+    { key: "physical_product", label: "📦 Physical Product" },
+    { key: "software_app", label: "📱 Software / App" },
+    { key: "saas_platform", label: "☁️ SaaS Platform" },
+    { key: "service", label: "🤝 Professional Service" },
+    { key: "course_content", label: "📚 Course / Content" },
+    { key: "event_ticket", label: "🎟️ Event / Experience" },
+    { key: "subscription", label: "🔄 Subscription Box" },
+    { key: "hardware_device", label: "💻 Hardware Device" },
+    { key: "consumable", label: "🍎 Consumable / Food" },
+    { key: "apparel", label: "👕 Apparel & Wearable" },
+    { key: "digital_download", label: "💾 Digital Download" },
+    { key: "membership", label: "👑 Membership / Club" },
 ];
 
 const MATERIAL_OPTIONS: DropdownOption[] = [
     { key: "", label: "None" },
-    { key: "metallic", label: "🔩 Metallic" },
-    { key: "glass", label: "🔮 Glass/Crystal" },
-    { key: "plastic", label: "🧪 Plastic" },
-    { key: "fabric", label: "🧵 Fabric/Textile" },
-    { key: "wood", label: "🪵 Wood" },
-    { key: "leather", label: "👜 Leather" },
-    { key: "ceramic", label: "🏺 Ceramic" },
-    { key: "paper", label: "📄 Paper/Cardboard" },
-    { key: "liquid", label: "💧 Liquid/Fluid" },
-    { key: "organic", label: "🌿 Organic/Natural" },
+    { key: "matte_metal", label: "🔩 Matte Brushed Metal" },
+    { key: "glossy_plastic", label: "✨ Glossy Premium Plastic" },
+    { key: "frosted_glass", label: "🧊 Frosted Glass" },
+    { key: "natural_wood", label: "🪵 Natural Wood / Walnut" },
+    { key: "premium_leather", label: "👜 Premium Leather" },
+    { key: "anodized_aluminum", label: "📱 Anodized Aluminum" },
+    { key: "ceramic", label: "🏺 Ceramic / Porcelain" },
+    { key: "carbon_fiber", label: "🏁 Carbon Fiber" },
+    { key: "organic_cotton", label: "🌿 Organic Cotton" },
+    { key: "concrete_stone", label: "🏛️ Concrete & Stone" },
+    { key: "translucent_resin", label: "💧 Translucent Resin" },
+    { key: "gold_brass", label: "🌟 Gold & Brass Accents" },
 ];
 
 const BRAND_STYLE_OPTIONS: DropdownOption[] = [
     { key: "", label: "None" },
-    { key: "minimalist", label: "➖ Minimalist" },
-    { key: "bold", label: "💪 Bold & Dynamic" },
-    { key: "luxury", label: "👑 Luxury Premium" },
-    { key: "playful", label: "🎨 Playful & Fun" },
-    { key: "corporate", label: "🏢 Corporate" },
-    { key: "vintage", label: "📻 Vintage/Retro" },
-    { key: "futuristic", label: "🚀 Futuristic" },
-    { key: "eco", label: "🌱 Eco-Friendly" },
+    { key: "apple_minimal", label: "🍎 Apple-esque Ultra Minimal" },
+    { key: "nike_bold", label: "⚡ Nike Dynamic & Athletic" },
+    { key: "luxury_editorial", label: "👑 Vogue Editorial Luxury" },
+    { key: "tech_futuristic", label: "🚀 Cyberpunk / Futuristic" },
+    { key: "warm_artisanal", label: "☕ Warm Artisanal & Crafted" },
+    { key: "swiss_clean", label: "📐 Swiss International Clean" },
+    { key: "playful_genz", label: "🎨 Playful & Bold Neo-Pop" },
+    { key: "dark_mode_pro", label: "🖤 Sleek Dark Mode Pro" },
+    { key: "organic_earthy", label: "🍃 Earthy Botanical Organic" },
+    { key: "corporate_clean", label: "🏢 Corporate Trustworthy" },
 ];
 
 const TARGET_AUDIENCE_OPTIONS: DropdownOption[] = [
     { key: "", label: "None" },
-    { key: "professional", label: "👔 Professional/B2B" },
-    { key: "young_adults", label: "🧑 Young Adults (18-35)" },
-    { key: "families", label: "👨‍👩‍👧 Families" },
-    { key: "premium", label: "💎 Premium/Affluent" },
-    { key: "gen_z", label: "🎯 Gen Z" },
-    { key: "seniors", label: "👵 Seniors" },
-    { key: "tech_savvy", label: "🤖 Tech-Savvy" },
-    { key: "health_conscious", label: "🧘 Health-Conscious" },
+    { key: "tech_enthusiasts", label: "💻 Tech Enthusiasts & Early Adopters" },
+    { key: "gen_z", label: "⚡ Gen Z & Trendsetters" },
+    { key: "millennials", label: "☕ Modern Millennials" },
+    { key: "professionals_execs", label: "💼 B2B Executives & Founders" },
+    { key: "creative_designers", label: "🎨 Creatives & Designers" },
+    { key: "fitness_athletes", label: "🏃 Athletes & Fitness Enthusiasts" },
+    { key: "parents_families", label: "👨‍👩‍👧 Parents & Families" },
+    { key: "luxury_buyers", label: "💎 High Net Worth / Luxury Buyers" },
+    { key: "gamers", label: "🎮 Gamers & Streamers" },
+    { key: "students", label: "🎓 Students & Young Adults" },
 ];
 
 const COLOR_PALETTE_OPTIONS: DropdownOption[] = [
@@ -297,7 +323,7 @@ const DropdownSelector = memo(({
     customPlaceholder = "Or enter custom..."
 }: DropdownSelectorProps) => (
     <div className="space-y-2">
-        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+        <label className="editorial-label">
             {label}
         </label>
         <select
@@ -307,17 +333,10 @@ const DropdownSelector = memo(({
                 onSelect(e.target.value);
                 if (customValue) onCustomChange("");
             }}
-            className="w-full px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-white/20 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500 text-sm text-gray-900 dark:text-white appearance-none cursor-pointer transition-all min-h-[44px]"
-            style={{
-                backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
-                backgroundPosition: 'right 0.75rem center',
-                backgroundRepeat: 'no-repeat',
-                backgroundSize: '1.5em 1.5em',
-                paddingRight: '2.5rem'
-            }}
+            className="editorial-select cursor-pointer"
         >
             {options.map(({ key, label: optLabel }) => (
-                <option key={key} value={key} className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
+                <option key={key} value={key}>
                     {optLabel}
                 </option>
             ))}
@@ -327,8 +346,7 @@ const DropdownSelector = memo(({
             value={customValue}
             onChange={(e) => onCustomChange(e.target.value)}
             placeholder={customPlaceholder}
-            className={`w-full px-4 py-3 bg-white dark:bg-white/5 border rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/30 transition-all min-h-[44px]
-                ${customValue ? `border-emerald-500 ring-1 ring-emerald-500/30` : "border-gray-300 dark:border-white/10"}`}
+            className="editorial-input"
         />
     </div>
 ));
@@ -340,50 +358,47 @@ const DropdownSelector = memo(({
 const CollapsibleSection = memo(({
     title,
     badge,
-    badgeGradient = "from-amber-500 to-orange-500",
     subBadge,
     isOpen,
     onToggle,
     children
 }: CollapsibleSectionProps) => (
-    <div className="space-y-4 pt-4 border-t border-gray-200 dark:border-white/10">
+    <div className="editorial-panel transition-all">
         <button
+            type="button"
             onClick={onToggle}
-            className="flex items-center justify-between w-full"
+            className={`w-full flex items-center justify-between p-3.5 sm:p-4 text-left transition-colors ${isOpen
+                ? 'bg-[var(--ui-surface)]'
+                : 'bg-[var(--ui-surface-muted)] hover:bg-[var(--ui-surface)]'
+                }`}
         >
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
                 {badge && (
-                    <span className={`px-2 py-1 bg-gradient-to-r ${badgeGradient} text-white text-xs font-bold rounded-full`}>
+                    <span className="px-2 py-0.5 bg-[var(--ui-teal)] text-white font-mono text-[10px] font-bold uppercase tracking-wider">
                         {badge}
                     </span>
                 )}
-                <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wide">
+                <h3 className="font-serif text-sm font-normal text-[var(--ui-ink)] m-0">
                     {title}
                 </h3>
                 {subBadge && (
-                    <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold rounded-full">
+                    <span className="px-2 py-0.5 bg-[var(--ui-teal-soft)] text-[var(--ui-teal)] border border-[var(--ui-teal)]/30 font-mono text-[10px] font-bold">
                         {subBadge}
                     </span>
                 )}
             </div>
             {isOpen ? (
-                <ChevronUpIcon className="w-5 h-5 text-gray-500" />
+                <ChevronUpIcon className="w-4 h-4 text-[var(--ui-teal)]" />
             ) : (
-                <ChevronDownIcon className="w-5 h-5 text-gray-500" />
+                <ChevronDownIcon className="w-4 h-4 text-[var(--ui-muted)]" />
             )}
         </button>
 
-        {/* Use CSS for content-visibility optimization */}
-        <div
-            className={`transition-all duration-300 ease-in-out ${isOpen ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden'}`}
-            style={{ contentVisibility: isOpen ? 'visible' : 'hidden' }}
-        >
-            {isOpen && (
-                <div className="space-y-6 animate-fade-in">
-                    {children}
-                </div>
-            )}
-        </div>
+        {isOpen && (
+            <div className="p-4 sm:p-5 bg-[var(--ui-surface)] border-t border-[var(--ui-border)] space-y-5 motion-fade">
+                {children}
+            </div>
+        )}
     </div>
 ));
 
@@ -403,23 +418,16 @@ const SimpleDropdown = memo(({
     onSelect: (key: string) => void;
 }) => (
     <div className="space-y-2">
-        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+        <label className="editorial-label">
             {label}
         </label>
         <select
             value={selected}
             onChange={(e) => onSelect(e.target.value)}
-            className="w-full px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-white/20 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500 text-sm text-gray-900 dark:text-white appearance-none cursor-pointer transition-all min-h-[44px]"
-            style={{
-                backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
-                backgroundPosition: 'right 0.75rem center',
-                backgroundRepeat: 'no-repeat',
-                backgroundSize: '1.5em 1.5em',
-                paddingRight: '2.5rem'
-            }}
+            className="editorial-select cursor-pointer"
         >
             {options.map(({ key, label: optLabel }) => (
-                <option key={key} value={key} className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
+                <option key={key} value={key}>
                     {optLabel}
                 </option>
             ))}
@@ -433,7 +441,6 @@ const SimpleDropdown = memo(({
 
 const BannerPrompter: React.FC<BannerPrompterProps> = ({
     onSendToBuilder,
-    onJumpToImage,
     onSaveToLibrary,
 }) => {
     // P1: Subject/Product State
@@ -550,6 +557,7 @@ const BannerPrompter: React.FC<BannerPrompterProps> = ({
     }, [productDescription, selectedIndustry, customIndustry, selectedProductType, customProductType, selectedMaterial, customMaterial, selectedBrandStyle, customBrandStyle, selectedAudience, customAudience, selectedColorPalette, customColorPalette, designHeadline, designSubheading, designProductDetails, designCTA, designBrandName, designPrice, designDisclaimer]);
 
     useEffect(() => {
+        isMounted.current = true;
         return () => {
             isMounted.current = false;
             refImages.forEach(img => {
@@ -678,482 +686,520 @@ const BannerPrompter: React.FC<BannerPrompterProps> = ({
     }, [generatedResult]);
 
     const handleSave = useCallback(() => {
-        onSaveToLibrary(generatedResult);
+        const firstImg = refImages.find(img => img !== null)?.url;
+        onSaveToLibrary(
+            generatedResult,
+            undefined,
+            firstImg,
+            ["pro-prompter", "banner", selectedPlatform]
+        );
         setSaved(true);
         setTimeout(() => setSaved(false), 2000);
-    }, [generatedResult, onSaveToLibrary]);
+    }, [generatedResult, refImages, selectedPlatform, onSaveToLibrary]);
 
     return (
-        <div className="max-w-4xl mx-auto py-4 sm:py-8 px-2 sm:px-0 animate-fade-in space-y-6 sm:space-y-8">
-            {/* Header */}
-            <div className="flex items-center gap-4">
-                <div className="p-3 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-2xl text-white shadow-lg">
-                    <SparklesIcon className="w-8 h-8" />
+        <div className="w-full max-w-6xl mx-auto space-y-6 animate-fade-in">
+            {/* Main Editorial Form */}
+            <div className="editorial-panel">
+                <div className="editorial-panel__header">
+                    <div className="flex items-center gap-2">
+                        <span className="editorial-badge editorial-badge--teal">01 / Architecture</span>
+                        <h2 className="editorial-panel__title m-0 text-base">Commercial Prompt Engineering Matrix</h2>
+                    </div>
+                    {isGenerating && (
+                        <span className="editorial-badge editorial-badge--teal animate-pulse">
+                            Assembling Directives...
+                        </span>
+                    )}
                 </div>
-                <div>
-                    <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
-                        Pro Prompter
-                    </h2>
-                    <p className="text-gray-500 dark:text-gray-400">
-                        Professional Prompt Architecture Engine
-                    </p>
+
+                <div className="editorial-panel__body space-y-6">
+                    {/* P1: Subject / Product Section - Primary Canvas */}
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between pb-2 border-b border-[var(--editorial-rule)]">
+                            <span className="font-mono text-xs font-bold uppercase tracking-wider text-[var(--editorial-teal)] flex items-center gap-1.5">
+                                <span className="editorial-badge editorial-badge--teal">P1</span> Subject & Product Specification
+                            </span>
+                            <span className="font-mono text-[10px] text-[var(--editorial-muted)] uppercase tracking-wider">
+                                Core Target
+                            </span>
+                        </div>
+
+                        {/* Product Image Uploads */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <ImageUploadBox
+                                label="01 / Product Photo"
+                                image={refImages[0]}
+                                index={0}
+                                onUpload={handleImageUpload}
+                                onRemove={handleImageRemove}
+                            />
+                            <ImageUploadBox
+                                label="02 / Style Reference (Optional)"
+                                image={refImages[1]}
+                                index={1}
+                                onUpload={handleImageUpload}
+                                onRemove={handleImageRemove}
+                            />
+                        </div>
+
+                        {/* Product Description */}
+                        <div className="space-y-1.5">
+                            <label className="font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider block">
+                                Product Description & Physical Attributes
+                            </label>
+                            <textarea
+                                value={productDescription}
+                                onChange={(e) => setProductDescription(e.target.value)}
+                                placeholder="Describe your product with exact materials, surface finishes, textures, and hero design elements..."
+                                className="editorial-textarea min-h-[90px] text-xs font-mono"
+                            />
+                        </div>
+                    </div>
+
+                    {/* PRO: Professional Options Section - COLLAPSIBLE */}
+                    <CollapsibleSection
+                        title="Commercial & Industry Parameters"
+                        badge="PRO"
+                        subBadge="Commercial Grade"
+                        isOpen={showProOptions}
+                        onToggle={() => setShowProOptions(!showProOptions)}
+                    >
+                        {/* Row 1: Industry & Product Type */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <DropdownSelector
+                                label="Industry Sector"
+                                options={INDUSTRY_OPTIONS}
+                                selected={selectedIndustry}
+                                customValue={customIndustry}
+                                onSelect={setSelectedIndustry}
+                                onCustomChange={setCustomIndustry}
+                                customPlaceholder="Custom industry (e.g., Aerospace, Hospitality...)"
+                            />
+                            <DropdownSelector
+                                label="Product Category"
+                                options={PRODUCT_TYPE_OPTIONS}
+                                selected={selectedProductType}
+                                customValue={customProductType}
+                                onSelect={setSelectedProductType}
+                                onCustomChange={setCustomProductType}
+                                customPlaceholder="Custom type (e.g., SaaS, Hardware...)"
+                            />
+                        </div>
+
+                        {/* Row 2: Material & Brand Style */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <DropdownSelector
+                                label="Primary Material Language"
+                                options={MATERIAL_OPTIONS}
+                                selected={selectedMaterial}
+                                customValue={customMaterial}
+                                onSelect={setSelectedMaterial}
+                                onCustomChange={setCustomMaterial}
+                                customPlaceholder="Custom material (e.g., Carbon Fiber, Titanium...)"
+                            />
+                            <DropdownSelector
+                                label="Brand Visual Tone"
+                                options={BRAND_STYLE_OPTIONS}
+                                selected={selectedBrandStyle}
+                                customValue={customBrandStyle}
+                                onSelect={setSelectedBrandStyle}
+                                onCustomChange={setCustomBrandStyle}
+                                customPlaceholder="Custom style (e.g., Industrial, Artisan...)"
+                            />
+                        </div>
+
+                        {/* Row 3: Target Audience & Color Palette */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <DropdownSelector
+                                label="Target Demographic"
+                                options={TARGET_AUDIENCE_OPTIONS}
+                                selected={selectedAudience}
+                                customValue={customAudience}
+                                onSelect={setSelectedAudience}
+                                onCustomChange={setCustomAudience}
+                                customPlaceholder="Custom audience (e.g., Founders, Gen Z...)"
+                            />
+                            <DropdownSelector
+                                label="Color Harmony Palette"
+                                options={COLOR_PALETTE_OPTIONS}
+                                selected={selectedColorPalette}
+                                customValue={customColorPalette}
+                                onSelect={setSelectedColorPalette}
+                                onCustomChange={setCustomColorPalette}
+                                customPlaceholder="Custom palette (e.g., Terracotta & Ink...)"
+                            />
+                        </div>
+                    </CollapsibleSection>
+
+                    {/* TEXT: Design Text Content Section - COLLAPSIBLE */}
+                    <CollapsibleSection
+                        title="Design Typography & Text Placement"
+                        badge="TXT"
+                        subBadge="Layout Copy"
+                        isOpen={showTextContent}
+                        onToggle={() => setShowTextContent(!showTextContent)}
+                    >
+                        {/* Headline */}
+                        <div className="space-y-1.5">
+                            <label className="font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider block">
+                                Primary Headline Copy
+                            </label>
+                            <input
+                                type="text"
+                                value={designHeadline}
+                                onChange={(e) => setDesignHeadline(e.target.value)}
+                                placeholder="Enter main campaign headline (e.g., Next-Generation Studio Audio)"
+                                className="editorial-input text-xs font-mono"
+                            />
+                        </div>
+
+                        {/* Subheading */}
+                        <div className="space-y-1.5">
+                            <label className="font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider block">
+                                Subheading / Supporting Tagline
+                            </label>
+                            <input
+                                type="text"
+                                value={designSubheading}
+                                onChange={(e) => setDesignSubheading(e.target.value)}
+                                placeholder="Enter supporting copy (e.g., Precision acoustics engineered in Switzerland)"
+                                className="editorial-input text-xs font-mono"
+                            />
+                        </div>
+
+                        {/* Row: Product Details & CTA */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                                <label className="font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider block">
+                                    Feature Badges / Specs
+                                </label>
+                                <input
+                                    type="text"
+                                    value={designProductDetails}
+                                    onChange={(e) => setDesignProductDetails(e.target.value)}
+                                    placeholder="e.g., 40h Battery • Lossless Wireless"
+                                    className="editorial-input text-xs font-mono"
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider block">
+                                    Call to Action (CTA)
+                                </label>
+                                <input
+                                    type="text"
+                                    value={designCTA}
+                                    onChange={(e) => setDesignCTA(e.target.value)}
+                                    placeholder="e.g., Order Now • Limited Edition"
+                                    className="editorial-input text-xs font-mono"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Row: Brand Name & Price */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                                <label className="font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider block">
+                                    Brand / Masthead
+                                </label>
+                                <input
+                                    type="text"
+                                    value={designBrandName}
+                                    onChange={(e) => setDesignBrandName(e.target.value)}
+                                    placeholder="e.g., JUGAAD VISIONS"
+                                    className="editorial-input text-xs font-mono"
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider block">
+                                    Pricing / Offer Badge
+                                </label>
+                                <input
+                                    type="text"
+                                    value={designPrice}
+                                    onChange={(e) => setDesignPrice(e.target.value)}
+                                    placeholder="e.g., $299 • Complimentary Case"
+                                    className="editorial-input text-xs font-mono"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Disclaimer */}
+                        <div className="space-y-1.5">
+                            <label className="font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider block">
+                                Legal / Footnote Copy
+                            </label>
+                            <input
+                                type="text"
+                                value={designDisclaimer}
+                                onChange={(e) => setDesignDisclaimer(e.target.value)}
+                                placeholder="e.g., Terms apply • While supplies last"
+                                className="editorial-input text-xs font-mono"
+                            />
+                        </div>
+                    </CollapsibleSection>
+
+                    {/* P2: Context/Setting Section - COLLAPSIBLE */}
+                    <CollapsibleSection
+                        title="Context & Environment Lighting"
+                        badge="P2"
+                        isOpen={showContextSection}
+                        onToggle={() => setShowContextSection(!showContextSection)}
+                    >
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <SimpleDropdown
+                                label="Set / Environment"
+                                options={environmentOptions}
+                                selected={selectedEnvironment}
+                                onSelect={setSelectedEnvironment}
+                            />
+                            <SimpleDropdown
+                                label="Lighting Setup"
+                                options={lightingOptions}
+                                selected={selectedLighting}
+                                onSelect={setSelectedLighting}
+                            />
+                        </div>
+                    </CollapsibleSection>
+
+                    {/* P3: Style/Aesthetic Section - COLLAPSIBLE */}
+                    <CollapsibleSection
+                        title="Style Medium & Mood"
+                        badge="P3"
+                        isOpen={showStyleSection}
+                        onToggle={() => setShowStyleSection(!showStyleSection)}
+                    >
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <SimpleDropdown
+                                label="Visual Medium"
+                                options={mediumOptions}
+                                selected={selectedMedium}
+                                onSelect={setSelectedMedium}
+                            />
+                            <SimpleDropdown
+                                label="Atmospheric Mood"
+                                options={moodOptions}
+                                selected={selectedMood}
+                                onSelect={setSelectedMood}
+                            />
+                        </div>
+                    </CollapsibleSection>
+
+                    {/* P4: Technical Constraints Section - COLLAPSIBLE */}
+                    <CollapsibleSection
+                        title="Technical Canvas & Negative Space"
+                        badge="P4"
+                        subBadge="Auto-Formatted"
+                        isOpen={showTechnicalSection}
+                        onToggle={() => setShowTechnicalSection(!showTechnicalSection)}
+                    >
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {/* Aspect Ratio */}
+                            <div className="space-y-1.5">
+                                <label className="font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider block">
+                                    Aspect Ratio
+                                </label>
+                                <select
+                                    value={selectedAspectRatio}
+                                    onChange={(e) => setSelectedAspectRatio(e.target.value as '1:1' | '4:5' | '16:9' | '9:16')}
+                                    className="editorial-select w-full text-xs font-mono"
+                                >
+                                    {(['1:1', '4:5', '16:9', '9:16'] as const).map((ratio) => {
+                                        const info = ASPECT_RATIO_INFO[ratio];
+                                        return (
+                                            <option key={ratio} value={ratio}>
+                                                {ratio} — {info.label}
+                                            </option>
+                                        );
+                                    })}
+                                </select>
+                            </div>
+
+                            {/* Negative Space Position */}
+                            <SimpleDropdown
+                                label="Negative Space for Copy"
+                                options={negativeSpaceOptions}
+                                selected={selectedNegativeSpace}
+                                onSelect={setSelectedNegativeSpace}
+                            />
+
+                            {/* Platform */}
+                            <SimpleDropdown
+                                label="Engine Platform"
+                                options={PLATFORM_OPTIONS}
+                                selected={selectedPlatform}
+                                onSelect={(val) => setSelectedPlatform(val as any)}
+                            />
+                        </div>
+                    </CollapsibleSection>
+
+                    {/* Error Display */}
+                    {error && (
+                        <div className="p-3 bg-red-500/10 border border-red-500/30 text-xs font-mono text-red-600 dark:text-red-400">
+                            {error}
+                        </div>
+                    )}
+
+                    {/* Generate Button */}
+                    <div className="pt-2">
+                        <button
+                            type="button"
+                            onClick={handleGenerate}
+                            disabled={isGenerating}
+                            className="editorial-button editorial-button--primary editorial-button--coral w-full justify-center text-xs"
+                        >
+                            {isGenerating ? (
+                                <>
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5 shrink-0 text-white" />
+                                    <span>{statusMessage || "Architecting Pro Prompt..."}</span>
+                                </>
+                            ) : (
+                                <>
+                                    <SparklesIcon className="w-3.5 h-3.5" />
+                                    <span>Generate Commercial Pro Prompt</span>
+                                </>
+                            )}
+                        </button>
+                    </div>
                 </div>
             </div>
 
-            {/* Main Form */}
-            <div className="bg-white/60 dark:bg-white/5 backdrop-blur-xl rounded-2xl sm:rounded-3xl border border-gray-200 dark:border-white/10 p-4 sm:p-6 shadow-xl space-y-6">
-
-                {/* P1: Subject/Product Section - Always visible */}
-                <div className="space-y-4">
-                    <div className="flex items-center gap-2">
-                        <span className="px-2 py-1 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-xs font-bold rounded-full">P1</span>
-                        <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wide">
-                            Subject / Product
-                        </h3>
-                    </div>
-
-                    {/* Product Image Upload */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                        <ImageUploadBox
-                            label="Product Photo"
-                            image={refImages[0]}
-                            index={0}
-                            onUpload={handleImageUpload}
-                            onRemove={handleImageRemove}
-                        />
-                        <ImageUploadBox
-                            label="Style Reference (Optional)"
-                            image={refImages[1]}
-                            index={1}
-                            onUpload={handleImageUpload}
-                            onRemove={handleImageRemove}
-                        />
-                    </div>
-
-                    {/* Product Description */}
-                    <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                            Product Description
-                        </label>
-                        <textarea
-                            value={productDescription}
-                            onChange={(e) => setProductDescription(e.target.value)}
-                            placeholder="Describe your product with materials, textures, and key features..."
-                            className="w-full h-24 px-4 py-3 bg-white dark:bg-white/5 border border-gray-300 dark:border-white/10 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500 resize-none text-base text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/30"
-                        />
-                    </div>
-                </div>
-
-                {/* PRO: Professional Options Section - COLLAPSIBLE */}
-                <CollapsibleSection
-                    title="Professional Options"
-                    badge="PRO"
-                    badgeGradient="from-amber-500 to-orange-500"
-                    subBadge="INDUSTRY-GRADE"
-                    isOpen={showProOptions}
-                    onToggle={() => setShowProOptions(!showProOptions)}
-                >
-                    {/* Row 1: Industry & Product Type */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <DropdownSelector
-                            label="Industry Type"
-                            options={INDUSTRY_OPTIONS}
-                            selected={selectedIndustry}
-                            customValue={customIndustry}
-                            onSelect={setSelectedIndustry}
-                            onCustomChange={setCustomIndustry}
-                            customPlaceholder="Custom industry (e.g., Aerospace, Hospitality...)"
-                        />
-                        <DropdownSelector
-                            label="Product Type"
-                            options={PRODUCT_TYPE_OPTIONS}
-                            selected={selectedProductType}
-                            customValue={customProductType}
-                            onSelect={setSelectedProductType}
-                            onCustomChange={setCustomProductType}
-                            customPlaceholder="Custom type (e.g., SaaS, Hardware...)"
-                        />
-                    </div>
-
-                    {/* Row 2: Material & Brand Style */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <DropdownSelector
-                            label="Product Material"
-                            options={MATERIAL_OPTIONS}
-                            selected={selectedMaterial}
-                            customValue={customMaterial}
-                            onSelect={setSelectedMaterial}
-                            onCustomChange={setCustomMaterial}
-                            customPlaceholder="Custom material (e.g., Carbon Fiber, Titanium...)"
-                        />
-                        <DropdownSelector
-                            label="Brand Style"
-                            options={BRAND_STYLE_OPTIONS}
-                            selected={selectedBrandStyle}
-                            customValue={customBrandStyle}
-                            onSelect={setSelectedBrandStyle}
-                            onCustomChange={setCustomBrandStyle}
-                            customPlaceholder="Custom style (e.g., Industrial, Artisan...)"
-                        />
-                    </div>
-
-                    {/* Row 3: Target Audience & Color Palette */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <DropdownSelector
-                            label="Target Audience"
-                            options={TARGET_AUDIENCE_OPTIONS}
-                            selected={selectedAudience}
-                            customValue={customAudience}
-                            onSelect={setSelectedAudience}
-                            onCustomChange={setCustomAudience}
-                            customPlaceholder="Custom audience (e.g., Millennials, Parents...)"
-                        />
-                        <DropdownSelector
-                            label="Color Palette"
-                            options={COLOR_PALETTE_OPTIONS}
-                            selected={selectedColorPalette}
-                            customValue={customColorPalette}
-                            onSelect={setSelectedColorPalette}
-                            onCustomChange={setCustomColorPalette}
-                            customPlaceholder="Custom palette (e.g., Black & Gold, Navy Blue...)"
-                        />
-                    </div>
-                </CollapsibleSection>
-
-                {/* TEXT: Design Text Content Section - COLLAPSIBLE */}
-                <CollapsibleSection
-                    title="Design Text Content"
-                    badge="📝"
-                    badgeGradient="from-cyan-500 to-blue-500"
-                    subBadge="CUSTOMIZABLE"
-                    isOpen={showTextContent}
-                    onToggle={() => setShowTextContent(!showTextContent)}
-                >
-                    {/* Headline */}
-                    <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                            Headline / Title
-                        </label>
-                        <input
-                            type="text"
-                            value={designHeadline}
-                            onChange={(e) => setDesignHeadline(e.target.value)}
-                            placeholder="Enter your main headline (e.g., Summer Sale 2024, Premium Quality)"
-                            className="w-full px-4 py-3 bg-white dark:bg-white/5 border border-gray-300 dark:border-white/10 rounded-xl focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500 text-base text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/30"
-                        />
-                    </div>
-
-                    {/* Subheading */}
-                    <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                            Subheading / Tagline
-                        </label>
-                        <input
-                            type="text"
-                            value={designSubheading}
-                            onChange={(e) => setDesignSubheading(e.target.value)}
-                            placeholder="Enter your subheading or tagline (e.g., Up to 50% Off, Crafted for Excellence)"
-                            className="w-full px-4 py-3 bg-white dark:bg-white/5 border border-gray-300 dark:border-white/10 rounded-xl focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500 text-base text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/30"
-                        />
-                    </div>
-
-                    {/* Row: Product Details & CTA */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                                Product Details
-                            </label>
-                            <input
-                                type="text"
-                                value={designProductDetails}
-                                onChange={(e) => setDesignProductDetails(e.target.value)}
-                                placeholder="Key features (e.g., Wireless • 24hr Battery)"
-                                className="w-full px-4 py-3 bg-white dark:bg-white/5 border border-gray-300 dark:border-white/10 rounded-xl focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/30"
-                            />
+            {/* Output Panel */}
+            {(generatedResult || bannerData || isGenerating) && (
+                <div className="editorial-panel motion-card-enter space-y-6">
+                    <div className="editorial-panel__header">
+                        <div className="flex items-center gap-2">
+                            <span className="editorial-badge editorial-badge--teal">02 / Output</span>
+                            <h3 className="editorial-panel__title m-0 text-base">
+                                Synthesized Commercial Architecture
+                            </h3>
                         </div>
-                        <div className="space-y-2">
-                            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                                Call-to-Action (CTA)
-                            </label>
-                            <input
-                                type="text"
-                                value={designCTA}
-                                onChange={(e) => setDesignCTA(e.target.value)}
-                                placeholder="Button text (e.g., Shop Now, Learn More)"
-                                className="w-full px-4 py-3 bg-white dark:bg-white/5 border border-gray-300 dark:border-white/10 rounded-xl focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/30"
-                            />
-                        </div>
-                    </div>
 
-                    {/* Row: Brand Name & Price */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                                Brand Name / Logo Text
-                            </label>
-                            <input
-                                type="text"
-                                value={designBrandName}
-                                onChange={(e) => setDesignBrandName(e.target.value)}
-                                placeholder="Your brand name (e.g., ACME Corp)"
-                                className="w-full px-4 py-3 bg-white dark:bg-white/5 border border-gray-300 dark:border-white/10 rounded-xl focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/30"
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                                Price / Offer
-                            </label>
-                            <input
-                                type="text"
-                                value={designPrice}
-                                onChange={(e) => setDesignPrice(e.target.value)}
-                                placeholder="Pricing info (e.g., Starting at $99, Free Shipping)"
-                                className="w-full px-4 py-3 bg-white dark:bg-white/5 border border-gray-300 dark:border-white/10 rounded-xl focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/30"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Disclaimer */}
-                    <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                            Disclaimer / Fine Print
-                        </label>
-                        <input
-                            type="text"
-                            value={designDisclaimer}
-                            onChange={(e) => setDesignDisclaimer(e.target.value)}
-                            placeholder="Legal text or conditions (e.g., Terms apply, Limited time offer)"
-                            className="w-full px-4 py-3 bg-white dark:bg-white/5 border border-gray-300 dark:border-white/10 rounded-xl focus:outline-none focus:ring-1 focus:ring-cyan-500/50 focus:border-cyan-500 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/30"
-                        />
-                    </div>
-                </CollapsibleSection>
-
-                {/* P2: Context/Setting Section - COLLAPSIBLE */}
-                <CollapsibleSection
-                    title="Context / Setting"
-                    badge="P2"
-                    badgeGradient="from-blue-500 to-cyan-500"
-                    isOpen={showContextSection}
-                    onToggle={() => setShowContextSection(!showContextSection)}
-                >
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <SimpleDropdown
-                            label="Environment"
-                            options={environmentOptions}
-                            selected={selectedEnvironment}
-                            onSelect={setSelectedEnvironment}
-                        />
-                        <SimpleDropdown
-                            label="Lighting"
-                            options={lightingOptions}
-                            selected={selectedLighting}
-                            onSelect={setSelectedLighting}
-                        />
-                    </div>
-                </CollapsibleSection>
-
-                {/* P3: Style/Aesthetic Section - COLLAPSIBLE */}
-                <CollapsibleSection
-                    title="Style / Aesthetic"
-                    badge="P3"
-                    badgeGradient="from-violet-500 to-purple-500"
-                    isOpen={showStyleSection}
-                    onToggle={() => setShowStyleSection(!showStyleSection)}
-                >
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <SimpleDropdown
-                            label="Medium"
-                            options={mediumOptions}
-                            selected={selectedMedium}
-                            onSelect={setSelectedMedium}
-                        />
-                        <SimpleDropdown
-                            label="Mood"
-                            options={moodOptions}
-                            selected={selectedMood}
-                            onSelect={setSelectedMood}
-                        />
-                    </div>
-                </CollapsibleSection>
-
-                {/* P4: Technical Constraints Section - COLLAPSIBLE */}
-                <CollapsibleSection
-                    title="Technical Constraints"
-                    badge="P4"
-                    badgeGradient="from-rose-500 to-pink-500"
-                    subBadge="AUTO-INJECTED"
-                    isOpen={showTechnicalSection}
-                    onToggle={() => setShowTechnicalSection(!showTechnicalSection)}
-                >
-                    {/* Aspect Ratio with Commercial Use Cases */}
-                    <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Aspect Ratio</label>
-                        <select
-                            value={selectedAspectRatio}
-                            onChange={(e) => setSelectedAspectRatio(e.target.value as '1:1' | '4:5' | '16:9' | '9:16')}
-                            className="w-full px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-white/20 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500 text-sm text-gray-900 dark:text-white appearance-none cursor-pointer transition-all min-h-[44px]"
-                            style={{
-                                backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
-                                backgroundPosition: 'right 0.75rem center',
-                                backgroundRepeat: 'no-repeat',
-                                backgroundSize: '1.5em 1.5em',
-                                paddingRight: '2.5rem'
-                            }}
-                        >
-                            {(['1:1', '4:5', '16:9', '9:16'] as const).map((ratio) => {
-                                const info = ASPECT_RATIO_INFO[ratio];
-                                return (
-                                    <option key={ratio} value={ratio} className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
-                                        {ratio} - {info.label}
-                                    </option>
-                                );
-                            })}
-                        </select>
-                        {selectedAspectRatio && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400 italic">
-                                📱 {ASPECT_RATIO_INFO[selectedAspectRatio].useCase}
-                            </p>
+                        {generatedResult && !isGenerating && (
+                            <span className="editorial-badge editorial-badge--teal">Ready</span>
                         )}
                     </div>
 
-                    {/* Negative Space Position */}
-                    <SimpleDropdown
-                        label="CTA Space Position"
-                        options={negativeSpaceOptions}
-                        selected={selectedNegativeSpace}
-                        onSelect={setSelectedNegativeSpace}
-                    />
+                    <div className="editorial-panel__body space-y-5">
+                        {isGenerating ? (
+                            <ProcessingAnimation
+                                variant="panel"
+                                theme="teal"
+                                badge="Pro Architect"
+                                title="Architecting Commercial Specification"
+                                status={statusMessage || undefined}
+                                stages={[
+                                    "Structuring primary subject & product constraints...",
+                                    "Calculating focal depth & negative space distribution...",
+                                    "Balancing typography safety zones & lighting key...",
+                                    "Compiling commercial pro-prompt directives...",
+                                ]}
+                                stageIntervalMs={2000}
+                                subtext="Engineered for high-conversion marketing visuals and billboard assets."
+                            />
+                        ) : (
+                            <>
+                        {/* PPA Breakdown */}
+                        {bannerData && (
+                            <div className="space-y-3 pb-4 border-b border-[var(--editorial-rule)]">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowBreakdown(!showBreakdown)}
+                                    className="flex items-center justify-between w-full text-left"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <SparklesIcon className="w-4 h-4 text-[var(--ui-teal)]" />
+                                        <span className="font-mono text-xs font-bold uppercase tracking-wider text-[var(--editorial-ink)]">
+                                            PPA Layer Analysis
+                                        </span>
+                                    </div>
+                                    {showBreakdown ? (
+                                        <ChevronUpIcon className="w-4 h-4 text-[var(--ui-teal)]" />
+                                    ) : (
+                                        <ChevronDownIcon className="w-4 h-4 text-[var(--editorial-muted)]" />
+                                    )}
+                                </button>
 
-                    {/* Platform */}
-                    <SimpleDropdown
-                        label="Target Platform"
-                        options={PLATFORM_OPTIONS}
-                        selected={selectedPlatform}
-                        onSelect={(val) => setSelectedPlatform(val as any)}
-                    />
-                </CollapsibleSection>
-
-                {/* Error Display */}
-                {error && (
-                    <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/30 rounded-2xl">
-                        <p className="text-red-700 dark:text-red-400 text-sm font-medium">{error}</p>
-                    </div>
-                )}
-
-                {/* Generate Button */}
-                <button
-                    onClick={handleGenerate}
-                    disabled={isGenerating}
-                    className="w-full h-14 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-full shadow-lg shadow-emerald-500/30 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:transform-none"
-                >
-                    {isGenerating ? (
-                        statusMessage || "Generating Pro Prompt..."
-                    ) : (
-                        <>
-                            <SparklesIcon className="w-5 h-5" />
-                            Generate Pro Prompt
-                        </>
-                    )}
-                </button>
-            </div>
-
-            {/* Output Section */}
-            {(generatedResult || bannerData) && (
-                <div className="bg-white/60 dark:bg-white/5 backdrop-blur-xl rounded-2xl sm:rounded-3xl border border-gray-200 dark:border-white/10 p-4 sm:p-6 shadow-xl animate-slide-up-fade space-y-4">
-
-                    {/* PPA Breakdown */}
-                    {bannerData && (
-                        <div className="space-y-4 pb-4 border-b border-gray-200 dark:border-white/10">
-                            <button
-                                onClick={() => setShowBreakdown(!showBreakdown)}
-                                className="flex items-center justify-between w-full"
-                            >
-                                <div className="flex items-center gap-2">
-                                    <SparklesIcon className="w-5 h-5 text-emerald-500" />
-                                    <span className="font-bold text-gray-900 dark:text-white">PPA Breakdown</span>
-                                </div>
-                                {showBreakdown ? (
-                                    <ChevronUpIcon className="w-5 h-5 text-gray-500" />
-                                ) : (
-                                    <ChevronDownIcon className="w-5 h-5 text-gray-500" />
+                                {showBreakdown && (
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 motion-fade">
+                                        <div className="p-3 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
+                                            <p className="m-0 font-mono text-[9.5px] text-[var(--editorial-muted)] uppercase">P1 Subject</p>
+                                            <p className="m-0 font-mono text-xs font-bold text-[var(--editorial-ink)] mt-1 truncate">
+                                                {bannerData.subject?.product_name || 'N/A'}
+                                            </p>
+                                        </div>
+                                        <div className="p-3 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
+                                            <p className="m-0 font-mono text-[9.5px] text-[var(--editorial-muted)] uppercase">P2 Context</p>
+                                            <p className="m-0 font-mono text-xs font-bold text-[var(--editorial-ink)] mt-1 truncate">
+                                                {ENVIRONMENT_LABELS[bannerData.context?.environment] || bannerData.context?.environment || 'Studio'}
+                                            </p>
+                                        </div>
+                                        <div className="p-3 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
+                                            <p className="m-0 font-mono text-[9.5px] text-[var(--editorial-muted)] uppercase">P3 Style</p>
+                                            <p className="m-0 font-mono text-xs font-bold text-[var(--editorial-ink)] mt-1 truncate">
+                                                {MOOD_LABELS[bannerData.style?.mood] || bannerData.style?.mood || 'Editorial'}
+                                            </p>
+                                        </div>
+                                        <div className="p-3 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
+                                            <p className="m-0 font-mono text-[9.5px] text-[var(--editorial-muted)] uppercase">P4 Technical</p>
+                                            <p className="m-0 font-mono text-xs font-bold text-[var(--editorial-ink)] mt-1 truncate">
+                                                {bannerData.technical?.aspect_ratio} • {NEGATIVE_SPACE_LABELS[bannerData.technical?.negative_space_position]?.replace(/^[^\s]+\s/, '') || 'Standard'}
+                                            </p>
+                                        </div>
+                                    </div>
                                 )}
-                            </button>
+                            </div>
+                        )}
 
-                            {showBreakdown && (
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                                    {/* P1 Summary */}
-                                    <div className="p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl">
-                                        <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase mb-1">P1 Subject</p>
-                                        <p className="text-xs text-gray-700 dark:text-gray-300 line-clamp-2">
-                                            {bannerData.subject?.product_name || 'N/A'}
-                                        </p>
-                                    </div>
-                                    {/* P2 Summary */}
-                                    <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
-                                        <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase mb-1">P2 Context</p>
-                                        <p className="text-xs text-gray-700 dark:text-gray-300">
-                                            {ENVIRONMENT_LABELS[bannerData.context?.environment] || bannerData.context?.environment}
-                                        </p>
-                                    </div>
-                                    {/* P3 Summary */}
-                                    <div className="p-3 bg-violet-50 dark:bg-violet-900/20 rounded-xl">
-                                        <p className="text-[10px] font-bold text-violet-600 dark:text-violet-400 uppercase mb-1">P3 Style</p>
-                                        <p className="text-xs text-gray-700 dark:text-gray-300">
-                                            {MOOD_LABELS[bannerData.style?.mood] || bannerData.style?.mood}
-                                        </p>
-                                    </div>
-                                    {/* P4 Summary */}
-                                    <div className="p-3 bg-rose-50 dark:bg-rose-900/20 rounded-xl">
-                                        <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase mb-1">P4 Technical</p>
-                                        <p className="text-xs text-gray-700 dark:text-gray-300">
-                                            {bannerData.technical?.aspect_ratio} • {NEGATIVE_SPACE_LABELS[bannerData.technical?.negative_space_position]?.replace(/^[^\s]+\s/, '')}
-                                        </p>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Generated Prompt */}
-                    <div className="space-y-2">
-                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                            Generated Prompt
-                        </label>
-                        <div className="relative">
-                            <pre className="w-full min-h-[120px] p-4 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-sm text-gray-900 dark:text-white whitespace-pre-wrap break-words font-mono">
+                        {/* Generated Prompt */}
+                        <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                                <label className="font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider">
+                                    Final Prompt Output
+                                </label>
+                                {generatedResult && (
+                                    <span className="font-mono text-[10px] text-[var(--editorial-muted)]">
+                                        {generatedResult.length} characters
+                                    </span>
+                                )}
+                            </div>
+                            <pre className="editorial-textarea min-h-[130px] font-mono text-xs leading-relaxed whitespace-pre-wrap break-words">
                                 {generatedResult}
                             </pre>
                         </div>
-                    </div>
 
-                    {/* Action Buttons */}
-                    <div className="flex flex-wrap gap-2">
-                        <button
-                            onClick={handleCopy}
-                            className="flex-1 min-w-[120px] h-12 bg-gray-100 dark:bg-white/10 hover:bg-gray-200 dark:hover:bg-white/20 text-gray-700 dark:text-white font-medium rounded-xl transition-all flex items-center justify-center gap-2"
-                        >
-                            {copied ? <CheckIcon className="w-4 h-4" /> : <CopyIcon className="w-4 h-4" />}
-                            {copied ? "Copied!" : "Copy"}
-                        </button>
-                        <button
-                            onClick={handleSave}
-                            className="flex-1 min-w-[120px] h-12 bg-gray-100 dark:bg-white/10 hover:bg-gray-200 dark:hover:bg-white/20 text-gray-700 dark:text-white font-medium rounded-xl transition-all flex items-center justify-center gap-2"
-                        >
-                            {saved ? <CheckIcon className="w-4 h-4" /> : <FolderIcon className="w-4 h-4" />}
-                            {saved ? "Saved!" : "Save"}
-                        </button>
-                        <button
-                            onClick={() => onSendToBuilder(generatedResult)}
-                            className="flex-1 min-w-[120px] h-12 bg-gradient-to-r from-violet-500 to-purple-500 text-white font-medium rounded-xl transition-all flex items-center justify-center gap-2 shadow-md"
-                        >
-                            Send to Builder
-                        </button>
-                        <button
-                            onClick={() => onJumpToImage(generatedResult)}
-                            className="flex-1 min-w-[120px] h-12 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-medium rounded-xl transition-all flex items-center justify-center gap-2 shadow-md"
-                        >
-                            Generate Image
-                        </button>
+                        {/* Action Buttons */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleCopy}
+                                    className="editorial-button editorial-button--sm editorial-button--secondary"
+                                >
+                                    {copied ? <CheckIcon className="w-3.5 h-3.5 text-[var(--ui-success)]" /> : <CopyIcon className="w-3.5 h-3.5" />}
+                                    <span>{copied ? "Copied" : "Copy"}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSave}
+                                    className="editorial-button editorial-button--sm editorial-button--secondary"
+                                >
+                                    {saved ? <CheckIcon className="w-3.5 h-3.5 text-[var(--ui-success)]" /> : <FolderIcon className="w-3.5 h-3.5" />}
+                                    <span>{saved ? "Saved" : "Save to Vault"}</span>
+                                </button>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => onSendToBuilder(generatedResult)}
+                                className="editorial-button editorial-button--sm editorial-button--primary"
+                            >
+                                <SparklesIcon className="w-3.5 h-3.5" />
+                                <span>Send to Builder</span>
+                            </button>
+                        </div>
+                        </>
+                        )}
                     </div>
                 </div>
             )}

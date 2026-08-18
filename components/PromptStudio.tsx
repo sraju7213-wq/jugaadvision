@@ -22,7 +22,6 @@ interface PromptStudioProps {
   prompts: Prompt[];
   setPrompts: React.Dispatch<React.SetStateAction<Prompt[]>>;
   initialPrompt: Prompt | null;
-  onJumpToImage: (prompt: string) => void;
   onSaveToLibrary: (
     text: string,
     platform?: Platform,
@@ -33,11 +32,11 @@ interface PromptStudioProps {
 }
 
 const tabs: { id: TabId; label: string; activeClass: string }[] = [
-  { id: "prompt", label: "Prompt Builder", activeClass: "bg-gradient-to-r from-violet-500 to-purple-600 text-white shadow-lg shadow-violet-500/30" },
-  { id: "image", label: "Image to Prompt", activeClass: "bg-gradient-to-r from-rose-500 to-pink-600 text-white shadow-lg shadow-rose-500/30" },
-  { id: "mixer", label: "Creative Mixer", activeClass: "bg-gradient-to-r from-violet-500 to-fuchsia-600 text-white shadow-lg shadow-fuchsia-500/30" },
-  { id: "batch", label: "Batch Generator", activeClass: "bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-lg shadow-amber-500/30" },
-  { id: "banner", label: "Pro Prompter", activeClass: "bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/30" },
+  { id: "prompt", label: "Prompt Builder", activeClass: "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm" },
+  { id: "image", label: "Image to Prompt", activeClass: "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm" },
+  { id: "mixer", label: "Creative Mixer", activeClass: "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm" },
+  { id: "batch", label: "Batch Generator", activeClass: "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm" },
+  { id: "banner", label: "Pro Prompter", activeClass: "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm" },
 ];
 
 const resolveTab = (value: string | null): TabId => {
@@ -48,7 +47,6 @@ const PromptStudio: React.FC<PromptStudioProps> = ({
   prompts,
   setPrompts,
   initialPrompt,
-  onJumpToImage,
   onSaveToLibrary,
   preparePromptForBuilder,
 }) => {
@@ -103,7 +101,6 @@ const PromptStudio: React.FC<PromptStudioProps> = ({
         return (
           <ImageToPrompt
             onSendToBuilder={handleSendToBuilder}
-            onJumpToImage={onJumpToImage}
             onSaveToLibrary={(text) =>
               onSaveToLibrary(text, Platform.Natural, undefined, [
                 "image-to-prompt",
@@ -115,7 +112,6 @@ const PromptStudio: React.FC<PromptStudioProps> = ({
         return (
           <CreativeMixer
             onSendToBuilder={handleSendToBuilder}
-            onJumpToImage={onJumpToImage}
             onSaveToLibrary={(text) =>
               onSaveToLibrary(text, Platform.Natural, undefined, [
                 "creative-mix",
@@ -128,7 +124,6 @@ const PromptStudio: React.FC<PromptStudioProps> = ({
         return (
           <BatchGenerator
             onSendToBuilder={handleSendToBuilder}
-            onJumpToImage={onJumpToImage}
             onSaveToLibrary={(text) =>
               onSaveToLibrary(text, Platform.Natural, undefined, [
                 "batch-variation",
@@ -140,7 +135,6 @@ const PromptStudio: React.FC<PromptStudioProps> = ({
         return (
           <BannerPrompter
             onSendToBuilder={handleSendToBuilder}
-            onJumpToImage={onJumpToImage}
             onSaveToLibrary={(text) =>
               onSaveToLibrary(text, Platform.Natural, undefined, [
                 "banner-design",
@@ -154,7 +148,6 @@ const PromptStudio: React.FC<PromptStudioProps> = ({
             prompts={prompts}
             setPrompts={setPrompts}
             initialPrompt={initialPrompt}
-            onJumpToImage={onJumpToImage}
           />
         );
     }
@@ -162,7 +155,6 @@ const PromptStudio: React.FC<PromptStudioProps> = ({
     activeTab,
     handleSendToBuilder,
     initialPrompt,
-    onJumpToImage,
     onSaveToLibrary,
     prompts,
     setPrompts,
@@ -180,24 +172,20 @@ const PromptStudio: React.FC<PromptStudioProps> = ({
       </div>
 
       <div className="flex justify-center mb-6">
-        {/* Mobile: Full-width scrollable tabs with gradient indicators */}
+        {/* Mobile: Full-width scrollable tabs */}
         <div className="relative w-full md:hidden">
-          {/* Left gradient fade indicator */}
-          <div className="absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-white/80 dark:from-gray-900/80 to-transparent pointer-events-none z-10 rounded-l-full" />
-          {/* Right gradient fade indicator */}
-          <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white/80 dark:from-gray-900/80 to-transparent pointer-events-none z-10 rounded-r-full" />
           <div
             className="overflow-x-auto whitespace-nowrap px-2 scrollbar-hide snap-x snap-mandatory"
             style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
           >
-            <div className="inline-flex bg-white/30 dark:bg-white/10 border border-white/40 dark:border-white/10 rounded-full backdrop-blur-2xl p-1 gap-1 shadow-[0_15px_50px_rgba(15,23,42,0.12)]">
+            <div className="inline-flex bg-[var(--editorial-surface)] border border-[var(--editorial-rule)] p-1 gap-1 shadow-sm">
               {tabs.map((tab) => {
                 const isActive = activeTab === tab.id;
                 return (
                   <button
                     key={`mobile-${tab.id}`}
                     onClick={() => handleTabChange(tab.id)}
-                    className={`relative px-3 py-2.5 min-h-[44px] rounded-full text-xs font-bold transition-all whitespace-nowrap snap-start ${isActive ? tab.activeClass : "text-gray-600 dark:text-gray-200 active:bg-white/30 hover:text-gray-900 dark:hover:text-white"}`}
+                    className={`relative px-3 py-2 min-h-[40px] text-xs font-mono font-bold uppercase tracking-wider transition-all whitespace-nowrap snap-start ${isActive ? tab.activeClass : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"}`}
                   >
                     {tab.label}
                   </button>
@@ -208,14 +196,14 @@ const PromptStudio: React.FC<PromptStudioProps> = ({
         </div>
         {/* Desktop: Centered tabs */}
         <div className="hidden md:flex justify-center">
-          <div className="inline-flex bg-white/30 dark:bg-white/10 border border-white/40 dark:border-white/10 rounded-full backdrop-blur-2xl p-1.5 gap-1 shadow-[0_15px_50px_rgba(15,23,42,0.12)]">
+          <div className="inline-flex bg-[var(--editorial-surface)] border border-[var(--editorial-rule)] p-1.5 gap-1 shadow-sm">
             {tabs.map((tab) => {
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={`desktop-${tab.id}`}
                   onClick={() => handleTabChange(tab.id)}
-                  className={`relative px-4 lg:px-5 py-2.5 min-h-[44px] rounded-full text-sm font-semibold transition-all ${isActive ? tab.activeClass : "text-gray-600 dark:text-gray-200 hover:bg-white/20 hover:text-gray-900 dark:hover:text-white"}`}
+                  className={`relative px-4 py-2 min-h-[40px] text-xs font-mono font-bold uppercase tracking-wider transition-all ${isActive ? tab.activeClass : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"}`}
                 >
                   {tab.label}
                 </button>
@@ -225,7 +213,7 @@ const PromptStudio: React.FC<PromptStudioProps> = ({
         </div>
       </div>
 
-      <div className="mt-10 bg-white/60 dark:bg-white/5 border border-white/40 dark:border-white/10 rounded-3xl backdrop-blur-2xl shadow-[0_20px_60px_rgba(15,23,42,0.15)] p-4 sm:p-8 will-change-transform">
+      <div className="mt-10 editorial-panel p-4 sm:p-8">
         <Suspense
           fallback={
             <div className="flex justify-center py-10">

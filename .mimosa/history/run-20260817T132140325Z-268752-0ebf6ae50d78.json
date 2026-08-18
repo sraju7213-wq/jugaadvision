@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "mimosa-finding-history/v1",
+  "runId": "20260817T132140325Z-268752-0ebf6ae50d78",
+  "runStatus": "inconclusive",
+  "errors": [
+    "scan:types.ts: scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+    "scan:server/ai/types.ts: scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+    "scan:server/ai/serverHandler.ts: scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+    "scan:services/aiGatewayClient.ts: scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+    "scan:services/apiKeyManager.ts: scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+    "scan:services/geminiService.ts: scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+    "scan:components/StudioWorkspace.tsx: scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+    "scan:vite.config.ts: scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+    "scan:server/ai/registry/freeModelRegistry.ts: scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT",
+    "scan:server/ai/classification/capabilityClassifier.ts: scanner_failed: spawnSync /home/raju/.var/app/dev.zed.Zed-Preview/config/nvm/versions/node/v24.18.0/bin/node ETIMEDOUT"
+  ],
+  "target": ".",
+  "revision": null,
+  "diffHash": "208057e38dd3928ae242c6a90bce7fdd0fc1d5e8c17e65756bf7c5a2ed8d6748",
+  "rulesVersion": "unavailable",
+  "recordedAt": "2026-08-17T13:21:40.325Z",
+  "timing": {
+    "startedAt": "2026-08-17T13:21:36.821Z",
+    "completedAt": "2026-08-17T13:21:40.325Z",
+    "durationMs": 3504
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "modelCalls": 0,
+    "measurement": "known-zero"
+  },
+  "findings": {
+    "total": 0,
+    "bySeverity": {},
+    "byStatus": {}
+  },
+  "coverage": {
+    "status": "partial",
+    "reasonCounts": {
+      "scanner_failed": 10,
+      "project_check_failed": 10
+    }
+  },
+  "evidenceBoundary": "static_only",
+  "immutableReport": ".mimosa/reports/task-review-sess_a52c67bc-1fd8-4b86-ab27-6f8dea71bfe5-20260817T132140325Z-268752-0ebf6ae50d78.json"
+}

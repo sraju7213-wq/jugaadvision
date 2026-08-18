@@ -1,4 +1,5 @@
 import React, { useState, useCallback, memo, useRef, useEffect } from "react";
+import { ProcessingAnimation } from "./ProcessingAnimation";
 import { generateCreativeMix } from "../services/geminiService";
 import { promptToJson, JsonPrompt } from "../lib/promptToJson";
 import {
@@ -17,9 +18,11 @@ import {
   CAMERA_LABELS,
   ASPECT_RATIO_LABELS
 } from "../lib/schemas/cinematicPrompt";
+import { detectCreativeConflicts } from "../server/ai/qualityGates";
 import {
   ProfessionalPrompt,
   PURPOSE_LABELS,
+
   ENVIRONMENT_LABELS,
   LIGHTING_TYPE_LABELS,
   OUTPUT_RATIO_LABELS,
@@ -43,13 +46,13 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
 } from "./icons";
+import { Loader2 } from "lucide-react";
 import useSpeechToText from "../hooks/useSpeechToText";
 import AdvancedSettingsPanel from "./creative-mixer/AdvancedSettingsPanel";
 
 
 interface CreativeMixerProps {
   onSendToBuilder: (prompt: string) => void;
-  onJumpToImage: (prompt: string) => void;
   onSaveToLibrary: (prompt: string) => void;
 }
 
@@ -110,19 +113,19 @@ const ImageUploadBox = memo(
     };
 
     return (
-      <div className="space-y-2">
-        <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide pl-1">
+      <div className="space-y-1.5">
+        <p className="m-0 font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider">
           {label}
         </p>
         <div className="relative aspect-video group">
           <label
             onDragOver={onDragOver}
             onDrop={onDrop}
-            className={`flex flex-col items-center justify-center w-full h-full border-2 border-dashed rounded-xl cursor-pointer transition-colors duration-300 overflow-hidden relative
-                  ${image
-                ? "border-transparent"
-                : "bg-gray-50 dark:bg-white/5 border-gray-300 dark:border-white/10 hover:bg-gray-100 dark:hover:bg-white/10 hover:border-violet-500/50"
-              }`}
+            className={`flex flex-col items-center justify-center w-full h-full border border-dashed cursor-pointer transition-colors duration-200 overflow-hidden relative ${
+              image
+                ? "border-[var(--editorial-rule)] bg-black/5 dark:bg-black/30"
+                : "border-[var(--editorial-rule-strong)] bg-[var(--editorial-surface)] hover:border-[var(--editorial-pink)] hover:bg-[var(--editorial-pink-soft)]"
+            }`}
           >
             {image ? (
               <>
@@ -130,17 +133,21 @@ const ImageUploadBox = memo(
                   src={image.url}
                   alt={label}
                   decoding="async"
-                  className="h-full w-full object-cover rounded-xl"
+                  className="h-full w-full object-cover"
                 />
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors rounded-2xl" />
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <span className="px-2.5 py-1 bg-[var(--editorial-paper)] text-[var(--editorial-ink)] font-mono text-[10px] font-bold border border-[var(--editorial-rule)]">
+                    Replace
+                  </span>
+                </div>
               </>
             ) : (
               <div className="flex flex-col items-center justify-center text-center p-2">
-                <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-white/10 mb-2 flex items-center justify-center text-gray-400 dark:text-gray-500 group-hover:text-violet-500 transition-colors">
+                <div className="w-7 h-7 flex items-center justify-center text-[var(--editorial-pink)] mb-1">
                   <ImagePlusIcon className="w-4 h-4" />
                 </div>
-                <p className="text-[10px] font-medium text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300">
-                  Click or Drop
+                <p className="m-0 font-mono text-[10px] text-[var(--editorial-muted)] group-hover:text-[var(--editorial-ink)] uppercase tracking-wider">
+                  Drop / Browse
                 </p>
               </div>
             )}
@@ -153,11 +160,12 @@ const ImageUploadBox = memo(
           </label>
           {image && (
             <button
+              type="button"
               onClick={(e) => {
                 e.preventDefault();
                 onRemove(index);
               }}
-              className="absolute -top-2 -right-2 p-1.5 bg-red-500 text-white rounded-full shadow-md hover:bg-red-600 transition-transform hover:scale-110 opacity-0 group-hover:opacity-100"
+              className="absolute top-1.5 right-1.5 p-1 bg-red-500 text-white shadow-sm hover:bg-red-600 transition-opacity"
               title="Remove image"
             >
               <XIcon className="h-3 w-3" />
@@ -186,41 +194,30 @@ const CategoryDropdown = memo(({
   onChange,
   categories,
   placeholder,
-  colorClass = "violet"
 }: CategoryDropdownProps) => {
-  const isViolet = colorClass === "violet";
-  const ringColor = isViolet ? "focus:ring-violet-500/50" : "focus:ring-fuchsia-500/50";
-  const iconColor = isViolet ? "text-violet-500" : "text-fuchsia-500";
-  const badgeBg = isViolet ? "bg-violet-100 dark:bg-violet-900/30" : "bg-fuchsia-100 dark:bg-fuchsia-900/30";
-  const badgeText = isViolet ? "text-violet-600 dark:text-violet-400" : "text-fuchsia-600 dark:text-fuchsia-400";
-
   return (
-    <div className="space-y-3">
-      <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide flex items-center gap-2">
-        <Icon className={`w-4 h-4 ${iconColor}`} /> {label}
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <label className="font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider flex items-center gap-1.5">
+          <Icon className="w-3.5 h-3.5 text-[var(--editorial-pink)]" /> {label}
+        </label>
         {value && (
-          <span className={`ml-2 px-2 py-0.5 ${badgeBg} ${badgeText} rounded-full text-[10px] font-bold animate-in fade-in zoom-in duration-300`}>
+          <span className="editorial-badge editorial-badge--pink">
             {value}
           </span>
         )}
-      </label>
-      <div className="relative group">
+      </div>
+      <div className="relative">
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className={`w-full h-12 pl-4 pr-10 bg-white dark:bg-white/5 border border-gray-300 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 ${ringColor} text-sm text-gray-900 dark:text-white appearance-none transition-colors border-colors cursor-pointer hover:border-gray-400 dark:hover:border-white/20`}
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='currentColor'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`,
-            backgroundPosition: 'right 1rem center',
-            backgroundRepeat: 'no-repeat',
-            backgroundSize: '1.2em 1.2em'
-          }}
+          className="editorial-select w-full text-xs font-mono"
         >
-          <option value="" className="dark:bg-gray-900">{placeholder}</option>
+          <option value="">{placeholder}</option>
           {Object.entries(categories).map(([category, items]) => (
-            <optgroup key={category} label={category} className="bg-white dark:bg-gray-900 font-bold text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            <optgroup key={category} label={category} className="font-bold text-xs uppercase tracking-wider">
               {items.map((item) => (
-                <option key={item} value={item} className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-normal normal-case py-2">
+                <option key={item} value={item} className="normal-case">
                   {item}
                 </option>
               ))}
@@ -234,7 +231,6 @@ const CategoryDropdown = memo(({
 
 const CreativeMixer: React.FC<CreativeMixerProps> = ({
   onSendToBuilder,
-  onJumpToImage,
   onSaveToLibrary,
 }) => {
   const [prompt, setPrompt] = useState("");
@@ -269,6 +265,7 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
 
   // Cleanup effect - improved for memory leak prevention
   useEffect(() => {
+    isMounted.current = true;
     // Cleanup function
     return () => {
       isMounted.current = false;
@@ -496,608 +493,491 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
 
 
   return (
-    <div className="max-w-4xl mx-auto py-4 sm:py-8 px-2 sm:px-0 animate-fade-in space-y-6 sm:space-y-8">
-      {/* Header */}
-      <div className="flex items-center gap-4">
-        <div className="p-3 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-2xl text-white shadow-lg">
-          <LayersIcon className="w-8 h-8" />
-        </div>
-        <div>
-          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
-            Creative Mixer
-          </h2>
-          <p className="text-gray-500 dark:text-gray-400">
-            Professional Visual Alchemy
-          </p>
-        </div>
-      </div>
-
-      {/* Controls */}
-      <div
-        className="bg-white/60 dark:bg-white/5 backdrop-blur-xl rounded-2xl sm:rounded-3xl border border-gray-200 dark:border-white/10 p-4 sm:p-6 shadow-xl space-y-4 sm:space-y-6 transform-gpu"
-        style={{ contain: 'content' }}
-      >
-        {/* Visual References - Collapsible */}
-        <div className="space-y-4">
-          <button
-            onClick={() => setShowReferences(!showReferences)}
-            className="flex items-center justify-between w-full group transition-colors"
-          >
-            <div className="flex items-center gap-2">
-              <div className={`p-1.5 rounded-lg transition-colors ${showReferences ? 'bg-violet-500 text-white' : 'bg-gray-100 dark:bg-white/10 text-violet-500'}`}>
-                <ImagePlusIcon className="w-4 h-4" />
-              </div>
-              <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wide">
-                Visual References
-              </h3>
-              {refImages.filter(img => img !== null).length > 0 && (
-                <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-full text-[10px] font-bold">
-                  {refImages.filter(img => img !== null).length} Loaded
-                </span>
-              )}
-            </div>
-            {showReferences ? (
-              <ChevronUpIcon className="w-5 h-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-white transition-colors" />
-            ) : (
-              <ChevronDownIcon className="w-5 h-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-white transition-colors" />
-            )}
-          </button>
-
-          {showReferences && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
-              <ImageUploadBox
-                label="Layout / Pose"
-                image={refImages[0]}
-                index={0}
-                onUpload={handleImageUpload}
-                onRemove={handleImageRemove}
-              />
-              <ImageUploadBox
-                label="Art Style"
-                image={refImages[1]}
-                index={1}
-                onUpload={handleImageUpload}
-                onRemove={handleImageRemove}
-              />
-              <ImageUploadBox
-                label="Color Palette"
-                image={refImages[2]}
-                index={2}
-                onUpload={handleImageUpload}
-                onRemove={handleImageRemove}
-              />
-            </div>
+    <div className="w-full max-w-6xl mx-auto space-y-6 animate-fade-in">
+      {/* Editorial Fusion Board Controls */}
+      <div className="editorial-panel">
+        <div className="editorial-panel__header">
+          <div className="flex items-center gap-2">
+            <span className="editorial-badge editorial-badge--pink">01 / Fusion Board</span>
+            <h2 className="editorial-panel__title m-0 text-base">Aesthetic & Direction Matrix</h2>
+          </div>
+          {isGenerating && (
+            <span className="editorial-badge editorial-badge--gold animate-pulse">
+              Mixing Directions...
+            </span>
           )}
         </div>
 
-        {/* Prompt Input */}
-        <div className="space-y-2 relative">
-          <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-            Base Concept
-          </label>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Describe your core idea (Optional if images provided)..."
-            className="w-full h-32 px-4 py-3 bg-white dark:bg-white/5 border border-gray-300 dark:border-white/10 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#BF953F]/50 focus:border-[#BF953F] resize-none text-base text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/30 min-h-[50px]"
-          />
-          {isSupported && (
+        <div className="editorial-panel__body space-y-6">
+          {/* Visual References Section - Collapsible */}
+          <div className="p-4 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
             <button
-              onClick={startListening}
-              className={`absolute bottom-3 right-3 p-2 rounded-xl transition-all ${isListening ? "bg-red-500 text-white animate-pulse" : "bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-white/70 hover:text-gray-700 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-white/20"}`}
+              type="button"
+              onClick={() => setShowReferences(!showReferences)}
+              className="flex items-center justify-between w-full group transition-colors text-left"
             >
-              {isListening ? (
-                <MicOffIcon className="w-4 h-4" />
+              <div className="flex items-center gap-2">
+                <div className={`w-7 h-7 flex items-center justify-center border transition-colors ${showReferences ? 'bg-[var(--editorial-pink)] text-white border-[var(--editorial-pink)]' : 'bg-[var(--editorial-paper)] text-[var(--editorial-pink)] border-[var(--editorial-rule)]'}`}>
+                  <ImagePlusIcon className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <span className="font-mono text-xs font-bold uppercase tracking-wider text-[var(--editorial-ink)]">
+                    Visual References & Boards
+                  </span>
+                  <span className="hidden sm:inline-block ml-2 font-mono text-[10px] text-[var(--editorial-muted)]">
+                    (Layout, Art Style, Color Palette)
+                  </span>
+                </div>
+                {refImages.filter(img => img !== null).length > 0 && (
+                  <span className="editorial-badge editorial-badge--teal ml-1">
+                    {refImages.filter(img => img !== null).length} Loaded
+                  </span>
+                )}
+              </div>
+              {showReferences ? (
+                <ChevronUpIcon className="w-4 h-4 text-[var(--editorial-pink)]" />
               ) : (
-                <MicIcon className="w-4 h-4" />
+                <ChevronDownIcon className="w-4 h-4 text-[var(--editorial-muted)]" />
               )}
             </button>
+
+            {showReferences && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 mt-3 border-t border-[var(--editorial-rule)] animate-fade-in">
+                <ImageUploadBox
+                  label="01 / Layout & Pose"
+                  image={refImages[0]}
+                  index={0}
+                  onUpload={handleImageUpload}
+                  onRemove={handleImageRemove}
+                />
+                <ImageUploadBox
+                  label="02 / Art Style"
+                  image={refImages[1]}
+                  index={1}
+                  onUpload={handleImageUpload}
+                  onRemove={handleImageRemove}
+                />
+                <ImageUploadBox
+                  label="03 / Color Palette"
+                  image={refImages[2]}
+                  index={2}
+                  onUpload={handleImageUpload}
+                  onRemove={handleImageRemove}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Base Concept Canvas */}
+          <div className="space-y-1.5 relative">
+            <div className="flex items-center justify-between">
+              <label className="font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider">
+                Base Creative Brief
+              </label>
+              <span className="font-mono text-[10px] text-[var(--editorial-muted)]">
+                Optional if reference boards are provided
+              </span>
+            </div>
+            <div className="relative">
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="Describe your core scene, hybrid intent, or visual concept..."
+                className="editorial-textarea min-h-[100px] text-xs font-mono"
+              />
+              {isSupported && (
+                <button
+                  type="button"
+                  onClick={startListening}
+                  className={`absolute bottom-3 right-3 p-1.5 border transition-all ${
+                    isListening
+                      ? "bg-red-500 text-white border-red-500 animate-pulse"
+                      : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-[var(--editorial-rule)] hover:text-[var(--editorial-pink)] hover:border-[var(--editorial-pink)]"
+                  }`}
+                  title={isListening ? "Stop listening" : "Voice input"}
+                >
+                  {isListening ? (
+                    <MicOffIcon className="w-3.5 h-3.5" />
+                  ) : (
+                    <MicIcon className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Style & Mood Selectors */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <CategoryDropdown
+              label="Visual Style Language"
+              icon={PaletteIcon}
+              value={selectedStyle}
+              onChange={setSelectedStyle}
+              categories={styleCategories}
+              placeholder="Choose aesthetic style..."
+              colorClass="violet"
+            />
+            <CategoryDropdown
+              label="Emotional Register / Mood"
+              icon={MagicWandIcon}
+              value={selectedMood}
+              onChange={setSelectedMood}
+              categories={moodCategories}
+              placeholder="Choose emotional mood..."
+              colorClass="fuchsia"
+            />
+          </div>
+
+          {/* Creative Conflict Detection Alert */}
+          {selectedStyle && selectedMood && (
+            (() => {
+              const conflicts = detectCreativeConflicts([selectedStyle], [selectedMood]);
+              if (conflicts.length === 0) return null;
+              return (
+                <div className="p-3 bg-[var(--editorial-gold-soft)] border border-[var(--editorial-gold)] flex items-center gap-2.5 text-xs font-mono text-[var(--editorial-gold)]">
+                  <span>💡</span>
+                  <span>
+                    <strong>Direction Note:</strong> {conflicts.map(c => c.message).join(' ')} (AI will blend adaptively).
+                  </span>
+                </div>
+              );
+            })()
           )}
-        </div>
 
-        {/* Style & Mood Dropdowns */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <CategoryDropdown
-            label="Style"
-            icon={PaletteIcon}
-            value={selectedStyle}
-            onChange={setSelectedStyle}
-            categories={styleCategories}
-            placeholder="Choose a style..."
-            colorClass="violet"
-          />
-          <CategoryDropdown
-            label="Mood"
-            icon={MagicWandIcon}
-            value={selectedMood}
-            onChange={setSelectedMood}
-            categories={moodCategories}
-            placeholder="Choose a mood..."
-            colorClass="fuchsia"
-          />
-        </div>
-
-        {/* Neural Backend Toggle */}
-        <div className="flex items-center justify-between p-4 bg-gradient-to-r from-cyan-50 to-blue-50 dark:from-cyan-900/20 dark:to-blue-900/20 rounded-2xl border border-cyan-200 dark:border-cyan-800/30">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl text-white">
-              <BrainCircuitIcon className="w-5 h-5" />
+          {/* Modes Section */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+            {/* Neural Mode Toggle */}
+            <div className={`p-4 border transition-all flex items-center justify-between ${
+              neuralMode
+                ? "bg-[var(--editorial-surface-strong)] border-[var(--editorial-teal)] shadow-[2px_2px_0_var(--editorial-teal)]"
+                : "bg-[var(--editorial-surface)] border-[var(--editorial-rule)]"
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 flex items-center justify-center border ${
+                  neuralMode
+                    ? "bg-[var(--editorial-teal)] text-white border-[var(--editorial-teal)]"
+                    : "bg-[var(--editorial-paper)] text-[var(--editorial-teal)] border-[var(--editorial-rule)]"
+                }`}>
+                  <BrainCircuitIcon className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="m-0 font-serif text-sm text-[var(--editorial-ink)]">Neural Backend</p>
+                  <p className="m-0 font-mono text-[10px] text-[var(--editorial-muted)] uppercase tracking-wider">4-Layer Cinematic JSON</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setNeuralMode(!neuralMode);
+                  if (!neuralMode) setProfessionalMode(false);
+                }}
+                disabled={professionalMode}
+                className={`px-3 py-1.5 text-xs font-mono font-bold uppercase tracking-wider border transition-all ${
+                  neuralMode
+                    ? "bg-[var(--editorial-teal)] text-white border-[var(--editorial-teal)]"
+                    : "bg-[var(--editorial-paper)] text-[var(--editorial-muted)] border-[var(--editorial-rule)] hover:text-[var(--editorial-ink)]"
+                } ${professionalMode ? "opacity-30 cursor-not-allowed" : ""}`}
+              >
+                {neuralMode ? "Active" : "Enable"}
+              </button>
             </div>
-            <div>
-              <p className="font-bold text-gray-900 dark:text-white text-sm">Neural Backend</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">4-Layer Cinematic JSON</p>
+
+            {/* Professional Mode Toggle */}
+            <div className={`p-4 border transition-all flex items-center justify-between ${
+              professionalMode
+                ? "bg-[var(--editorial-surface-strong)] border-[var(--editorial-gold)] shadow-[2px_2px_0_var(--editorial-gold)]"
+                : "bg-[var(--editorial-surface)] border-[var(--editorial-rule)]"
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 flex items-center justify-center border ${
+                  professionalMode
+                    ? "bg-[var(--editorial-gold)] text-white border-[var(--editorial-gold)]"
+                    : "bg-[var(--editorial-paper)] text-[var(--editorial-gold)] border-[var(--editorial-rule)]"
+                }`}>
+                  <StarIcon className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="m-0 font-serif text-sm text-[var(--editorial-ink)]">Professional Mode</p>
+                  <p className="m-0 font-mono text-[10px] text-[var(--editorial-muted)] uppercase tracking-wider">15-Layer Commercial Spec</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setProfessionalMode(!professionalMode);
+                  if (!professionalMode) setNeuralMode(false);
+                }}
+                className={`px-3 py-1.5 text-xs font-mono font-bold uppercase tracking-wider border transition-all ${
+                  professionalMode
+                    ? "bg-[var(--editorial-gold)] text-white border-[var(--editorial-gold)]"
+                    : "bg-[var(--editorial-paper)] text-[var(--editorial-muted)] border-[var(--editorial-rule)] hover:text-[var(--editorial-ink)]"
+                }`}
+              >
+                {professionalMode ? "Active" : "Enable"}
+              </button>
             </div>
           </div>
-          <button
-            onClick={() => {
-              setNeuralMode(!neuralMode);
-              if (!neuralMode) setProfessionalMode(false);
-            }}
-            disabled={professionalMode}
-            className={`relative w-8 h-14 rounded-full transition-all duration-300 border border-gray-300 dark:border-white/5 flex-shrink-0 ${neuralMode
-              ? 'bg-gradient-to-b from-cyan-500 to-blue-600 shadow-lg shadow-cyan-500/30'
-              : 'bg-gray-200 dark:bg-white/10'
-              } ${professionalMode ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            <span
-              className={`absolute left-1 w-6 h-6 bg-white rounded-full shadow-md transition-all duration-300 ${neuralMode ? 'top-1' : 'top-[26px]'
-                }`}
-            />
-          </button>
-        </div>
 
-        {/* Professional Mode Toggle - NEW */}
-        <div className="flex items-center justify-between p-4 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 rounded-2xl border border-amber-200 dark:border-amber-800/30">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl text-white">
-              <StarIcon className="w-5 h-5" />
+          {/* Professional Mode Advanced Settings */}
+          {professionalMode && (
+            <div className="animate-fade-in pt-2">
+              <AdvancedSettingsPanel
+                settings={advancedSettings}
+                onChange={setAdvancedSettings}
+              />
             </div>
-            <div>
-              <p className="font-bold text-gray-900 dark:text-white text-sm">Professional Mode</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">15-Layer Commercial-Grade JSON</p>
-            </div>
-          </div>
-          <button
-            onClick={() => {
-              setProfessionalMode(!professionalMode);
-              if (!professionalMode) setNeuralMode(false);
-            }}
-            className={`relative w-8 h-14 rounded-full transition-all duration-300 border border-gray-300 dark:border-white/5 flex-shrink-0 ${professionalMode
-              ? 'bg-gradient-to-b from-amber-500 to-orange-600 shadow-lg shadow-amber-500/30'
-              : 'bg-gray-200 dark:bg-white/10'
-              }`}
-          >
-            <span
-              className={`absolute left-1 w-6 h-6 bg-white rounded-full shadow-md transition-all duration-300 ${professionalMode ? 'top-1' : 'top-[26px]'
-                }`}
-            />
-          </button>
-        </div>
+          )}
 
-        {/* Professional Mode Advanced Settings - NEW */}
-        {professionalMode && (
-          <AdvancedSettingsPanel
-            settings={advancedSettings}
-            onChange={setAdvancedSettings}
-          />
-        )}
-
-
-
-        {/* Platform Selector (Professional Mode Only) */}
-        {professionalMode && (
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-              Target Platform
-            </label>
-            <div className="overflow-x-auto -mx-1 px-1 pb-1 scrollbar-hide md:overflow-visible">
-              <div className="flex gap-2 min-w-max md:min-w-0 md:flex-wrap">
-                {(['general', 'midjourney', 'dalle', 'flux', 'sdxl'] as const).map((platform) => (
+          {/* Platform Selector (Professional Mode Only) */}
+          {professionalMode && (
+            <div className="space-y-2 pt-2">
+              <label className="font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider">
+                Target Rendering Platform
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                {(['general', 'midjourney', 'dalle', 'flux', 'sdxl'] as const).map((plt) => (
                   <button
-                    key={platform}
-                    onClick={() => setSelectedPlatform(platform)}
-                    className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-bold border transition-all min-h-[44px] flex items-center justify-center whitespace-nowrap flex-shrink-0 md:flex-shrink ${selectedPlatform === platform
-                      ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white border-transparent shadow-md'
-                      : 'bg-white dark:bg-white/5 border-gray-300 dark:border-white/10 text-gray-700 dark:text-white hover:bg-gray-100 dark:hover:bg-white/10'
-                      }`}
+                    key={plt}
+                    type="button"
+                    onClick={() => setSelectedPlatform(plt)}
+                    className={`py-2 px-3 text-xs font-mono font-bold uppercase tracking-wider border transition-all flex items-center justify-center ${
+                      selectedPlatform === plt
+                        ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)] shadow-[2px_2px_0_var(--editorial-gold)]"
+                        : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-[var(--editorial-rule)] hover:border-[var(--editorial-gold)] hover:text-[var(--editorial-ink)]"
+                    }`}
                   >
-                    {platform === 'general' ? '🌐 General' :
-                      platform === 'midjourney' ? '🎨 Midjourney' :
-                        platform === 'dalle' ? '🤖 DALL-E 3' :
-                          platform === 'flux' ? '⚡ Flux' : '🖼️ SDXL'}
+                    {plt === 'general' ? '🌐 General' :
+                      plt === 'midjourney' ? '🎨 Midjourney' :
+                        plt === 'dalle' ? '🤖 DALL-E 3' :
+                          plt === 'flux' ? '⚡ Flux' : '🖼️ SDXL'}
                   </button>
                 ))}
               </div>
             </div>
-          </div>
-        )}
-
-        {/* Error Display */}
-        {error && (
-          <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/30 rounded-2xl">
-            <p className="text-red-700 dark:text-red-400 text-sm font-medium">{error}</p>
-          </div>
-        )}
-
-        {/* Generate Button */}
-        <button
-          onClick={handleGenerate}
-          disabled={isGenerating || (!prompt.trim() && !refImages.some(img => img !== null))}
-          className={`w-full md:min-w-[200px] h-14 bg-gradient-to-r from-[#BF953F] to-[#B38728] text-black font-bold rounded-full shadow-[0_4px_15px_rgba(212,175,55,0.3)] active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:transform-none`}
-        >
-          {isGenerating ? (
-            statusMessage || (professionalMode ? "Professional Backend Processing..." : neuralMode ? "Neural Backend Processing..." : "Analyzing & Mixing...")
-          ) : (
-            <>
-              {professionalMode ? <StarIcon className="w-5 h-5" /> : <BrainCircuitIcon className="w-5 h-5" />}
-              {professionalMode ? "Generate Professional Prompt" : neuralMode ? "Generate with Neural Backend" : "Generate Creative Mix"}
-            </>
           )}
-        </button>
-      </div>
 
-      {/* Output */}
-      {(generatedResult || isGenerating || structuredResult || professionalResult) && (
-        <div
-          className="bg-white/60 dark:bg-white/5 backdrop-blur-xl rounded-2xl sm:rounded-3xl border border-gray-200 dark:border-white/10 p-4 sm:p-6 shadow-xl animate-slide-up-fade relative space-y-4"
-          style={{ contain: 'content' }}
-        >
-
-          {/* Structured Breakdown (Neural Mode) */}
-          {structuredResult && neuralMode && (
-            <div className="space-y-4 pb-4 border-b border-gray-200 dark:border-white/10">
-              {/* Header with Reflexion Badge */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <BrainCircuitIcon className="w-5 h-5 text-cyan-500" />
-                  <span className="font-bold text-gray-900 dark:text-white">Structured Breakdown</span>
-                </div>
-                <span className="px-2 py-1 bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 text-xs font-bold rounded-full">
-                  AI SDK Streaming
-                </span>
-              </div>
-
-              {/* Subject Layer */}
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Subject</p>
-                <div className="bg-gray-50 dark:bg-white/5 rounded-xl p-3 space-y-1">
-                  <p className="text-gray-900 dark:text-white font-medium">{structuredResult.subject.core}</p>
-                  <p className="text-gray-600 dark:text-gray-400 text-sm">{structuredResult.subject.action}</p>
-                  {structuredResult.subject.attire && (
-                    <p className="text-gray-500 dark:text-gray-500 text-sm italic">{structuredResult.subject.attire}</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Cinematography Layer */}
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Cinematography</p>
-                <div className="flex flex-wrap gap-2">
-                  {/* Lighting Badges */}
-                  {structuredResult.cinematography.lighting.map((light, i) => (
-                    <span key={i} className="px-3 py-1.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-xs font-bold rounded-full flex items-center gap-1">
-                      💡 {LIGHTING_LABELS[light] || light}
-                    </span>
-                  ))}
-                  {/* Camera Badge */}
-                  <span className="px-3 py-1.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-bold rounded-full flex items-center gap-1">
-                    📷 {CAMERA_LABELS[structuredResult.cinematography.camera_angle] || structuredResult.cinematography.camera_angle}
-                  </span>
-                  {/* Film Stock Badge */}
-                  <span className="px-3 py-1.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs font-bold rounded-full flex items-center gap-1">
-                    🎞️ {structuredResult.cinematography.film_stock}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  <strong>Lens:</strong> {structuredResult.cinematography.lens}
-                </p>
-              </div>
-
-              {/* Artistic Layer */}
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Artistic</p>
-                <div className="flex flex-wrap gap-2">
-                  <span className="px-3 py-1.5 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 text-xs font-bold rounded-full">
-                    Style: {(structuredResult as any).artistic?.style || 'N/A'}
-                  </span>
-                  <span className="px-3 py-1.5 bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 text-xs font-bold rounded-full">
-                    Mood: {(structuredResult as any).artistic?.mood || 'N/A'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Technical Layer */}
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Technical</p>
-                <div className="flex flex-wrap gap-2">
-                  <span className="px-3 py-1.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs font-bold rounded-full">
-                    {ASPECT_RATIO_LABELS[structuredResult.technical.aspect_ratio] || structuredResult.technical.aspect_ratio}
-                  </span>
-                  <span className="px-3 py-1.5 bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300 text-xs font-bold rounded-full">
-                    Stylize: {structuredResult.technical.stylize}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  <strong>Negative:</strong> {structuredResult.technical.negative_prompt}
-                </p>
-              </div>
+          {/* Error Display */}
+          {error && (
+            <div className="p-3 bg-red-500/10 border border-red-500/30 text-xs font-mono text-red-600 dark:text-red-400">
+              {error}
             </div>
           )}
 
-          {/* Professional Mode Breakdown - 15 Layers */}
-          {professionalResult && professionalMode && (
-            <div className="space-y-4 pb-4 border-b border-gray-200 dark:border-white/10">
-              {/* Header */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <StarIcon className="w-5 h-5 text-amber-500" />
-                  <span className="font-bold text-gray-900 dark:text-white">15-Layer Professional Breakdown</span>
-                </div>
-                <span className="px-2 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-xs font-bold rounded-full">
-                  Commercial Grade
-                </span>
+          {/* Generate Button */}
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={isGenerating || (!prompt.trim() && !refImages.some(img => img !== null))}
+              className="editorial-button editorial-button--primary editorial-button--coral w-full justify-center text-xs"
+            >
+              {isGenerating ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5 shrink-0 text-white" />
+                  <span>{statusMessage || "Synthesizing Directives..."}</span>
+                </>
+              ) : (
+                <>
+                  {professionalMode ? <StarIcon className="w-3.5 h-3.5" /> : <BrainCircuitIcon className="w-3.5 h-3.5" />}
+                  <span>{professionalMode ? "Generate 15-Layer Professional Spec" : neuralMode ? "Generate Neural Cinematic Mix" : "Synthesize Creative Mix"}</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Output Panel */}
+      {(generatedResult || isGenerating || structuredResult || professionalResult) && (
+        <div className="editorial-panel animate-fade-in space-y-6">
+          <div className="editorial-panel__header">
+            <div className="flex items-center gap-2">
+              <span className="editorial-badge editorial-badge--pink">02 / Output</span>
+              <h3 className="editorial-panel__title m-0 text-base">
+                {professionalMode ? 'Professional Multi-Layer Specification' : neuralMode ? 'Neural Cinematic Direction' : 'Synthesized Hybrid Prompt'}
+              </h3>
+            </div>
+
+            {generatedResult && (
+              <div className="flex items-center gap-2">
+                <span className="editorial-badge editorial-badge--teal">Ready</span>
               </div>
+            )}
+          </div>
 
-              {/* Layer 1: Purpose */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <p className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wide">📌 Purpose</p>
-                  <span className="inline-block px-3 py-1.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-xs font-bold rounded-full">
-                    {PURPOSE_LABELS[professionalResult.image_purpose] || professionalResult.image_purpose}
+          <div className="editorial-panel__body space-y-6">
+            {isGenerating ? (
+              <ProcessingAnimation
+                variant="panel"
+                theme="pink"
+                badge="Neural Fusion Matrix"
+                title={professionalMode ? "Synthesizing 15-Layer Professional Spec" : neuralMode ? "Generating Neural Cinematic Mix" : "Synthesizing Creative Hybrid Mix"}
+                stages={[
+                  "Synthesizing aesthetic vectors & references...",
+                  "Calculating lighting contrast and optical depth...",
+                  "Balancing camera dynamics, lenses & scene geometry...",
+                  "Compiling master prompt syntax...",
+                ]}
+                stageIntervalMs={2200}
+                subtext="Fusing multiple creative directions into an optimized prompt specification."
+              />
+            ) : (
+              <>
+            {/* Structured Breakdown (Neural Mode) */}
+            {structuredResult && neuralMode && (
+              <div className="space-y-4 pb-4 border-b border-[var(--editorial-rule)]">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-xs font-bold uppercase tracking-wider text-[var(--editorial-teal)] flex items-center gap-1.5">
+                    <BrainCircuitIcon className="w-3.5 h-3.5" /> 4-Layer Cinematic Breakdown
                   </span>
+                  <span className="editorial-badge editorial-badge--teal">AI Structured</span>
                 </div>
 
-                {/* Layer 2: Environment */}
-                <div className="space-y-2">
-                  <p className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wide">🏠 Environment</p>
-                  <span className="inline-block px-3 py-1.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-bold rounded-full">
-                    {ENVIRONMENT_LABELS[professionalResult.scene?.environment] || professionalResult.scene?.environment}
-                  </span>
-                </div>
-              </div>
-
-              {/* Layer 5: Composition */}
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wide">📐 Composition</p>
-                <div className="flex flex-wrap gap-2">
-                  <span className="px-3 py-1.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs font-bold rounded-full">
-                    {ARRANGEMENT_LABELS[professionalResult.composition?.arrangement] || professionalResult.composition?.arrangement}
-                  </span>
-                  <span className="px-3 py-1.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs font-bold rounded-full">
-                    {professionalResult.composition?.framing}
-                  </span>
-                  <span className="px-3 py-1.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs font-bold rounded-full">
-                    {professionalResult.composition?.camera_height?.replace(/-/g, ' ')}
-                  </span>
-                </div>
-              </div>
-
-              {/* Layer 6: Camera */}
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-cyan-600 dark:text-cyan-400 uppercase tracking-wide">📷 Camera</p>
-                <div className="flex flex-wrap gap-2">
-                  <span className="px-3 py-1.5 bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 text-xs font-bold rounded-full">
-                    {professionalResult.camera?.focal_length_mm}mm
-                  </span>
-                  <span className="px-3 py-1.5 bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 text-xs font-bold rounded-full">
-                    f/{professionalResult.camera?.aperture_f}
-                  </span>
-                  <span className="px-3 py-1.5 bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 text-xs font-bold rounded-full">
-                    {professionalResult.camera?.lens_type}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-600 dark:text-gray-400 italic">
-                  {professionalResult.camera?.focus_strategy}
-                </p>
-              </div>
-
-              {/* Layer 7-9: Lighting */}
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-yellow-600 dark:text-yellow-400 uppercase tracking-wide">💡 Lighting</p>
-                <div className="flex flex-wrap gap-2">
-                  <span className="px-3 py-1.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 text-xs font-bold rounded-full">
-                    {LIGHTING_TYPE_LABELS[professionalResult.lighting?.primary?.type] || professionalResult.lighting?.primary?.type}
-                  </span>
-                  <span className="px-3 py-1.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 text-xs font-bold rounded-full">
-                    {professionalResult.lighting?.primary?.direction?.replace(/-/g, ' ')}
-                  </span>
-                  <span className="px-3 py-1.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 text-xs font-bold rounded-full">
-                    {professionalResult.lighting?.primary?.quality}
-                  </span>
-                  <span className="px-3 py-1.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 text-xs font-bold rounded-full">
-                    🌡️ {professionalResult.lighting?.color_temperature?.replace(/_/g, ' ')}
-                  </span>
-                </div>
-              </div>
-
-              {/* Layer 10: Color Grading */}
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-pink-600 dark:text-pink-400 uppercase tracking-wide">🎨 Color Grading</p>
-                <div className="flex flex-wrap gap-2">
-                  {professionalResult.color_grading?.palette?.slice(0, 4).map((color, i) => (
-                    <span key={i} className="px-3 py-1.5 bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300 text-xs font-bold rounded-full">
-                      {color}
-                    </span>
-                  ))}
-                  <span className="px-3 py-1.5 bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 text-xs font-bold rounded-full">
-                    {professionalResult.color_grading?.saturation}
-                  </span>
-                </div>
-              </div>
-
-              {/* Layer 11-12: Materials */}
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-stone-600 dark:text-stone-400 uppercase tracking-wide">🧱 Materials & Textures</p>
-                <div className="flex flex-wrap gap-2">
-                  {professionalResult.materials?.primary?.slice(0, 4).map((mat, i) => (
-                    <span key={i} className="px-3 py-1.5 bg-stone-100 dark:bg-stone-900/30 text-stone-700 dark:text-stone-300 text-xs font-bold rounded-full">
-                      {mat}
-                    </span>
-                  ))}
-                </div>
-                {professionalResult.materials?.imperfections?.include && (
-                  <p className="text-sm text-gray-500 dark:text-gray-400 italic">
-                    ✨ Imperfections: {professionalResult.materials.imperfections.types?.slice(0, 3).join(', ')}
-                  </p>
-                )}
-              </div>
-
-              {/* Layer 13: Subject */}
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-green-600 dark:text-green-400 uppercase tracking-wide">🎯 Subject</p>
-                <div className="bg-gray-50 dark:bg-white/5 rounded-xl p-3 space-y-1">
-                  <p className="text-gray-900 dark:text-white font-medium">{professionalResult.subject?.category}</p>
-                  <p className="text-gray-600 dark:text-gray-400 text-sm">{professionalResult.subject?.pose_or_orientation}</p>
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {professionalResult.subject?.features?.slice(0, 3).map((feat, i) => (
-                      <span key={i} className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs rounded-full">
-                        {feat}
-                      </span>
-                    ))}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="p-3 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
+                    <p className="m-0 font-mono text-[10px] text-[var(--editorial-muted)] uppercase tracking-wider">Subject Layer</p>
+                    <p className="m-0 font-bold text-xs text-[var(--editorial-ink)] mt-1">{structuredResult.subject.core}</p>
+                    <p className="m-0 text-xs text-[var(--editorial-muted)] mt-0.5">{structuredResult.subject.action}</p>
+                  </div>
+                  <div className="p-3 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
+                    <p className="m-0 font-mono text-[10px] text-[var(--editorial-muted)] uppercase tracking-wider">Cinematography</p>
+                    <p className="m-0 text-xs text-[var(--editorial-ink)] mt-1">
+                      {structuredResult.cinematography.lens} &bull; {CAMERA_LABELS[structuredResult.cinematography.camera_angle] || structuredResult.cinematography.camera_angle}
+                    </p>
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {structuredResult.cinematography.lighting.map((light, i) => (
+                        <span key={i} className="editorial-badge editorial-badge--gold">
+                          💡 {LIGHTING_LABELS[light] || light}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
+            )}
 
-              {/* Layer 14: Mood */}
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wide">💭 Mood</p>
-                <div className="flex flex-wrap gap-2">
-                  {professionalResult.mood?.map((m, i) => (
-                    <span key={i} className="px-3 py-1.5 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold rounded-full">
-                      {m}
+            {/* Professional Mode Breakdown - 15 Layers */}
+            {professionalResult && professionalMode && (
+              <div className="space-y-4 pb-4 border-b border-[var(--editorial-rule)]">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-xs font-bold uppercase tracking-wider text-[var(--editorial-gold)] flex items-center gap-1.5">
+                    <StarIcon className="w-3.5 h-3.5" /> 15-Layer Commercial Breakdown
+                  </span>
+                  <span className="editorial-badge editorial-badge--gold">Commercial Spec</span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="p-2.5 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
+                    <span className="font-mono text-[9.5px] text-[var(--editorial-muted)] uppercase block">Purpose</span>
+                    <span className="font-mono text-xs font-bold text-[var(--editorial-ink)]">
+                      {PURPOSE_LABELS[professionalResult.image_purpose] || professionalResult.image_purpose}
                     </span>
-                  ))}
+                  </div>
+                  <div className="p-2.5 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
+                    <span className="font-mono text-[9.5px] text-[var(--editorial-muted)] uppercase block">Environment</span>
+                    <span className="font-mono text-xs font-bold text-[var(--editorial-ink)]">
+                      {ENVIRONMENT_LABELS[professionalResult.scene?.environment] || professionalResult.scene?.environment}
+                    </span>
+                  </div>
+                  <div className="p-2.5 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
+                    <span className="font-mono text-[9.5px] text-[var(--editorial-muted)] uppercase block">Optics</span>
+                    <span className="font-mono text-xs font-bold text-[var(--editorial-ink)]">
+                      {professionalResult.camera?.focal_length_mm}mm f/{professionalResult.camera?.aperture_f}
+                    </span>
+                  </div>
+                  <div className="p-2.5 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
+                    <span className="font-mono text-[9.5px] text-[var(--editorial-muted)] uppercase block">Aspect Ratio</span>
+                    <span className="font-mono text-xs font-bold text-[var(--editorial-ink)]">
+                      {OUTPUT_RATIO_LABELS[professionalResult.post_processing?.output_ratio] || professionalResult.post_processing?.output_ratio}
+                    </span>
+                  </div>
                 </div>
               </div>
+            )}
 
-              {/* Layer 15: Output */}
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-teal-600 dark:text-teal-400 uppercase tracking-wide">📤 Output</p>
-                <div className="flex flex-wrap gap-2">
-                  <span className="px-3 py-1.5 bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 text-xs font-bold rounded-full">
-                    {OUTPUT_RATIO_LABELS[professionalResult.post_processing?.output_ratio] || professionalResult.post_processing?.output_ratio}
+            {/* Generated Prompt Canvas */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider">
+                  Assembled Prompt Direction
+                </label>
+                {generatedResult && (
+                  <span className="font-mono text-[10px] text-[var(--editorial-muted)]">
+                    {generatedResult.length} characters
                   </span>
-                  <span className="px-3 py-1.5 bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300 text-xs font-bold rounded-full">
-                    Grain: {professionalResult.post_processing?.grain}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Final Prompt Output */}
-          <div className="space-y-2">
-            <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-              {professionalMode ? 'Professional Prompt' : neuralMode ? 'Constructed Prompt' : 'Generated Prompt'}
-            </p>
-            <textarea
-              value={generatedResult}
-              onChange={(e) => setGeneratedResult(e.target.value)}
-              readOnly={false}
-              placeholder={isGenerating ? "The Alchemist is working..." : ""}
-              className="w-full h-32 bg-gray-50 dark:bg-black/20 rounded-xl p-3 border-none focus:ring-2 focus:ring-violet-500/50 resize-none text-gray-900 dark:text-white font-medium leading-relaxed text-sm"
-            />
-          </div>
-
-          {!isGenerating && (
-            <div className="flex flex-col md:flex-row gap-4 items-center justify-between mt-6">
-              <div className="flex items-center gap-3 w-full md:w-auto">
-                <button
-                  onClick={handleCopy}
-                  className="p-3 w-12 md:w-auto h-12 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 text-gray-900 dark:text-white transition-colors flex items-center justify-center"
-                  title="Copy"
-                >
-                  {copied ? (
-                    <CheckIcon className="w-5 h-5 text-green-500" />
-                  ) : (
-                    <CopyIcon className="w-5 h-5" />
-                  )}
-                </button>
-                <button
-                  onClick={handleSave}
-                  className="p-3 w-12 md:w-auto h-12 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10 text-gray-900 dark:text-white transition-colors flex items-center justify-center"
-                  title="Save"
-                >
-                  {saved ? (
-                    <CheckIcon className="w-5 h-5 text-green-500" />
-                  ) : (
-                    <FolderIcon className="w-5 h-5" />
-                  )}
-                </button>
-              </div>
-
-              <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
-                {/* Convert to JSON Button - only shows when prompt is generated */}
-                {generatedResult && !neuralMode && !professionalMode && (
-                  <button
-                    onClick={handleConvertToJson}
-                    className="w-full md:w-auto h-12 px-6 rounded-xl border border-violet-200 dark:border-violet-500/30 bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 font-bold text-sm flex items-center justify-center gap-2 hover:bg-violet-100 dark:hover:bg-violet-900/40 transition-colors"
-                    title="Convert to JSON structure"
-                  >
-                    <CodeIcon className="w-4 h-4" /> JSON
-                  </button>
                 )}
-                <button
-                  onClick={() => onSendToBuilder(generatedResult)}
-                  className="w-full md:w-auto h-12 px-6 rounded-xl border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 font-bold text-sm flex items-center justify-center hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors"
-                >
-                  Refine
-                </button>
-                <button
-                  onClick={() => onJumpToImage(generatedResult)}
-                  className="w-full md:w-auto h-12 px-6 rounded-xl border border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 font-bold text-sm flex items-center justify-center gap-2 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors"
-                >
-                  <ImagePlusIcon className="w-4 h-4" /> Generate Image
-                </button>
               </div>
+              <textarea
+                value={generatedResult}
+                onChange={(e) => setGeneratedResult(e.target.value)}
+                placeholder={isGenerating ? "Synthesizing visual direction..." : "Your synthesized prompt will appear here."}
+                className="editorial-textarea min-h-[130px] font-mono text-xs leading-relaxed"
+              />
             </div>
-          )}
 
-          {/* JSON Prompt Output - Collapsible Panel */}
-          {showJsonOutput && jsonPromptData && !isGenerating && (
-            <div className="mt-4 border border-violet-200 dark:border-violet-800/30 rounded-2xl overflow-hidden">
-              {/* Header */}
-              <button
-                onClick={() => setShowJsonOutput(!showJsonOutput)}
-                className="w-full flex items-center justify-between p-4 bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-900/20 dark:to-purple-900/20 hover:from-violet-100 hover:to-purple-100 dark:hover:from-violet-900/30 dark:hover:to-purple-900/30 transition-colors"
-              >
+            {/* Actions Bar */}
+            {!isGenerating && generatedResult && (
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
                 <div className="flex items-center gap-2">
-                  <CodeIcon className="w-5 h-5 text-violet-500" />
-                  <span className="font-bold text-gray-900 dark:text-white text-sm">JSON Prompt Structure</span>
-                  <span className="px-2 py-0.5 bg-violet-100 dark:bg-violet-900/50 text-violet-600 dark:text-violet-300 rounded-full text-[10px] font-bold">
-                    8 Layers
-                  </span>
-                </div>
-                {showJsonOutput ? (
-                  <ChevronUpIcon className="w-5 h-5 text-gray-500" />
-                ) : (
-                  <ChevronDownIcon className="w-5 h-5 text-gray-500" />
-                )}
-              </button>
-
-              {/* JSON Content */}
-              <div className="p-4 space-y-4 bg-white/50 dark:bg-black/20">
-                {/* Layer Badges */}
-                <div className="flex flex-wrap gap-2">
-                  <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-bold rounded-lg">
-                    🎯 {jsonPromptData.core.subject.slice(0, 30)}...
-                  </span>
-                  <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs font-bold rounded-lg">
-                    🎨 {jsonPromptData.style.type}
-                  </span>
-                  <span className="px-2 py-1 bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300 text-xs font-bold rounded-lg">
-                    💭 {jsonPromptData.mood.primary}
-                  </span>
-                  <span className="px-2 py-1 bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 text-xs font-bold rounded-lg">
-                    📷 {jsonPromptData.camera.angle}
-                  </span>
-                  <span className="px-2 py-1 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 text-xs font-bold rounded-lg">
-                    💡 {jsonPromptData.lighting.type}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCopy}
+                    className="editorial-button editorial-button--sm editorial-button--secondary"
+                  >
+                    {copied ? <CheckIcon className="w-3.5 h-3.5 text-emerald-500" /> : <CopyIcon className="w-3.5 h-3.5" />}
+                    <span>{copied ? "Copied" : "Copy"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSave}
+                    className="editorial-button editorial-button--sm editorial-button--secondary"
+                  >
+                    {saved ? <CheckIcon className="w-3.5 h-3.5 text-emerald-500" /> : <FolderIcon className="w-3.5 h-3.5" />}
+                    <span>{saved ? "Saved" : "Save to Vault"}</span>
+                  </button>
+                  {generatedResult && !neuralMode && !professionalMode && (
+                    <button
+                      type="button"
+                      onClick={handleConvertToJson}
+                      className="editorial-button editorial-button--sm editorial-button--secondary"
+                    >
+                      <CodeIcon className="w-3.5 h-3.5" />
+                      <span>View JSON</span>
+                    </button>
+                  )}
                 </div>
 
-                {/* JSON Code Block */}
-                <pre className="bg-gray-900 dark:bg-black rounded-xl p-4 text-xs text-green-400 font-mono overflow-x-auto max-h-64 overflow-y-auto">
+                <button
+                  type="button"
+                  onClick={() => onSendToBuilder(generatedResult)}
+                  className="editorial-button editorial-button--sm editorial-button--primary"
+                >
+                  <SparklesIcon className="w-3.5 h-3.5" />
+                  <span>Send to Builder</span>
+                </button>
+              </div>
+            )}
+
+            {/* JSON Code Viewer Drawer */}
+            {showJsonOutput && jsonPromptData && !isGenerating && (
+              <div className="p-4 bg-[var(--editorial-surface-strong)] border border-[var(--editorial-rule)] space-y-3 animate-fade-in">
+                <div className="flex items-center justify-between border-b border-[var(--editorial-rule)] pb-2">
+                  <div className="flex items-center gap-2">
+                    <CodeIcon className="w-4 h-4 text-[var(--editorial-pink)]" />
+                    <span className="font-mono text-xs font-bold uppercase tracking-wider text-[var(--editorial-ink)]">
+                      JSON Prompt Structure (8 Layers)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowJsonOutput(false)}
+                    className="text-xs font-mono text-[var(--editorial-muted)] hover:text-[var(--editorial-coral)]"
+                  >
+                    Close
+                  </button>
+                </div>
+
+                <pre className="p-3 bg-black/80 text-emerald-400 font-mono text-xs overflow-x-auto max-h-60 custom-scrollbar border border-white/10">
                   {JSON.stringify({
                     core: jsonPromptData.core,
                     style: jsonPromptData.style,
@@ -1110,32 +990,21 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
                   }, null, 2)}
                 </pre>
 
-                {/* Actions */}
-                <div className="flex justify-end gap-2">
+                <div className="flex justify-end">
                   <button
+                    type="button"
                     onClick={handleCopyJson}
-                    className="px-4 py-2 rounded-xl bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 font-bold text-sm flex items-center gap-2 hover:bg-violet-200 dark:hover:bg-violet-900/50 transition-colors"
+                    className="editorial-button editorial-button--sm editorial-button--secondary"
                   >
-                    {jsonCopied ? (
-                      <>
-                        <CheckIcon className="w-4 h-4" /> Copied!
-                      </>
-                    ) : (
-                      <>
-                        <CopyIcon className="w-4 h-4" /> Copy JSON
-                      </>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => setShowJsonOutput(false)}
-                    className="px-4 py-2 rounded-xl bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-300 font-bold text-sm hover:bg-gray-200 dark:hover:bg-white/20 transition-colors"
-                  >
-                    Close
+                    {jsonCopied ? <CheckIcon className="w-3.5 h-3.5 text-emerald-500" /> : <CopyIcon className="w-3.5 h-3.5" />}
+                    <span>{jsonCopied ? "JSON Copied!" : "Copy JSON"}</span>
                   </button>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+            </>
+            )}
+          </div>
         </div>
       )}
     </div>

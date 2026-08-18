@@ -4,6 +4,7 @@ import {
   Routes,
   Route,
   useNavigate,
+  useLocation,
   Navigate,
 } from "react-router-dom";
 import { Theme, Prompt, Platform } from "./types";
@@ -13,14 +14,35 @@ import Loading from "./components/Loading";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { InstagramIcon } from "./components/icons";
 
+import {
+  initializeSettingsStorage,
+  loadAppearanceSettings,
+  applyAppearanceToDOM,
+} from "./services/settingsStorage";
+
 // Lazy load workflow components
 const Home = React.lazy(() => import("./components/Home"));
-const ImageGenerator = React.lazy(() => import("./components/ImageGenerator"));
-const ImageEditor = React.lazy(() => import("./components/ImageEditor"));
-const PromptStudio = React.lazy(() => import("./components/PromptStudio"));
+const PromptBuilderPage = React.lazy(
+  () => import("./components/pages/PromptBuilderPage")
+);
+const ImageToPromptPage = React.lazy(
+  () => import("./components/pages/ImageToPromptPage")
+);
+const CreativeMixerPage = React.lazy(
+  () => import("./components/pages/CreativeMixerPage")
+);
+const BatchGeneratorPage = React.lazy(
+  () => import("./components/pages/BatchGeneratorPage")
+);
+const ProPrompterPage = React.lazy(
+  () => import("./components/pages/ProPrompterPage")
+);
 const PromptLibrary = React.lazy(() => import("./components/PromptLibrary"));
 const StudioWorkspace = React.lazy(
-  () => import("./components/StudioWorkspace"),
+  () => import("./components/StudioWorkspace")
+);
+const SettingsPage = React.lazy(
+  () => import("./components/pages/SettingsPage")
 );
 const HelpResources = React.lazy(() => import("./components/HelpResources"));
 
@@ -34,6 +56,8 @@ const App: React.FC = () => {
 
 const AppContent: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const isHome = location.pathname === "/";
 
   const [theme, setTheme] = useState<Theme>("dark");
   const [prompts, setPrompts] = useLocalStorage<Prompt[]>("prompt-library", []);
@@ -41,9 +65,11 @@ const AppContent: React.FC = () => {
     useState<Prompt | null>(null);
 
   useEffect(() => {
-    const storedTheme = localStorage.getItem("theme") as Theme;
-    if (storedTheme) {
-      setTheme(storedTheme);
+    initializeSettingsStorage();
+    const appSettings = loadAppearanceSettings();
+    applyAppearanceToDOM(appSettings);
+    if (appSettings.theme === "light" || appSettings.theme === "dark") {
+      setTheme(appSettings.theme);
     }
   }, []);
 
@@ -63,14 +89,15 @@ const AppContent: React.FC = () => {
     (
       text: string,
       platform: Platform = Platform.Natural,
-      imageUrl: string | undefined,
+      imageUrl?: string,
       tags: string[] = [],
     ) => {
       if (!text.trim() && !imageUrl) return;
       const newPrompt: Prompt = {
         id: `prompt_${Date.now()}`,
         text: text,
-        platform: platform,
+        platform: platform || Platform.Natural,
+        sourceFeature: tags[0] || "general",
         tags,
         createdAt: new Date().toISOString(),
         imageUrl,
@@ -97,7 +124,7 @@ const AppContent: React.FC = () => {
   const handleUsePromptFromLibrary = useCallback(
     (prompt: Prompt) => {
       setInitialPromptForBuilder(prompt);
-      navigate("/prompt-builder?tab=prompt");
+      navigate("/prompt-builder");
     },
     [navigate],
   );
@@ -105,71 +132,117 @@ const AppContent: React.FC = () => {
   const handleSendToBuilder = useCallback(
     (promptText: string) => {
       preparePromptForBuilder(promptText);
-      navigate("/prompt-builder?tab=prompt");
+      navigate("/prompt-builder");
     },
     [navigate, preparePromptForBuilder],
   );
 
-  const handleJumpToImage = useCallback(
-    (promptText: string) => {
-      navigate(`/generate?prompt=${encodeURIComponent(promptText)}`);
-    },
-    [navigate],
-  );
-
   return (
-    <div className="relative min-h-screen bg-transparent font-sans flex flex-col">
-      <Navbar
-        theme={theme}
-        toggleTheme={toggleTheme}
-      />
+    <div className="app-canvas relative min-h-screen font-sans flex flex-col">
+      <Navbar theme={theme} toggleTheme={toggleTheme} />
 
-      <main id="main-content" role="main" className="flex-grow container mx-auto px-5 sm:px-6 lg:px-8 pt-24 pb-8 pb-safe" tabIndex={-1}>
+      <main
+        id="main-content"
+        role="main"
+        className={`flex-grow ${isHome ? "homepage-main" : "editorial-page__content pt-20 pb-12 pb-safe"}`}
+        tabIndex={-1}
+      >
         <ErrorBoundary>
           <Suspense fallback={<Loading />}>
             <Routes>
+              {/* Home Hub */}
               <Route path="/" element={<Home />} />
+
+              {/* Independent Prompt Generator Features */}
               <Route
                 path="/prompt-builder"
                 element={
-                  <PromptStudio
+                  <PromptBuilderPage
                     prompts={prompts}
                     setPrompts={setPrompts}
                     initialPrompt={initialPromptForBuilder}
-                    onJumpToImage={handleJumpToImage}
-                    onSaveToLibrary={handleSaveToLibrary}
-                    preparePromptForBuilder={preparePromptForBuilder}
                   />
                 }
               />
-              <Route
-                path="/prompt-studio"
-                element={<Navigate to="/prompt-builder" replace />}
-              />
 
               <Route
-                path="/generate"
+                path="/image-to-prompt"
                 element={
-                  <ImageGenerator
-                    onSaveToLibrary={(text, platform, img) =>
-                      handleSaveToLibrary(text, platform, img, [
-                        "generated-image",
+                  <ImageToPromptPage
+                    onSendToBuilder={handleSendToBuilder}
+                    onSaveToLibrary={(text, platform, imgUrl, tags) =>
+                      handleSaveToLibrary(text, platform || Platform.Natural, imgUrl, tags || [
+                        "image-to-prompt",
                       ])
                     }
                   />
                 }
               />
+
               <Route
-                path="/edit"
+                path="/creative-mixer"
                 element={
-                  <ImageEditor
-                    onSaveToLibrary={(text, platform, img) =>
-                      handleSaveToLibrary(text, platform, img, ["edited-image"])
+                  <CreativeMixerPage
+                    onSendToBuilder={handleSendToBuilder}
+                    onSaveToLibrary={(text, platform, imgUrl, tags) =>
+                      handleSaveToLibrary(text, platform || Platform.Natural, imgUrl, tags || [
+                        "creative-mixer",
+                      ])
                     }
                   />
                 }
               />
 
+              <Route
+                path="/batch-generator"
+                element={
+                  <BatchGeneratorPage
+                    onSendToBuilder={handleSendToBuilder}
+                    onSaveToLibrary={(text, platform, imgUrl, tags) =>
+                      handleSaveToLibrary(text, platform || Platform.Natural, imgUrl, tags || [
+                        "batch-generator",
+                      ])
+                    }
+                  />
+                }
+              />
+
+              <Route
+                path="/pro-prompter"
+                element={
+                  <ProPrompterPage
+                    onSendToBuilder={handleSendToBuilder}
+                    onSaveToLibrary={(text, platform, imgUrl, tags) =>
+                      handleSaveToLibrary(text, platform || Platform.Natural, imgUrl, tags || [
+                        "pro-prompter",
+                      ])
+                    }
+                  />
+                }
+              />
+
+              {/* Alias for banner prompter */}
+              <Route
+                path="/banner-prompter"
+                element={<Navigate to="/pro-prompter" replace />}
+              />
+
+              {/* Studio Workspace */}
+              <Route
+                path="/studio"
+                element={
+                  <StudioWorkspace
+                    onSendToBuilder={handleSendToBuilder}
+                    onSaveToLibrary={(text, platform, imgUrl, tags) =>
+                      handleSaveToLibrary(text, platform || Platform.Natural, imgUrl, tags || [
+                        "studio",
+                      ])
+                    }
+                  />
+                }
+              />
+
+              {/* Prompt Library */}
               <Route
                 path="/library"
                 element={
@@ -180,41 +253,41 @@ const AppContent: React.FC = () => {
                   />
                 }
               />
+
+              {/* Legacy / Hub Route */}
               <Route
-                path="/studio"
-                element={
-                  <StudioWorkspace
-                    onSendToBuilder={handleSendToBuilder}
-                    onJumpToImage={handleJumpToImage}
-                    onSaveToLibrary={(text) =>
-                      handleSaveToLibrary(text, Platform.Natural, undefined, [
-                        "studio",
-                      ])
-                    }
-                  />
-                }
+                path="/prompt-studio"
+                element={<Navigate to="/prompt-builder" replace />}
               />
 
+              <Route path="/settings" element={<SettingsPage />} />
               <Route path="/help" element={<HelpResources />} />
+
+              {/* Fallback */}
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
         </ErrorBoundary>
       </main>
 
-      <footer className="w-full max-w-5xl mx-auto py-6 border-t border-gray-200 dark:border-white/10">
-        <div className="flex flex-col sm:flex-row justify-between items-center text-center gap-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Designed & Developed by{" "}
-            <span className="font-semibold text-gray-700 dark:text-gray-200">
-              Raju Sheikh
-            </span>
-          </p>
-          <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
+      <footer className="editorial-footer">
+        <div className="editorial-footer__inner">
+          <div className="editorial-footer__meta">
+            <div className="editorial-footer__status-dot" aria-hidden="true" />
+            <p className="m-0 text-xs">
+              Jugaad Visuals AI Studio • Crafted by{" "}
+              <span className="editorial-footer__author">
+                Raju Sheikh
+              </span>
+            </p>
+          </div>
+          <div className="editorial-footer__links">
             <a
               href="https://instagram.com/depressed_4rtist"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 hover:text-pink-500 transition-colors"
+              className="editorial-footer__link"
+              aria-label="Raju Sheikh on Instagram"
             >
               <InstagramIcon className="w-3.5 h-3.5" />
               <span>@depressed_4rtist</span>
@@ -223,7 +296,8 @@ const AppContent: React.FC = () => {
               href="https://instagram.com/Kreative.ai"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 hover:text-purple-500 transition-colors"
+              className="editorial-footer__link"
+              aria-label="Kreative.ai on Instagram"
             >
               <InstagramIcon className="w-3.5 h-3.5" />
               <span>@Kreative.ai</span>

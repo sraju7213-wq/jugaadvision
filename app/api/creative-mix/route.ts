@@ -1,26 +1,18 @@
-import { serverExecuteWithRetry } from "@/lib/serverApiKeyManager";
+import { handleAIRequest } from "@/server/ai/serverHandler";
 
-export const maxDuration = 60; // Allow 60 seconds
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
     try {
-        const { prompt, style, mood } = await req.json();
+        const body = await req.json().catch(() => ({}));
+        const response = await handleAIRequest('/api/creative-mix', 'POST', body);
 
-        const systemInstruction = `You are a creative director. Rewrite this prompt to be professional.
-    Original: ${prompt}
-    Style: ${style}
-    Mood: ${mood}
-    Output ONLY the enhanced prompt.`;
-
-        const enhancedText = await serverExecuteWithRetry(systemInstruction);
-
-        return new Response(JSON.stringify({ result: enhancedText }), {
-            status: 200,
+        return new Response(JSON.stringify(response.data), {
+            status: response.status,
             headers: { 'Content-Type': 'application/json' }
         });
-    } catch (error) {
+    } catch (error: any) {
         console.error("Server Error:", error);
-        return new Response(JSON.stringify({ error: "Server busy, please try again." }), { status: 500 });
+        return new Response(JSON.stringify({ success: false, error: error.message || "Server busy, please try again." }), { status: 500 });
     }
 }
-

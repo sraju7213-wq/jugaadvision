@@ -1,108 +1,328 @@
 import React, { useState, useEffect } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, Link } from "react-router-dom";
 import {
   SunIcon,
   MoonIcon,
-  BrainCircuitIcon,
-  PaletteIcon,
-  ImageIcon,
-  LightbulbIcon,
 } from "./icons";
+import {
+  Wand2,
+  ScanEye,
+  FlaskConical,
+  Layers,
+  Sparkles,
+  Home as HomeIcon,
+  Bookmark,
+  Palette,
+  Settings as SettingsIcon,
+  Menu,
+  X,
+} from "lucide-react";
 import Tooltip from "./Tooltip";
+import { FEATURE_TOOLS } from "./FeatureHeader";
 
 interface NavbarProps {
   theme: "light" | "dark";
   toggleTheme: () => void;
 }
 
-const Navbar: React.FC<NavbarProps> = ({
-  theme,
-  toggleTheme,
-}) => {
+const Navbar: React.FC<NavbarProps> = ({ theme, toggleTheme }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [activePath, setActivePath] = useState("");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
-    setActivePath(location.pathname.split("?")[0]);
+    setActivePath(location.pathname);
+    setMobileMenuOpen(false);
   }, [location]);
 
+  const navItems = [
+    {
+      name: "Prompt Builder",
+      short: "Builder",
+      path: "/prompt-builder",
+      icon: Wand2,
+    },
+    {
+      name: "Image to Prompt",
+      short: "Vision AI",
+      path: "/image-to-prompt",
+      icon: ScanEye,
+    },
+    {
+      name: "Creative Mixer",
+      short: "Mixer",
+      path: "/creative-mixer",
+      icon: FlaskConical,
+    },
+    {
+      name: "Batch Generator",
+      short: "Batch",
+      path: "/batch-generator",
+      icon: Layers,
+    },
+    {
+      name: "Pro Prompter",
+      short: "Pro Banner",
+      path: "/pro-prompter",
+      icon: Sparkles,
+    },
+  ];
+
   return (
-    <header className="fixed top-5 z-50 w-full flex justify-center px-4 pointer-events-none">
-      <nav aria-label="Main navigation" className="pointer-events-auto flex items-center justify-between px-1.5 sm:px-2 py-1.5 sm:py-2 bg-white/10 dark:bg-white/5 border border-white/20 dark:border-white/10 rounded-full backdrop-blur-md shadow-lg w-full max-w-2xl transition-all duration-300">
-        {/* Logo Area */}
+    <header className="editorial-nav">
+      <nav
+        aria-label="Main navigation"
+        className="editorial-nav__inner"
+      >
+        {/* Editorial Brand Logo */}
         <button
           type="button"
           aria-label="Go to home page"
-          className="flex items-center gap-1.5 sm:gap-2 pl-2 sm:pl-4 cursor-pointer group"
+          className="editorial-nav__brand group flex-shrink-0"
           onClick={() => navigate("/")}
         >
-          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-tr from-violet-600 to-indigo-600 flex items-center justify-center text-white font-bold text-xs sm:text-sm shadow-lg group-hover:scale-110 transition-transform">
+          <div className="editorial-nav__brand-mark">
             J
           </div>
-          <span className="font-bold text-gray-800 dark:text-white hidden sm:block tracking-tight">
-            Jugaad
+          <span className="editorial-nav__brand-text hidden sm:inline">
+            Jugaad <span>AI</span>
           </span>
         </button>
 
-        {/* Center Links */}
-        <div className="flex items-center gap-0.5 sm:gap-1 mx-1 sm:mx-2" role="group" aria-label="Main pages">
-          <button
-            type="button"
-            onClick={() => navigate("/")}
-            className={`h-12 w-12 flex items-center justify-center rounded-full transition-all duration-300 ${activePath === "/" ? "bg-white text-black shadow-md" : "text-gray-600 dark:text-gray-300 hover:bg-white/10"}`}
-            aria-label="Dashboard"
-            aria-current={activePath === "/" ? "page" : undefined}
-          >
-            <BrainCircuitIcon className="w-5 h-5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate("/generate")}
-            className={`h-12 w-12 flex items-center justify-center rounded-full transition-all duration-300 ${activePath === "/generate" ? "bg-white text-black shadow-md" : "text-gray-600 dark:text-gray-300 hover:bg-white/10"}`}
-            aria-label="Generate Images"
-            aria-current={activePath === "/generate" ? "page" : undefined}
-          >
-            <PaletteIcon className="w-5 h-5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate("/edit")}
-            className={`h-12 w-12 flex items-center justify-center rounded-full transition-all duration-300 ${activePath === "/edit" ? "bg-white text-black shadow-md" : "text-gray-600 dark:text-gray-300 hover:bg-white/10"}`}
-            aria-label="Edit Images"
-            aria-current={activePath === "/edit" ? "page" : undefined}
-          >
-            <ImageIcon className="w-5 h-5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate("/prompt-builder?tab=prompt")}
-            className={`h-12 w-12 flex items-center justify-center rounded-full transition-all duration-300 ${activePath === "/prompt-builder" ? "bg-white text-black shadow-md" : "text-gray-600 dark:text-gray-300 hover:bg-white/10"}`}
-            aria-label="Smart Prompting"
-            aria-current={activePath === "/prompt-builder" ? "page" : undefined}
-          >
-            <LightbulbIcon className="w-5 h-5" />
-          </button>
+        {/* Center Links (Desktop) - Independent Feature Items */}
+        <div
+          className="hidden md:flex items-center gap-1 mx-2"
+          role="group"
+          aria-label="Main pages"
+        >
+          {/* Home */}
+          <Tooltip content="Studio Home">
+            <Link
+              to="/"
+              className={`editorial-nav__link ${
+                activePath === "/" ? "editorial-nav__link--active" : ""
+              }`}
+            >
+              <HomeIcon className="w-3.5 h-3.5" />
+              <span>Home</span>
+            </Link>
+          </Tooltip>
+
+          <div className="editorial-nav__divider" />
+
+          {/* 5 Independent Generator Features */}
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activePath === item.path;
+
+            return (
+              <Tooltip key={item.path} content={item.name}>
+                <Link
+                  to={item.path}
+                  className={`editorial-nav__link ${
+                    isActive ? "editorial-nav__link--active" : ""
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span className="hidden xl:inline">{item.name}</span>
+                  <span className="inline xl:hidden">{item.short}</span>
+                </Link>
+              </Tooltip>
+            );
+          })}
+
+          <div className="editorial-nav__divider" />
+
+          {/* Studio Workspace */}
+          <Tooltip content="Persona AI Studio">
+            <Link
+              to="/studio"
+              className={`editorial-nav__link ${
+                activePath === "/studio" ? "editorial-nav__link--active" : ""
+              }`}
+            >
+              <Palette className="w-3.5 h-3.5" />
+              <span>Studio</span>
+            </Link>
+          </Tooltip>
+
+          {/* Library */}
+          <Tooltip content="Saved Prompts Library">
+            <Link
+              to="/library"
+              className={`editorial-nav__link ${
+                activePath === "/library" ? "editorial-nav__link--active" : ""
+              }`}
+            >
+              <Bookmark className="w-3.5 h-3.5" />
+              <span>Vault</span>
+            </Link>
+          </Tooltip>
         </div>
 
         {/* Right Actions */}
-        <div className="flex items-center gap-1 sm:gap-2 pr-1 sm:pr-2">
+        <div className="editorial-nav__actions">
+          {/* Settings */}
+          <Tooltip content="Settings & AI Orchestration">
+            <Link
+              to="/settings"
+              aria-label="Open Settings"
+              className={`editorial-nav__icon-button ${
+                activePath === "/settings" ? "!border-[var(--editorial-coral)] !text-[var(--editorial-coral)]" : ""
+              }`}
+            >
+              <SettingsIcon className="w-4 h-4" />
+            </Link>
+          </Tooltip>
+
+          {/* Theme Toggle */}
           <Tooltip content="Toggle Theme">
             <button
               type="button"
               onClick={toggleTheme}
-              aria-label={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
-              className="h-12 w-12 flex items-center justify-center rounded-full text-gray-600 dark:text-gray-300 hover:bg-white/10 transition-colors"
+              aria-label={
+                theme === "light"
+                  ? "Switch to dark mode"
+                  : "Switch to light mode"
+              }
+              className="editorial-nav__icon-button"
             >
               {theme === "light" ? (
-                <MoonIcon className="w-5 h-5" aria-hidden="true" />
+                <MoonIcon className="w-4 h-4" aria-hidden="true" />
               ) : (
-                <SunIcon className="w-5 h-5" aria-hidden="true" />
+                <SunIcon className="w-4 h-4" aria-hidden="true" />
               )}
             </button>
           </Tooltip>
+
+          {/* Mobile Menu Toggle Button */}
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen((prev) => !prev)}
+            aria-label="Toggle Mobile Menu"
+            aria-expanded={mobileMenuOpen}
+            className="editorial-nav__icon-button md:hidden"
+          >
+            {mobileMenuOpen ? (
+              <X className="w-4 h-4" />
+            ) : (
+              <Menu className="w-4 h-4" />
+            )}
+          </button>
         </div>
       </nav>
+
+      {/* Editorial Mobile Navigation Drawer */}
+      {mobileMenuOpen && (
+        <div
+          className="editorial-nav__drawer md:hidden motion-fade"
+          role="dialog"
+          aria-label="Mobile Navigation"
+        >
+          {/* Section 1: Engines */}
+          <div className="editorial-nav__drawer-section">
+            <div className="editorial-nav__drawer-title">
+              01 / Creative Engines
+            </div>
+            <Link
+              to="/"
+              onClick={() => setMobileMenuOpen(false)}
+              className={`editorial-nav__drawer-item ${
+                activePath === "/" ? "editorial-nav__drawer-item--active" : ""
+              }`}
+            >
+              <HomeIcon className="w-4 h-4" />
+              <div>
+                <div className="font-bold text-xs uppercase tracking-wide">Studio Home</div>
+                <div className="text-[10px] text-[var(--editorial-muted)] font-mono">Overview & Spectrum</div>
+              </div>
+            </Link>
+
+            {FEATURE_TOOLS.map((tool) => {
+              const Icon = tool.icon;
+              const isActive = location.pathname === tool.path;
+              return (
+                <Link
+                  key={`mobile-nav-${tool.id}`}
+                  to={tool.path}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`editorial-nav__drawer-item ${
+                    isActive ? "editorial-nav__drawer-item--active" : ""
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  <div>
+                    <div className="font-bold text-xs uppercase tracking-wide">{tool.name}</div>
+                    <div className="text-[10px] text-[var(--editorial-muted)] font-mono">
+                      {tool.tag}
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+
+          {/* Section 2: Studio, Vault & Guide */}
+          <div className="editorial-nav__drawer-section">
+            <div className="editorial-nav__drawer-title">
+              02 / Workspace, Vault & Settings
+            </div>
+            <Link
+              to="/studio"
+              onClick={() => setMobileMenuOpen(false)}
+              className={`editorial-nav__drawer-item ${
+                activePath === "/studio" ? "editorial-nav__drawer-item--active" : ""
+              }`}
+            >
+              <Palette className="w-4 h-4" />
+              <div>
+                <div className="font-bold text-xs uppercase tracking-wide">Persona Studio</div>
+                <div className="text-[10px] text-[var(--editorial-muted)] font-mono">Interactive Director Workspace</div>
+              </div>
+            </Link>
+            <Link
+              to="/library"
+              onClick={() => setMobileMenuOpen(false)}
+              className={`editorial-nav__drawer-item ${
+                activePath === "/library" ? "editorial-nav__drawer-item--active" : ""
+              }`}
+            >
+              <Bookmark className="w-4 h-4" />
+              <div>
+                <div className="font-bold text-xs uppercase tracking-wide">Universal Vault</div>
+                <div className="text-[10px] text-[var(--editorial-muted)] font-mono">Saved Prompts & Formats</div>
+              </div>
+            </Link>
+            <Link
+              to="/settings"
+              onClick={() => setMobileMenuOpen(false)}
+              className={`editorial-nav__drawer-item ${
+                activePath === "/settings" ? "editorial-nav__drawer-item--active" : ""
+              }`}
+            >
+              <SettingsIcon className="w-4 h-4" />
+              <div>
+                <div className="font-bold text-xs uppercase tracking-wide">Settings</div>
+                <div className="text-[10px] text-[var(--editorial-muted)] font-mono">Aesthetics & AI Models</div>
+              </div>
+            </Link>
+            <Link
+              to="/help"
+              onClick={() => setMobileMenuOpen(false)}
+              className={`editorial-nav__drawer-item ${
+                activePath === "/help" ? "editorial-nav__drawer-item--active" : ""
+              }`}
+            >
+              <Sparkles className="w-4 h-4" />
+              <div>
+                <div className="font-bold text-xs uppercase tracking-wide">Field Guide</div>
+                <div className="text-[10px] text-[var(--editorial-muted)] font-mono">Documentation & Tips</div>
+              </div>
+            </Link>
+          </div>
+        </div>
+      )}
     </header>
   );
 };

@@ -1,11 +1,57 @@
 import path from "path";
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv, Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-
 import { VitePWA } from 'vite-plugin-pwa';
+
+function aiDevServerPlugin(): Plugin {
+  return {
+    name: 'ai-dev-server-plugin',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (req.url && (req.url.startsWith('/api/ai') || req.url.startsWith('/api/settings') || req.url.startsWith('/api/creative-mix'))) {
+          try {
+            const { handleAIRequest } = await server.ssrLoadModule('./server/ai/serverHandler.ts');
+            let body: any = {};
+            if (req.method === 'POST' || req.method === 'PUT') {
+              const buffers: any[] = [];
+              for await (const chunk of req) {
+                buffers.push(chunk);
+              }
+              const rawBody = Buffer.concat(buffers).toString('utf-8');
+              if (rawBody) {
+                try {
+                  body = JSON.parse(rawBody);
+                } catch {
+                  body = { prompt: rawBody };
+                }
+              }
+            }
+
+            const result = await handleAIRequest(req.url, req.method || 'GET', body);
+            res.statusCode = result.status;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify(result.data));
+            return;
+          } catch (err: any) {
+            console.error('[ViteDevServer] AI Middleware Error:', err);
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ success: false, error: err.message }));
+            return;
+          }
+        }
+        next();
+      });
+    },
+  };
+}
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, ".", "");
+
+  // Populate server-side process.env for local adapters
+  Object.assign(process.env, env);
+
   return {
     base: "./",
     server: {
@@ -14,13 +60,14 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
+      aiDevServerPlugin(),
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
         manifest: {
           name: 'Jugaad Visuals',
           short_name: 'Jugaad',
-          description: 'An all-in-one AI toolkit for creators. Generate images, edit photos, and craft professional prompts.',
+          description: 'An all-in-one AI toolkit for creators. Craft professional prompts.',
           theme_color: '#050505',
           background_color: '#050505',
           display: 'standalone',
@@ -45,37 +92,26 @@ export default defineConfig(({ mode }) => {
         }
       })
     ],
-    define: {
-      "process.env.API_KEY": JSON.stringify(env.GEMINI_API_KEY),
-      "process.env.GEMINI_API_KEY": JSON.stringify(env.GEMINI_API_KEY),
-    },
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "."),
       },
     },
     build: {
-      // Enable CSS minification
       cssMinify: true,
-      // Disable source maps for production (smaller builds)
       sourcemap: false,
-      // Use esbuild for minification (built-in, faster than terser)
       minify: 'esbuild',
       rollupOptions: {
         output: {
           manualChunks: {
             vendor: ['react', 'react-dom', 'react-router-dom'],
-            genai: ['@google/genai'],
-            // Split large UI components for better caching
             'ui-heavy': ['lucide-react'],
           },
-          // Optimize chunk file names for caching
           chunkFileNames: 'assets/[name]-[hash].js',
           entryFileNames: 'assets/[name]-[hash].js',
           assetFileNames: 'assets/[name]-[hash].[ext]',
         },
       },
-      // Warn about large chunks
       chunkSizeWarningLimit: 500,
     },
   };
