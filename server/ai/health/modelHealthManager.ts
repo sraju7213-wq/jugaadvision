@@ -199,6 +199,7 @@ export class ModelHealthManager {
   // =========================================================================
 
   private startPeriodicRecheck(): void {
+    if (process.env.VERCEL === '1') return;
     this.stopPeriodicRecheck();
     this.checkTimer = setInterval(() => {
       this.recheckHealthStates();
@@ -321,6 +322,7 @@ export class ModelHealthManager {
   }
 
   private saveToStorage(): void {
+    if (process.env.VERCEL === '1') return;
     try {
       const dir = path.dirname(this.storageFile);
       if (!fs.existsSync(dir)) {
@@ -336,11 +338,12 @@ export class ModelHealthManager {
 
       fs.writeFileSync(this.storageFile, JSON.stringify(snapshot, null, 2), 'utf-8');
     } catch (err: any) {
-      console.warn('[ModelHealthManager] Failed to persist health state:', err.message);
+      console.warn('[ModelHealthManager] Failed to persist health state:', err?.message || err);
     }
   }
 
   private loadFromStorage(): void {
+    if (process.env.VERCEL === '1') return;
     try {
       if (!fs.existsSync(this.storageFile)) return;
       const content = fs.readFileSync(this.storageFile, 'utf-8');
@@ -363,7 +366,7 @@ export class ModelHealthManager {
       }
       console.log(`[ModelHealthManager] Loaded persistent health cache (${this.keyHealthMap.size} keys, ${this.modelHealthMap.size} models).`);
     } catch (err: any) {
-      console.warn('[ModelHealthManager] Could not read health cache file, starting fresh:', err.message);
+      console.warn('[ModelHealthManager] Could not read health cache file, starting fresh:', err?.message || err);
     }
   }
 

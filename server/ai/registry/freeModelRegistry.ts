@@ -399,11 +399,12 @@ export class FreeModelRegistry {
   }
 
   public startPeriodicRefresh(intervalMs: number): void {
+    if (process.env.VERCEL === '1') return;
     this.stopPeriodicRefresh();
     this.refreshIntervalMs = intervalMs;
     this.refreshTimer = setInterval(() => {
       this.refreshRegistry(true).catch(err => {
-        console.warn('[FreeModelRegistry] Periodic refresh error:', err.message);
+        console.warn('[FreeModelRegistry] Periodic refresh error:', err?.message || err);
       });
     }, this.refreshIntervalMs);
 
