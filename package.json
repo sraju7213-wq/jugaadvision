@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "predev": "tailwindcss -i ./index.css -o ./public/styles.css --minify",
-    "prebuild": "tailwindcss -i ./index.css -o ./public/styles.css --minify",
+    "prebuild": "tailwindcss -i ./index.css -o ./public/styles.css --minify && node scripts/build-api.mjs",
+    "build:api": "node scripts/build-api.mjs",
     "dev": "vite",
     "build": "vite build",
     "build:android": "vite build && cap sync android",
