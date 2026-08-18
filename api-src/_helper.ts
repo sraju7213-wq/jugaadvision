@@ -1,4 +1,4 @@
-import { handleAIRequest } from './_lib/serverHandler';
+import { handleAIRequest } from '../server/ai/serverHandler';
 
 export async function forwardToHandler(defaultPath: string, req: any, res: any) {
   try {

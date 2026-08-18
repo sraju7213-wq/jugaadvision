@@ -10,7 +10,7 @@ function aiDevServerPlugin(): Plugin {
       server.middlewares.use(async (req, res, next) => {
         if (req.url && (req.url.startsWith('/api/ai') || req.url.startsWith('/api/settings') || req.url.startsWith('/api/creative-mix') || req.url.startsWith('/api/remove-bg'))) {
           try {
-            const { handleAIRequest } = await server.ssrLoadModule('./api/_lib/serverHandler.ts');
+            const { handleAIRequest } = await server.ssrLoadModule('./server/ai/serverHandler.ts');
             const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket?.remoteAddress || '127.0.0.1';
 
             let body: any = {};

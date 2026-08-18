@@ -1,4 +1,4 @@
-// api/_lib/security.ts
+// server/ai/security.ts
 var InMemoryRateLimiter = class {
   constructor(windowMs = 6e4, maxRequests = 60) {
     this.records = /* @__PURE__ */ new Map();
@@ -99,11 +99,11 @@ function isSSRFSafeUrl(urlStr) {
   return { safe: true };
 }
 
-// api/ping.ts
+// api-src/ping.ts
 function handler(req, res) {
   res.status(200).json({
     pong: true,
-    safe: isSSRFSafeUrl("https://example.com"),
+    safe: isSSRFSafeUrl("https://api.openai.com"),
     timestamp: Date.now()
   });
 }
