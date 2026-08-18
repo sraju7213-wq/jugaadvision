@@ -1,4 +1,4 @@
-import { forwardToHandler } from './_helper';
+import { forwardToHandler } from '../_helper';
 
 export const config = {
   maxDuration: 60,
@@ -10,5 +10,5 @@ export const config = {
 };
 
 export default async function handler(req: any, res: any) {
-  return forwardToHandler('/api/remove-bg', req, res);
+  return forwardToHandler('/api/ai/generate', req, res);
 }
