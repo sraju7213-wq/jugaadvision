@@ -1,10 +1,10 @@
-import { healthTracker } from './health/healthTracker.ts';
-import { keyPoolManager, redactSecrets } from './pools/keyPool.ts';
-import { freeModelRegistry } from './registry/freeModelRegistry.ts';
-import { modelFilterService } from './filtering/freeFilter.ts';
-import { modelDiscoveryService } from './discovery/discoveryService.ts';
-import { aiRouter } from './router/router.ts';
-import { getCustomEndpoint, setCustomEndpoint } from './customEndpoint.ts';
+import { healthTracker } from './health/healthTracker';
+import { keyPoolManager, redactSecrets } from './pools/keyPool';
+import { freeModelRegistry } from './registry/freeModelRegistry';
+import { modelFilterService } from './filtering/freeFilter';
+import { modelDiscoveryService } from './discovery/discoveryService';
+import { aiRouter } from './router/router';
+import { getCustomEndpoint, setCustomEndpoint } from './customEndpoint';
 import {
   isSSRFSafeUrl,
   sanitizeInput,
@@ -12,13 +12,13 @@ import {
   SECURITY_HEADERS,
   generalRateLimiter,
   aiGenerationRateLimiter,
-} from './security.ts';
+} from './security';
 import {
   validateJsonSchema,
   validateExactTextPreservation,
   calculateVariationDiversity,
   detectCreativeConflicts,
-} from './qualityGates.ts';
+} from './qualityGates';
 import type {
   AIRequest,
   AppearanceSettings,
@@ -30,7 +30,7 @@ import type {
   BatchGenerateResponse,
   BatchItemResult,
   QualityGateDiagnostic,
-} from './types.ts';
+} from './types';
 
 export interface ServerResponse {
   status: number;

@@ -1,4 +1,4 @@
-import type { AIModel, ModelCapabilityType, TaskType } from '../types.ts';
+import type { AIModel, ModelCapabilityType, TaskType } from '../types';
 
 export interface FilterCriteria {
   taskType: TaskType;

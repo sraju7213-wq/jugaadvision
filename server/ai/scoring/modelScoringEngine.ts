@@ -4,7 +4,7 @@ import type {
   ModelCapabilityType,
   ScoringWeights,
   TaskType,
-} from '../types.ts';
+} from '../types';
 
 export const DEFAULT_SCORING_WEIGHTS: ScoringWeights = {
   verifiedFreeBonus: 50,

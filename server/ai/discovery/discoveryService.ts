@@ -1,11 +1,11 @@
-import type { IProviderAdapter } from '../adapters/baseAdapter.ts';
-import { CloudflareAdapter } from '../adapters/cloudflareAdapter.ts';
-import { CustomEndpointAdapter } from '../adapters/customEndpointAdapter.ts';
-import { HuggingFaceAdapter } from '../adapters/huggingfaceAdapter.ts';
-import { NvidiaNimAdapter } from '../adapters/nimAdapter.ts';
-import { OpenRouterAdapter } from '../adapters/openrouterAdapter.ts';
-import { keyPoolManager } from '../pools/keyPool.ts';
-import type { AIModel, ProviderName } from '../types.ts';
+import type { IProviderAdapter } from '../adapters/baseAdapter';
+import { CloudflareAdapter } from '../adapters/cloudflareAdapter';
+import { CustomEndpointAdapter } from '../adapters/customEndpointAdapter';
+import { HuggingFaceAdapter } from '../adapters/huggingfaceAdapter';
+import { NvidiaNimAdapter } from '../adapters/nimAdapter';
+import { OpenRouterAdapter } from '../adapters/openrouterAdapter';
+import { keyPoolManager } from '../pools/keyPool';
+import type { AIModel, ProviderName } from '../types';
 
 export class ModelDiscoveryService {
   private adapters: Map<ProviderName, IProviderAdapter> = new Map();

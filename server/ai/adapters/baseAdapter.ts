@@ -1,4 +1,4 @@
-import type { AIRequest, AIResponse, DiscoveredModel, ProviderName } from '../types.ts';
+import type { AIRequest, AIResponse, DiscoveredModel, ProviderName } from '../types';
 
 export interface IProviderAdapter {
   readonly name: ProviderName;

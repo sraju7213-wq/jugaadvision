@@ -1,4 +1,4 @@
-import type { KeyState, ProviderName } from '../types.ts';
+import type { KeyState, ProviderName } from '../types';
 
 export interface KeyHealthStats {
   maskedKey: string;

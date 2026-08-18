@@ -1,6 +1,6 @@
-import type { AIModel, AIRequest, AIResponse, ModelModality } from '../types.ts';
-import { getCustomEndpoint } from '../customEndpoint.ts';
-import { AdapterError, fetchWithTimeout, type IProviderAdapter } from './baseAdapter.ts';
+import type { AIModel, AIRequest, AIResponse, ModelModality } from '../types';
+import { getCustomEndpoint } from '../customEndpoint';
+import { AdapterError, fetchWithTimeout, type IProviderAdapter } from './baseAdapter';
 
 /** OpenAI-compatible custom endpoint adapter. */
 export class CustomEndpointAdapter implements IProviderAdapter {

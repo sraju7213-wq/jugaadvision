@@ -1,6 +1,6 @@
-import { capabilityClassifier } from '../classification/capabilityClassifier.ts';
-import { modelDiscoveryService } from '../discovery/discoveryService.ts';
-import { redactSecrets } from '../pools/keyPool.ts';
+import { capabilityClassifier } from '../classification/capabilityClassifier';
+import { modelDiscoveryService } from '../discovery/discoveryService';
+import { redactSecrets } from '../pools/keyPool';
 import type {
   AIModel,
   CategorizedModelCatalog,
@@ -10,7 +10,7 @@ import type {
   SanitizedRecentFailure,
   TaskCategory,
   TaskType,
-} from '../types.ts';
+} from '../types';
 
 export interface RegistryStats {
   totalModels: number;

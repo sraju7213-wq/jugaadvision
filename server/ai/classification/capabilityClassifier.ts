@@ -1,4 +1,4 @@
-import type { ModelCapabilities, ModelCapabilityType, ProviderName } from '../types.ts';
+import type { ModelCapabilities, ModelCapabilityType, ProviderName } from '../types';
 
 export interface RawModelMetadata {
   id: string;

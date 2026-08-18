@@ -1,5 +1,5 @@
-import type { AIModel, AIRequest, AIResponse, ChatMessage, FreeEligibility, ModelModality } from '../types.ts';
-import { AdapterError, fetchWithTimeout, type IProviderAdapter } from './baseAdapter.ts';
+import type { AIModel, AIRequest, AIResponse, ChatMessage, FreeEligibility, ModelModality } from '../types';
+import { AdapterError, fetchWithTimeout, type IProviderAdapter } from './baseAdapter';
 
 export class OpenRouterAdapter implements IProviderAdapter {
   public readonly name = 'openrouter' as const;

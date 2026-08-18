@@ -1,5 +1,5 @@
-import type { HealthReport, HealthState, ProviderName } from '../types.ts';
-import { modelHealthManager } from './modelHealthManager.ts';
+import type { HealthReport, HealthState, ProviderName } from '../types';
+import { modelHealthManager } from './modelHealthManager';
 
 export class HealthTracker {
   public recordSuccess(provider: ProviderName, modelId: string, durationMs: number): void {

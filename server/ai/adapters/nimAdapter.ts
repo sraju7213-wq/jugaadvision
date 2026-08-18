@@ -1,5 +1,5 @@
-import type { AIModel, AIRequest, AIResponse, ChatMessage, FreeEligibility, ModelModality } from '../types.ts';
-import { AdapterError, fetchWithTimeout, type IProviderAdapter } from './baseAdapter.ts';
+import type { AIModel, AIRequest, AIResponse, ChatMessage, FreeEligibility, ModelModality } from '../types';
+import { AdapterError, fetchWithTimeout, type IProviderAdapter } from './baseAdapter';
 
 const KNOWN_FREE_NIM_MODEL_IDS = new Set([
   'meta/llama-3.2-11b-vision-instruct',

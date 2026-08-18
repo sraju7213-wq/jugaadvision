@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { maskApiKey } from '../pools/keyPool.ts';
-import type { HealthReport, HealthState, KeyHealthData, ModelHealthData, ProviderHealthData, ProviderName } from '../types.ts';
+import { maskApiKey } from '../pools/keyPool';
+import type { HealthReport, HealthState, KeyHealthData, ModelHealthData, ProviderHealthData, ProviderName } from '../types';
 
 export class ModelHealthManager {
   private keyHealthMap: Map<string, KeyHealthData> = new Map();

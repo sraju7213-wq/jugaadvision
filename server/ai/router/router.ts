@@ -1,16 +1,16 @@
-import { AdapterError } from '../adapters/baseAdapter.ts';
-import { modelDiscoveryService } from '../discovery/discoveryService.ts';
-import { modelHealthManager } from '../health/modelHealthManager.ts';
-import { keyPoolManager, redactSecrets } from '../pools/keyPool.ts';
-import { freeModelRegistry } from '../registry/freeModelRegistry.ts';
-import { modelScoringEngine } from '../scoring/modelScoringEngine.ts';
+import { AdapterError } from '../adapters/baseAdapter';
+import { modelDiscoveryService } from '../discovery/discoveryService';
+import { modelHealthManager } from '../health/modelHealthManager';
+import { keyPoolManager, redactSecrets } from '../pools/keyPool';
+import { freeModelRegistry } from '../registry/freeModelRegistry';
+import { modelScoringEngine } from '../scoring/modelScoringEngine';
 import type {
   AIModel,
   AIRequest,
   AIResponse,
   ModelCapabilityType,
   ProviderName,
-} from '../types.ts';
+} from '../types';
 
 export class AIRouter {
   private inFlightRequests: Map<string, Promise<AIResponse>> = new Map();
