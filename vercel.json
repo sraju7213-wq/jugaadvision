@@ -4,5 +4,29 @@
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
+  ],
+  "functions": {
+    "api/ai/vision.js": { "maxDuration": 60 },
+    "api/ai/vision/stream.js": { "maxDuration": 60 },
+    "api/ai/generate.js": { "maxDuration": 30 },
+    "api/ai/batch.js": { "maxDuration": 60 },
+    "api/ai/chat.js": { "maxDuration": 30 },
+    "api/ai/structured.js": { "maxDuration": 30 },
+    "api/creative-mix.js": { "maxDuration": 30 },
+    "api/remove-bg.js": { "maxDuration": 30 }
+  },
+  "headers": [
+    {
+      "source": "/api/ai/models",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, s-maxage=60, stale-while-revalidate=120" }
+      ]
+    },
+    {
+      "source": "/api/ai/health",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, s-maxage=10, stale-while-revalidate=30" }
+      ]
+    }
   ]
 }

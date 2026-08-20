@@ -133,13 +133,14 @@ const ResultCard = React.memo(
         </div>
 
         {/* Action Bar */}
-        <div className="p-2.5 px-3.5 bg-[var(--editorial-surface)] border-t border-[var(--editorial-rule)] flex items-center justify-between gap-2">
-          <div className="flex gap-1.5">
+        <div className="p-2.5 px-3.5 bg-[var(--editorial-surface)] border-t border-[var(--editorial-rule)] flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
+          <div className="flex gap-1.5 items-center">
             <button
               type="button"
               onClick={() => onCopy(prompt, index)}
-              className="editorial-button editorial-button--sm editorial-button--secondary p-1.5"
+              className="editorial-button editorial-button--sm editorial-button--secondary min-h-[36px] min-w-[36px] p-2 flex items-center justify-center"
               title="Copy to clipboard"
+              aria-label="Copy variation"
             >
               {copiedIndex === index ? (
                 <CheckIcon className="w-3.5 h-3.5 text-emerald-500" />
@@ -150,16 +151,18 @@ const ResultCard = React.memo(
             <button
               type="button"
               onClick={() => onFocus(index)}
-              className="editorial-button editorial-button--sm editorial-button--secondary p-1.5"
+              className="editorial-button editorial-button--sm editorial-button--secondary min-h-[36px] min-w-[36px] p-2 flex items-center justify-center"
               title="Focus for editing"
+              aria-label="Edit variation"
             >
               <PenCircuitIcon className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
               onClick={() => onSave(prompt, index)}
-              className="editorial-button editorial-button--sm editorial-button--secondary p-1.5"
+              className="editorial-button editorial-button--sm editorial-button--secondary min-h-[36px] min-w-[36px] p-2 flex items-center justify-center"
               title="Save to vault"
+              aria-label="Save variation to library"
             >
               {savedIndex === index ? (
                 <CheckIcon className="w-3.5 h-3.5 text-emerald-500" />
@@ -172,7 +175,7 @@ const ResultCard = React.memo(
           <button
             type="button"
             onClick={() => onSendToBuilder(prompt)}
-            className="editorial-button editorial-button--sm editorial-button--primary"
+            className="editorial-button editorial-button--sm editorial-button--primary min-h-[36px]"
           >
             <SparklesIcon className="w-3 h-3" />
             <span>To Builder</span>

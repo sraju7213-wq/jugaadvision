@@ -4,8 +4,13 @@
 <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#050505" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f4f1ec" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Jugaad Visuals" />
+    <meta name="format-detection" content="telephone=no" />
     <meta name="description"
         content="Jugaad Visuals: An all-in-one AI toolkit for creators. Craft professional prompts with our smart AI workbench." />
     <meta name="keywords"
@@ -152,6 +157,10 @@
             --bg-color: #f4f1ec;
             --text-main: #17171b;
             --text-muted: #6d6b70;
+            --sat: env(safe-area-inset-top, 0px);
+            --sab: env(safe-area-inset-bottom, 0px);
+            --sal: env(safe-area-inset-left, 0px);
+            --sar: env(safe-area-inset-right, 0px);
         }
 
         .dark {
@@ -160,14 +169,16 @@
             --text-muted: #aaa8ad;
         }
 
-        /* GPU Acceleration for smooth animations */
+        /* GPU Acceleration & Touch Optimization */
         * {
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
+            -webkit-tap-highlight-color: transparent;
         }
 
         html {
             scroll-behavior: smooth;
+            touch-action: manipulation;
         }
 
         body {
@@ -176,6 +187,8 @@
             transition:
                 background-color 0.3s ease,
                 color 0.3s ease;
+            min-height: 100vh;
+            min-height: 100dvh;
         }
 
         /* Optimize transitions - only animate transform and opacity */
@@ -259,8 +272,13 @@
             background-size: 200% 100%;
         }
         
-        /* Mobile Performance Optimizations */
+        /* Mobile Performance & Touch Optimizations */
         @media (max-width: 768px) {
+            /* Prevent iOS auto-zoom on form inputs */
+            input, select, textarea {
+                font-size: 16px !important;
+            }
+            
             /* Disable heavy aurora animations on mobile */
             .aurora-blob {
                 animation: none !important;
@@ -326,6 +344,25 @@
             }
         </script>
     <link rel="stylesheet" href="/styles.css" />
+    <script>
+      // Early theme hydration — ensures light default and remembers user choice before React mounts
+      (function () {
+        try {
+          var raw = localStorage.getItem('jugaad_appearance_settings_v1');
+          var theme = null;
+          if (raw) { try { theme = JSON.parse(raw).theme; } catch (e) {} }
+          if (!theme) theme = localStorage.getItem('theme');
+          if (!theme) theme = 'light';
+          if (theme === 'system') {
+            theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          if (theme === 'dark') document.documentElement.classList.add('dark');
+          else document.documentElement.classList.remove('dark');
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', theme === 'dark' ? '#0c0d11' : '#f4f1ec');
+        } catch (e) {}
+      })();
+    </script>
 </head>
 
 <body class="font-display antialiased overflow-x-hidden selection:bg-purple-500 selection:text-white">

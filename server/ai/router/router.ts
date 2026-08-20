@@ -14,7 +14,9 @@ import type {
 
 export class AIRouter {
   private inFlightRequests: Map<string, Promise<AIResponse>> = new Map();
+  private visionCache: Map<string, { response: AIResponse; timestamp: number }> = new Map();
   private defaultMaxFallbackAttempts = 6;
+  private visionMaxFallbackAttempts = 3;
 
   /**
    * Main AI Router execution engine.
@@ -32,12 +34,30 @@ export class AIRouter {
    */
   public async execute(request: AIRequest): Promise<AIResponse> {
     const requestKey = this.generateRequestFingerprint(request);
+    // Vision semantic cache — instant hit for identical image+prompt
+    const isVision = request.taskType === 'vision' || request.taskType === 'advanced_image_analysis';
+    if (isVision) {
+      const cached = this.visionCache.get(requestKey);
+      if (cached && Date.now() - cached.timestamp < 60_000) {
+        return { ...cached.response, durationMs: 0, fallbackCount: 0 };
+      }
+      // Cleanup expired every 50 requests
+      if (this.visionCache.size > 50) {
+        const now = Date.now();
+        for (const [k, v] of this.visionCache.entries()) {
+          if (now - v.timestamp > 60_000) this.visionCache.delete(k);
+        }
+      }
+    }
     const existing = this.inFlightRequests.get(requestKey);
     if (existing) {
       return existing;
     }
 
-    const executionPromise = this.performRouting(request);
+    const executionPromise = this.performRouting(request).then(res => {
+      if (isVision) this.visionCache.set(requestKey, { response: res, timestamp: Date.now() });
+      return res;
+    });
     this.inFlightRequests.set(requestKey, executionPromise);
 
     try {
@@ -167,8 +187,9 @@ export class AIRouter {
       return scoreB - scoreA;
     });
 
-    // 7. Select best candidate + fallback loop
-    const maxAttempts = request.maxFallbackAttempts || this.defaultMaxFallbackAttempts;
+    // 7. Select best candidate + fallback loop (vision uses tighter budget for speed)
+    const isVisionTask = request.taskType === 'vision' || request.taskType === 'advanced_image_analysis';
+    const maxAttempts = request.maxFallbackAttempts || (isVisionTask ? this.visionMaxFallbackAttempts : this.defaultMaxFallbackAttempts);
     let attemptsCount = 0;
     const unavailableProviders = new Set<ProviderName>();
 

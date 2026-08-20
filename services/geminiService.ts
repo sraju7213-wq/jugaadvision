@@ -271,7 +271,8 @@ export const generateStructuredVisionPrompt = async (
   styles: string[] = [],
   preferredModel?: string,
   preferFree = true,
-): Promise<StructuredVisionPrompt> => {
+  opts?: { signal?: AbortSignal },
+): Promise<StructuredVisionPrompt & { durationMs?: number; model?: string; provider?: string }> => {
   const styleList = styles.join(", ");
   const styleInstruction = styleList
     ? `TARGET AESTHETICS: ${styleList}`
@@ -322,6 +323,7 @@ Return valid JSON matching this schema:
       mimeType,
       preferredModel: preferredModel || undefined,
       preferFree,
+      signal: opts?.signal,
     });
 
     let parsed: any;
@@ -343,7 +345,10 @@ Return valid JSON matching this schema:
         textInImage: "",
         negativePrompt: "blurry, low quality, distortion",
         assembledPrompt: rawRes.result.trim(),
-      };
+        durationMs: (rawRes as any).durationMs,
+        model: (rawRes as any).model,
+        provider: (rawRes as any).provider,
+      } as any;
     }
 
     return {
@@ -358,7 +363,10 @@ Return valid JSON matching this schema:
       textInImage: parsed.textInImage || "",
       negativePrompt: parsed.negativePrompt || "blurry, artifacts, bad anatomy",
       assembledPrompt: parsed.assembledPrompt || `${parsed.subject}, ${parsed.lighting}, ${parsed.style}`,
-    };
+      durationMs: (rawRes as any).durationMs,
+      model: (rawRes as any).model,
+      provider: (rawRes as any).provider,
+    } as any;
   } catch (err: any) {
     console.error("Structured vision analysis failed:", err);
     throw err;

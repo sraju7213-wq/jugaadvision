@@ -14,11 +14,8 @@ import {
   Bookmark,
   Palette,
   Settings as SettingsIcon,
-  Menu,
-  X,
 } from "lucide-react";
 import Tooltip from "./Tooltip";
-import { FEATURE_TOOLS } from "./FeatureHeader";
 
 interface NavbarProps {
   theme: "light" | "dark";
@@ -29,11 +26,9 @@ const Navbar: React.FC<NavbarProps> = ({ theme, toggleTheme }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [activePath, setActivePath] = useState("");
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     setActivePath(location.pathname);
-    setMobileMenuOpen(false);
   }, [location]);
 
   const navItems = [
@@ -85,7 +80,7 @@ const Navbar: React.FC<NavbarProps> = ({ theme, toggleTheme }) => {
           <div className="editorial-nav__brand-mark">
             J
           </div>
-          <span className="editorial-nav__brand-text hidden sm:inline">
+          <span className="editorial-nav__brand-text text-sm sm:text-base inline">
             Jugaad <span>AI</span>
           </span>
         </button>
@@ -196,133 +191,8 @@ const Navbar: React.FC<NavbarProps> = ({ theme, toggleTheme }) => {
             </button>
           </Tooltip>
 
-          {/* Mobile Menu Toggle Button */}
-          <button
-            type="button"
-            onClick={() => setMobileMenuOpen((prev) => !prev)}
-            aria-label="Toggle Mobile Menu"
-            aria-expanded={mobileMenuOpen}
-            className="editorial-nav__icon-button md:hidden"
-          >
-            {mobileMenuOpen ? (
-              <X className="w-4 h-4" />
-            ) : (
-              <Menu className="w-4 h-4" />
-            )}
-          </button>
         </div>
       </nav>
-
-      {/* Editorial Mobile Navigation Drawer */}
-      {mobileMenuOpen && (
-        <div
-          className="editorial-nav__drawer md:hidden motion-fade"
-          role="dialog"
-          aria-label="Mobile Navigation"
-        >
-          {/* Section 1: Engines */}
-          <div className="editorial-nav__drawer-section">
-            <div className="editorial-nav__drawer-title">
-              01 / Creative Engines
-            </div>
-            <Link
-              to="/"
-              onClick={() => setMobileMenuOpen(false)}
-              className={`editorial-nav__drawer-item ${
-                activePath === "/" ? "editorial-nav__drawer-item--active" : ""
-              }`}
-            >
-              <HomeIcon className="w-4 h-4" />
-              <div>
-                <div className="font-bold text-xs uppercase tracking-wide">Studio Home</div>
-                <div className="text-[10px] text-[var(--editorial-muted)] font-mono">Overview & Spectrum</div>
-              </div>
-            </Link>
-
-            {FEATURE_TOOLS.map((tool) => {
-              const Icon = tool.icon;
-              const isActive = location.pathname === tool.path;
-              return (
-                <Link
-                  key={`mobile-nav-${tool.id}`}
-                  to={tool.path}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={`editorial-nav__drawer-item ${
-                    isActive ? "editorial-nav__drawer-item--active" : ""
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  <div>
-                    <div className="font-bold text-xs uppercase tracking-wide">{tool.name}</div>
-                    <div className="text-[10px] text-[var(--editorial-muted)] font-mono">
-                      {tool.tag}
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-
-          {/* Section 2: Studio, Vault & Guide */}
-          <div className="editorial-nav__drawer-section">
-            <div className="editorial-nav__drawer-title">
-              02 / Workspace, Vault & Settings
-            </div>
-            <Link
-              to="/studio"
-              onClick={() => setMobileMenuOpen(false)}
-              className={`editorial-nav__drawer-item ${
-                activePath === "/studio" ? "editorial-nav__drawer-item--active" : ""
-              }`}
-            >
-              <Palette className="w-4 h-4" />
-              <div>
-                <div className="font-bold text-xs uppercase tracking-wide">Persona Studio</div>
-                <div className="text-[10px] text-[var(--editorial-muted)] font-mono">Interactive Director Workspace</div>
-              </div>
-            </Link>
-            <Link
-              to="/library"
-              onClick={() => setMobileMenuOpen(false)}
-              className={`editorial-nav__drawer-item ${
-                activePath === "/library" ? "editorial-nav__drawer-item--active" : ""
-              }`}
-            >
-              <Bookmark className="w-4 h-4" />
-              <div>
-                <div className="font-bold text-xs uppercase tracking-wide">Universal Vault</div>
-                <div className="text-[10px] text-[var(--editorial-muted)] font-mono">Saved Prompts & Formats</div>
-              </div>
-            </Link>
-            <Link
-              to="/settings"
-              onClick={() => setMobileMenuOpen(false)}
-              className={`editorial-nav__drawer-item ${
-                activePath === "/settings" ? "editorial-nav__drawer-item--active" : ""
-              }`}
-            >
-              <SettingsIcon className="w-4 h-4" />
-              <div>
-                <div className="font-bold text-xs uppercase tracking-wide">Settings</div>
-                <div className="text-[10px] text-[var(--editorial-muted)] font-mono">Aesthetics & AI Models</div>
-              </div>
-            </Link>
-            <Link
-              to="/help"
-              onClick={() => setMobileMenuOpen(false)}
-              className={`editorial-nav__drawer-item ${
-                activePath === "/help" ? "editorial-nav__drawer-item--active" : ""
-              }`}
-            >
-              <Sparkles className="w-4 h-4" />
-              <div>
-                <div className="font-bold text-xs uppercase tracking-wide">Field Guide</div>
-                <div className="text-[10px] text-[var(--editorial-muted)] font-mono">Documentation & Tips</div>
-              </div>
-            </Link>
-          </div>
-        </div>
-      )}
     </header>
   );
 };

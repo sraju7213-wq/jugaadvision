@@ -13,7 +13,11 @@ import {
   generateThumbnail,
   generateImageHash,
   getCachedPrompt,
+  getCachedPromptAsync,
   setCachedPrompt,
+  setCachedVisionPrompt,
+  FAST_VISION_PRESET,
+  safeRevokeObjectURL,
 } from "../utils/imageOptimizer";
 import {
   ImageIcon,
@@ -51,6 +55,7 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
   // Lifecycle
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState("");
+  const [loadingProgress, setLoadingProgress] = useState(0);
   const [error, setError] = useState("");
   // Aesthetics are optional guidance. Start neutral so the first analysis
   // describes the image as it is rather than imposing a preset style.
@@ -63,9 +68,12 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
   const [selectedModel, setSelectedModel] = useState("");
   const [isUpdatingModels, setIsUpdatingModels] = useState(false);
   const [modelsUpdatedAt, setModelsUpdatedAt] = useState<Date | null>(null);
+  const [lastDurationMs, setLastDurationMs] = useState<number | null>(null);
+  const [lastModel, setLastModel] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const imageUrlRef = useRef<string | null>(null);
 
   // Validate image file and verify decode
   const validateAndDecodeImage = async (file: File): Promise<{ width: number; height: number }> => {
@@ -121,54 +129,97 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
     refreshModelCatalog();
   }, [refreshModelCatalog]);
 
+  const handleCancel = useCallback(() => {
+    abortControllerRef.current?.abort();
+    setIsLoading(false);
+    setLoadingStage("");
+    setLoadingProgress(0);
+  }, []);
+
   const generatePrompt = useCallback(async (file: File, styles: string[], preferredModel = "", preferFree = true) => {
+    // Cancel any in-flight request
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const signal = controller.signal;
+
     setIsLoading(true);
     setError("");
     setIsCached(false);
+    setLastDurationMs(null);
+    setLastModel(null);
+    setLoadingProgress(5);
+    const tStart = performance.now();
 
     try {
-      // Stage 1: Check Cache
-      setLoadingStage("Checking local cache...");
+      // Stage 1: Check Cache (IndexedDB + sessionStorage)
+      setLoadingStage("Checking instant cache...");
+      setLoadingProgress(10);
       const cacheContext = preferredModel ? [...styles, `model:${preferredModel}`, `free:${preferFree}`] : [...styles, `free:${preferFree}`];
       const hash = await generateImageHash(file, cacheContext);
-      const cachedResult = getCachedPrompt(hash);
-
+      if (signal.aborted) throw new Error('Request was cancelled by user.');
+      // Try async cache first (IndexedDB), fallback to sync
+      const asyncCached = await getCachedPromptAsync(hash);
+      const cachedResult = asyncCached?.prompt || getCachedPrompt(hash);
       if (cachedResult) {
+        const cachedVision = (asyncCached as any)?.structuredVision || null;
         setPrompt(cachedResult);
+        if (cachedVision) setStructuredVision(cachedVision);
         setIsCached(true);
+        setLoadingProgress(100);
         setIsLoading(false);
         setLoadingStage("");
         return;
       }
 
-      // Stage 2: Compress
+      // Stage 2: Compress — fast preset (1280) for perceived speed
       setLoadingStage("Optimizing visual fidelity...");
+      setLoadingProgress(25);
+      if (signal.aborted) throw new Error('Request was cancelled by user.');
       const compressed = await compressImage(file, {
-        maxWidth: 2048,
-        maxHeight: 2048,
-        quality: 0.85,
+        ...FAST_VISION_PRESET,
+        signal,
       });
+      setLoadingProgress(45);
 
-      // Stage 3: Structured AI Vision Analysis
+      // Stage 3: Structured AI Vision Analysis (with abort signal propagation)
       setLoadingStage("Deconstructing lighting, camera & composition...");
+      setLoadingProgress(60);
+      if (signal.aborted) throw new Error('Request was cancelled by user.');
+      // Note: generateStructuredVisionPrompt currently uses aiGatewayClient which supports signal
+      // via internal postJsonWithRetry; we rely on controller abort to cancel fetch
       const visionData = await generateStructuredVisionPrompt(
         compressed.base64,
         compressed.mimeType,
         styles,
         preferredModel,
         preferFree,
+        { signal },
       );
+      if (signal.aborted) throw new Error('Request was cancelled by user.');
 
       setStructuredVision(visionData);
       setPrompt(visionData.assembledPrompt);
-
-      // Cache the result
-      setCachedPrompt(hash, visionData.assembledPrompt, cacheContext);
+      setLoadingProgress(100);
+      const duration = (visionData as any).durationMs || Math.round(performance.now() - tStart);
+      setLastDurationMs(duration);
+      if ((visionData as any).model) setLastModel((visionData as any).model);
+      else if (preferredModel) setLastModel(preferredModel);
+      // Cache full vision result (async, includes structured data)
+      setCachedVisionPrompt(hash, visionData.assembledPrompt, cacheContext, visionData).catch(() => {});
+      // Fallback sync cache for compat
+      try { setCachedPrompt(hash, visionData.assembledPrompt, cacheContext); } catch {}
     } catch (e: any) {
+      if (e?.message?.toLowerCase().includes('cancelled') || signal.aborted) {
+        setError("");
+        return;
+      }
       setError(e.message || "An unknown error occurred during vision analysis.");
     } finally {
-      setIsLoading(false);
-      setLoadingStage("");
+      if (!signal.aborted) {
+        setIsLoading(false);
+        setLoadingStage("");
+      }
     }
   }, []);
 
@@ -198,7 +249,10 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
           console.error("Thumbnail generation failed:", e);
         }
 
-        setImageUrl(URL.createObjectURL(file));
+        const objectUrl = URL.createObjectURL(file);
+        safeRevokeObjectURL(imageUrlRef.current);
+        imageUrlRef.current = objectUrl;
+        setImageUrl(objectUrl);
 
         if (debounceTimerRef.current) {
           clearTimeout(debounceTimerRef.current);
@@ -214,6 +268,9 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
   };
 
   const handleRemoveImage = () => {
+    abortControllerRef.current?.abort();
+    safeRevokeObjectURL(imageUrlRef.current);
+    imageUrlRef.current = null;
     setImage(null);
     setImageUrl(null);
     setThumbnailUrl(null);
@@ -221,16 +278,21 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
     setPrompt("");
     setStructuredVision(null);
     setError("");
+    setIsLoading(false);
+    setLoadingStage("");
+    setLoadingProgress(0);
   };
 
-  // Cleanup debounce timer on unmount
+  // Cleanup debounce timer + object URLs + abort on unmount
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
+      abortControllerRef.current?.abort();
+      safeRevokeObjectURL(imageUrlRef.current);
     };
-  }, [generatePrompt, selectedModel]);
+  }, []);
 
   const handleStyleToggle = (style: string) => {
     if (isLoading) return;
@@ -327,14 +389,14 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
                 <label
                   onDragOver={onDragOver}
                   onDrop={onDrop}
-                  className={`relative flex flex-col items-center justify-center w-full min-h-[260px] border border-dashed transition-all cursor-pointer overflow-hidden ${
+                  className={`relative flex flex-col items-center justify-center w-full min-h-[180px] sm:min-h-[240px] border border-dashed transition-all cursor-pointer overflow-hidden ${
                     image
                       ? "border-[var(--editorial-coral)] bg-[var(--editorial-surface)]"
                       : "border-[var(--editorial-rule-strong)] hover:border-[var(--editorial-coral)] bg-[var(--editorial-surface)]"
                   }`}
                 >
                   {thumbnailUrl || imageUrl ? (
-                    <div className="relative w-full h-full min-h-[260px] flex items-center justify-center group p-2">
+                    <div className="relative w-full h-full min-h-[180px] sm:min-h-[240px] flex items-center justify-center group p-2">
                       <img
                         src={thumbnailUrl || imageUrl!}
                         alt="Uploaded preview"
@@ -441,8 +503,8 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
           <div className="editorial-panel flex flex-col min-h-[420px]">
             
             {/* Header with View Tabs */}
-            <div className="editorial-panel__header">
-              <div className="flex items-center gap-2">
+            <div className="editorial-panel__header flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="editorial-badge editorial-badge--coral">02 / Synthesis</span>
                 <h3 className="editorial-panel__title m-0 text-base">
                   Reverse-Engineered Prompt
@@ -450,7 +512,7 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
               </div>
 
               {/* Enhanced AI Model Controls Area */}
-              <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                 <div className="flex flex-wrap items-center gap-1.5 p-1 border border-[var(--editorial-rule)] bg-[var(--editorial-surface)]" aria-label="AI model controls">
                   {/* Task Indicator */}
                   <span className="hidden sm:inline px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider bg-[var(--editorial-paper)] border border-[var(--editorial-rule)] text-[var(--editorial-muted)]">
@@ -543,21 +605,46 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
             {/* Main Output Body */}
             <div className="editorial-panel__body flex-grow flex flex-col justify-center">
               {isLoading ? (
-                <ProcessingAnimation
-                  variant="panel"
-                  theme="coral"
-                  badge="Vision Engine"
-                  title="Multimodal Vision Processing"
-                  status={loadingStage || undefined}
-                  stages={[
-                    "Deconstructing visual layers & composition...",
-                    "Analyzing optical lighting, color & medium...",
-                    "Extracting subject hierarchy and narrative elements...",
-                    "Assembling high-fidelity prompt directives...",
-                  ]}
-                  stageIntervalMs={2000}
-                  subtext="Analyzing in-memory visual tensors with non-destructive feature extraction."
-                />
+                <div className="flex flex-col gap-3">
+                  <ProcessingAnimation
+                    variant="panel"
+                    theme="coral"
+                    badge="Vision Engine"
+                    title="Multimodal Vision Processing"
+                    status={loadingStage || undefined}
+                    stages={[
+                      "Deconstructing visual layers & composition...",
+                      "Analyzing optical lighting, color & medium...",
+                      "Extracting subject hierarchy and narrative elements...",
+                      "Assembling high-fidelity prompt directives...",
+                    ]}
+                    stageIntervalMs={2000}
+                    subtext="Analyzing in-memory visual tensors with non-destructive feature extraction."
+                  />
+                  <div className="px-2">
+                    <div className="h-1.5 w-full bg-[var(--editorial-rule)] overflow-hidden">
+                      <div
+                        className="h-full bg-[var(--editorial-coral)] transition-all duration-500 ease-out"
+                        style={{ width: `${loadingProgress}%` }}
+                        role="progressbar"
+                        aria-valuenow={loadingProgress}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                      />
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between">
+                      <span className="font-mono text-[10px] text-[var(--editorial-muted)]">{loadingProgress}% · {loadingStage}</span>
+                      <button
+                        type="button"
+                        onClick={handleCancel}
+                        className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-1 border border-[var(--editorial-rule)] hover:border-red-500 hover:text-red-500 transition-colors"
+                        aria-label="Cancel vision analysis"
+                      >
+                        <XIcon className="w-3 h-3 inline mr-1" /> Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
               ) : error ? (
                 <div className="p-6 bg-red-500/10 border border-red-500/30 text-center">
                   <p className="font-mono font-bold text-xs uppercase text-red-500 mb-1">Analysis Failed</p>
@@ -581,11 +668,14 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
                         onChange={(e) => setPrompt(e.target.value)}
                         className="editorial-textarea w-full flex-grow min-h-[220px] font-mono text-xs leading-relaxed resize-none"
                       />
-                      {isCached && (
-                        <div className="pt-2 text-[10px] text-green-600 dark:text-green-400 font-mono">
-                          ⚡ Retrieved from instant local cache
-                        </div>
-                      )}
+                      <div className="pt-2 flex items-center justify-between flex-wrap gap-2">
+                        {isCached ? (
+                          <span className="text-[10px] text-green-600 dark:text-green-400 font-mono">⚡ Instant cache · 0ms</span>
+                        ) : lastDurationMs ? (
+                          <span className="text-[10px] text-[var(--editorial-muted)] font-mono">{lastDurationMs}ms{lastModel ? ` · ${lastModel}` : ''}</span>
+                        ) : <span />}
+                        <span className="text-[10px] text-[var(--editorial-muted)] font-mono">{prompt.length} chars</span>
+                      </div>
                     </div>
                   )}
 

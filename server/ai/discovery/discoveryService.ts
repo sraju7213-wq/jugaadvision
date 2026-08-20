@@ -39,57 +39,65 @@ export class ModelDiscoveryService {
    */
   public async getDiscoveredModels(provider?: ProviderName, forceRefresh = false): Promise<AIModel[]> {
     const providersToQuery = provider ? [provider] : Array.from(this.adapters.keys());
-    const allModels: AIModel[] = [];
 
-    for (const p of providersToQuery) {
-      const adapter = this.adapters.get(p);
-      if (!adapter) continue;
-
-      const cached = this.modelCache.get(p);
+    // Fast path: if not forced, return cached models synchronously when all are fresh
+    if (!forceRefresh) {
       const now = Date.now();
-
-      // Return cached list if still fresh and not forced
-      if (!forceRefresh && cached && (now - cached.lastUpdated < this.cacheTtlMs) && cached.models.length > 0) {
-        allModels.push(...cached.models);
-        continue;
-      }
-
-      const apiKey = keyPoolManager.getAvailableKey(p);
-      if (!apiKey) {
-        // If no active key is available, use cached models if present, else bootstrap
-        if (cached && cached.models.length > 0) {
-          allModels.push(...cached.models);
-        } else {
-          const bootstrap = this.getBootstrapModels(p);
-          allModels.push(...bootstrap);
-        }
-        continue;
-      }
-
-      try {
-        const discovered = await adapter.discoverModels(apiKey);
-        if (discovered && discovered.length > 0) {
-          this.modelCache.set(p, { models: discovered, lastUpdated: now });
-          allModels.push(...discovered);
-          console.log(`[ModelDiscovery] Refreshed ${discovered.length} models for ${p}.`);
-        } else if (cached && cached.models.length > 0) {
-          allModels.push(...cached.models);
-        } else {
-          const bootstrap = this.getBootstrapModels(p);
-          allModels.push(...bootstrap);
-        }
-      } catch (err: any) {
-        console.warn(`[ModelDiscovery] Refresh failed for ${p}: ${err.message}. Retaining existing cache.`);
-        if (cached && cached.models.length > 0) {
-          allModels.push(...cached.models);
-        } else {
-          const bootstrap = this.getBootstrapModels(p);
-          this.modelCache.set(p, { models: bootstrap, lastUpdated: now });
-          allModels.push(...bootstrap);
-        }
+      const allFresh = providersToQuery.every(p => {
+        const cached = this.modelCache.get(p);
+        return cached && (now - cached.lastUpdated < this.cacheTtlMs) && cached.models.length > 0;
+      });
+      if (allFresh) {
+        return providersToQuery.flatMap(p => this.modelCache.get(p)!.models);
       }
     }
 
+    // Parallel discovery with per-provider timeout
+    const results = await Promise.allSettled(
+      providersToQuery.map(async (p): Promise<AIModel[]> => {
+        const adapter = this.adapters.get(p);
+        if (!adapter) return [];
+
+        const cached = this.modelCache.get(p);
+        const now = Date.now();
+
+        if (!forceRefresh && cached && (now - cached.lastUpdated < this.cacheTtlMs) && cached.models.length > 0) {
+          return cached.models;
+        }
+
+        const apiKey = keyPoolManager.getAvailableKey(p);
+        if (!apiKey) {
+          if (cached && cached.models.length > 0) return cached.models;
+          return this.getBootstrapModels(p);
+        }
+
+        try {
+          // 8s per-provider budget to avoid blocking whole catalog on one slow provider
+          const discovered = await Promise.race([
+            adapter.discoverModels(apiKey),
+            new Promise<AIModel[]>((_, reject) => setTimeout(() => reject(new Error('discovery timeout 8s')), 8000)),
+          ]);
+          if (discovered && discovered.length > 0) {
+            this.modelCache.set(p, { models: discovered, lastUpdated: now });
+            console.log(`[ModelDiscovery] Refreshed ${discovered.length} models for ${p}.`);
+            return discovered;
+          }
+          if (cached && cached.models.length > 0) return cached.models;
+          return this.getBootstrapModels(p);
+        } catch (err: any) {
+          console.warn(`[ModelDiscovery] Refresh failed for ${p}: ${err.message}. Retaining existing cache.`);
+          if (cached && cached.models.length > 0) return cached.models;
+          const bootstrap = this.getBootstrapModels(p);
+          this.modelCache.set(p, { models: bootstrap, lastUpdated: now });
+          return bootstrap;
+        }
+      })
+    );
+
+    const allModels: AIModel[] = [];
+    for (const r of results) {
+      if (r.status === 'fulfilled') allModels.push(...r.value);
+    }
     return allModels;
   }
 

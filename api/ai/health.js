@@ -1760,48 +1760,54 @@ var ModelDiscoveryService = class {
    */
   async getDiscoveredModels(provider, forceRefresh = false) {
     const providersToQuery = provider ? [provider] : Array.from(this.adapters.keys());
-    const allModels = [];
-    for (const p of providersToQuery) {
-      const adapter = this.adapters.get(p);
-      if (!adapter) continue;
-      const cached = this.modelCache.get(p);
+    if (!forceRefresh) {
       const now = Date.now();
-      if (!forceRefresh && cached && now - cached.lastUpdated < this.cacheTtlMs && cached.models.length > 0) {
-        allModels.push(...cached.models);
-        continue;
+      const allFresh = providersToQuery.every((p) => {
+        const cached = this.modelCache.get(p);
+        return cached && now - cached.lastUpdated < this.cacheTtlMs && cached.models.length > 0;
+      });
+      if (allFresh) {
+        return providersToQuery.flatMap((p) => this.modelCache.get(p).models);
       }
-      const apiKey = keyPoolManager.getAvailableKey(p);
-      if (!apiKey) {
-        if (cached && cached.models.length > 0) {
-          allModels.push(...cached.models);
-        } else {
-          const bootstrap = this.getBootstrapModels(p);
-          allModels.push(...bootstrap);
+    }
+    const results = await Promise.allSettled(
+      providersToQuery.map(async (p) => {
+        const adapter = this.adapters.get(p);
+        if (!adapter) return [];
+        const cached = this.modelCache.get(p);
+        const now = Date.now();
+        if (!forceRefresh && cached && now - cached.lastUpdated < this.cacheTtlMs && cached.models.length > 0) {
+          return cached.models;
         }
-        continue;
-      }
-      try {
-        const discovered = await adapter.discoverModels(apiKey);
-        if (discovered && discovered.length > 0) {
-          this.modelCache.set(p, { models: discovered, lastUpdated: now });
-          allModels.push(...discovered);
-          console.log(`[ModelDiscovery] Refreshed ${discovered.length} models for ${p}.`);
-        } else if (cached && cached.models.length > 0) {
-          allModels.push(...cached.models);
-        } else {
-          const bootstrap = this.getBootstrapModels(p);
-          allModels.push(...bootstrap);
+        const apiKey = keyPoolManager.getAvailableKey(p);
+        if (!apiKey) {
+          if (cached && cached.models.length > 0) return cached.models;
+          return this.getBootstrapModels(p);
         }
-      } catch (err) {
-        console.warn(`[ModelDiscovery] Refresh failed for ${p}: ${err.message}. Retaining existing cache.`);
-        if (cached && cached.models.length > 0) {
-          allModels.push(...cached.models);
-        } else {
+        try {
+          const discovered = await Promise.race([
+            adapter.discoverModels(apiKey),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("discovery timeout 8s")), 8e3))
+          ]);
+          if (discovered && discovered.length > 0) {
+            this.modelCache.set(p, { models: discovered, lastUpdated: now });
+            console.log(`[ModelDiscovery] Refreshed ${discovered.length} models for ${p}.`);
+            return discovered;
+          }
+          if (cached && cached.models.length > 0) return cached.models;
+          return this.getBootstrapModels(p);
+        } catch (err) {
+          console.warn(`[ModelDiscovery] Refresh failed for ${p}: ${err.message}. Retaining existing cache.`);
+          if (cached && cached.models.length > 0) return cached.models;
           const bootstrap = this.getBootstrapModels(p);
           this.modelCache.set(p, { models: bootstrap, lastUpdated: now });
-          allModels.push(...bootstrap);
+          return bootstrap;
         }
-      }
+      })
+    );
+    const allModels = [];
+    for (const r of results) {
+      if (r.status === "fulfilled") allModels.push(...r.value);
     }
     return allModels;
   }
@@ -2809,7 +2815,9 @@ var modelScoringEngine = new ModelScoringEngine();
 var AIRouter = class {
   constructor() {
     this.inFlightRequests = /* @__PURE__ */ new Map();
+    this.visionCache = /* @__PURE__ */ new Map();
     this.defaultMaxFallbackAttempts = 6;
+    this.visionMaxFallbackAttempts = 3;
   }
   /**
    * Main AI Router execution engine.
@@ -2827,11 +2835,27 @@ var AIRouter = class {
    */
   async execute(request) {
     const requestKey = this.generateRequestFingerprint(request);
+    const isVision = request.taskType === "vision" || request.taskType === "advanced_image_analysis";
+    if (isVision) {
+      const cached = this.visionCache.get(requestKey);
+      if (cached && Date.now() - cached.timestamp < 6e4) {
+        return { ...cached.response, durationMs: 0, fallbackCount: 0 };
+      }
+      if (this.visionCache.size > 50) {
+        const now = Date.now();
+        for (const [k, v] of this.visionCache.entries()) {
+          if (now - v.timestamp > 6e4) this.visionCache.delete(k);
+        }
+      }
+    }
     const existing = this.inFlightRequests.get(requestKey);
     if (existing) {
       return existing;
     }
-    const executionPromise = this.performRouting(request);
+    const executionPromise = this.performRouting(request).then((res) => {
+      if (isVision) this.visionCache.set(requestKey, { response: res, timestamp: Date.now() });
+      return res;
+    });
     this.inFlightRequests.set(requestKey, executionPromise);
     try {
       return await executionPromise;
@@ -2927,7 +2951,8 @@ var AIRouter = class {
       const scoreB = modelScoringEngine.scoreModel(b, request);
       return scoreB - scoreA;
     });
-    const maxAttempts = request.maxFallbackAttempts || this.defaultMaxFallbackAttempts;
+    const isVisionTask = request.taskType === "vision" || request.taskType === "advanced_image_analysis";
+    const maxAttempts = request.maxFallbackAttempts || (isVisionTask ? this.visionMaxFallbackAttempts : this.defaultMaxFallbackAttempts);
     let attemptsCount = 0;
     const unavailableProviders = /* @__PURE__ */ new Set();
     for (const candidate of scoredCandidates) {

@@ -474,13 +474,13 @@ const Home: React.FC = () => {
               </div>
 
               {/* Preset Selector Chips */}
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="horizontal-scroll-ribbon items-center max-w-full">
                 {SANDBOX_PRESETS.map((preset, idx) => (
                   <button
                     key={preset.discipline}
                     type="button"
                     onClick={() => handleSandboxSimulate(idx)}
-                    className={`px-3 py-1.5 text-xs font-mono font-bold tracking-wider uppercase transition-all ${
+                    className={`px-3.5 py-2 text-xs font-mono font-bold tracking-wider uppercase transition-all whitespace-nowrap flex-shrink-0 ${
                       sandboxIdx === idx
                         ? "bg-[var(--studio-ink)] text-[var(--studio-paper)] shadow-[2px_2px_0_var(--studio-coral)]"
                         : "bg-[var(--studio-surface)] text-[var(--studio-muted)] hover:text-[var(--studio-ink)] border border-[var(--studio-rule)]"
@@ -648,8 +648,8 @@ const Home: React.FC = () => {
           {/* Interactive Story Chapters Navigator */}
           <div className="mt-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             {/* Story Chapter Navigation Sidebar */}
-            <div className="lg:col-span-4 flex flex-col gap-2">
-              <span className="font-mono text-[11px] font-bold uppercase tracking-widest text-[var(--studio-muted)] mb-2 px-1">
+            <div className="lg:col-span-4 flex flex-row lg:flex-col overflow-x-auto lg:overflow-x-visible pb-2 lg:pb-0 gap-2.5 scrollbar-none snap-x w-full">
+              <span className="hidden lg:block font-mono text-[11px] font-bold uppercase tracking-widest text-[var(--studio-muted)] mb-2 px-1">
                 The Journey / 4 Chapters
               </span>
               {STORY_CHAPTERS.map((chapter) => {
@@ -660,7 +660,7 @@ const Home: React.FC = () => {
                     key={chapter.id}
                     type="button"
                     onClick={() => setActiveChapter(chapter.id)}
-                    className={`p-4 text-left border transition-all relative ${
+                    className={`p-3.5 sm:p-4 text-left border transition-all relative min-w-[260px] sm:min-w-[300px] lg:min-w-0 snap-start flex-shrink-0 lg:flex-shrink ${
                       isSelected
                         ? "bg-[var(--studio-surface-strong)] border-[var(--studio-ink)] shadow-[4px_4px_0_var(--studio-coral)]"
                         : "bg-[var(--studio-surface)] border-[var(--studio-rule)] hover:border-[var(--studio-coral)] hover:bg-[var(--studio-surface-strong)]"
@@ -753,15 +753,15 @@ const Home: React.FC = () => {
                 </h3>
               </div>
 
-              <div className="flex items-center gap-1.5">
+              <div className="horizontal-scroll-ribbon items-center max-w-full">
                 {COMPARISON_SAMPLES.map((sample, idx) => (
                   <button
                     key={sample.category}
                     type="button"
                     onClick={() => setActiveComparisonIdx(idx)}
-                    className={`px-3 py-1.5 text-xs font-mono font-bold uppercase transition-all ${
+                    className={`px-3.5 py-2 text-xs font-mono font-bold uppercase transition-all whitespace-nowrap flex-shrink-0 ${
                       activeComparisonIdx === idx
-                        ? "bg-[var(--studio-coral)] text-white"
+                        ? "bg-[var(--studio-coral)] text-white shadow-sm"
                         : "bg-[var(--studio-surface-strong)] text-[var(--studio-muted)] border border-[var(--studio-rule)] hover:text-[var(--studio-ink)]"
                     }`}
                   >

@@ -442,7 +442,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
           </div>
 
           <div className="editorial-panel__body">
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
               {PLATFORMS.map((p) => {
                 const isActive = platform === p.id;
                 return (
@@ -615,7 +615,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                 </Tooltip>
 
                 {showEnhancePanel && (
-                  <div className="absolute bottom-full mb-2 right-0 sm:left-0 sm:right-auto p-4 bg-[var(--editorial-paper)] border border-[var(--editorial-rule)] shadow-2xl w-[280px] z-50 animate-slide-up-fade">
+                  <div className="fixed inset-x-0 bottom-0 p-4 bg-[var(--editorial-paper)] border-t border-[var(--editorial-rule)] shadow-2xl z-50 animate-slide-up-fade lg:absolute lg:bottom-full lg:mb-2 lg:right-0 lg:left-auto lg:p-4 lg:border lg:w-[280px]">
                     <div className="flex justify-between items-center mb-3">
                       <span className="font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider">
                         Creativity Level
@@ -653,7 +653,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                       type="button"
                       onClick={handleEnhance}
                       disabled={isEnhancing}
-                      className="editorial-button editorial-button--primary editorial-button--violet w-full justify-center"
+                      className="editorial-button editorial-button--primary editorial-button--violet w-full justify-center mt-4"
                     >
                       {isEnhancing ? (
                         <>
@@ -923,21 +923,35 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
       {/* Right Word/Template Library Panel */}
       <div
         className={`col-span-1 lg:col-span-4 h-auto editorial-panel flex flex-col transition-all duration-300 overflow-hidden ${
-          isLibraryOpen ? "block" : "hidden lg:flex"
+          isLibraryOpen ? "fixed inset-0 z-50 lg:static lg:z-auto max-h-none" : "hidden lg:flex"
         }`}
       >
         <RightPanel
-          onWordClick={handleWordClick}
-          onTemplateSelect={handleTemplateSelect}
+          onWordClick={(word) => {
+            handleWordClick(word);
+            if (window.innerWidth < 1024) setIsLibraryOpen(false);
+          }}
+          onTemplateSelect={(template) => {
+            handleTemplateSelect(template);
+            if (window.innerWidth < 1024) setIsLibraryOpen(false);
+          }}
           selectedWords={chips}
           onClose={() => setIsLibraryOpen(false)}
         />
       </div>
 
+      {/* Backdrop for mobile library */}
+      {isLibraryOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden"
+          onClick={() => setIsLibraryOpen(false)}
+        />
+      )}
+
       {/* NON-DESTRUCTIVE ENHANCEMENT COMPARISON MODAL */}
       {comparisonModalOpen && enhancedResultText && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="editorial-panel p-6 max-w-2xl w-full shadow-2xl animate-pop">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-3 md:p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="editorial-panel p-4 sm:p-6 w-full sm:max-w-2xl shadow-2xl animate-pop max-h-[90vh] sm:max-h-[85vh] overflow-y-auto custom-scrollbar flex flex-col justify-between rounded-t-xl sm:rounded-none">
             <div className="flex justify-between items-center mb-4 pb-3 border-b border-[var(--editorial-rule)]">
               <div className="flex items-center gap-2">
                 <span className="editorial-badge editorial-badge--violet">AI Enhance</span>

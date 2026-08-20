@@ -285,11 +285,11 @@ export const Settings: React.FC<SettingsProps> = () => {
       </div>
 
       {/* Tabs Navigation */}
-      <div className="flex border-b border-[var(--editorial-rule)] mb-8 overflow-x-auto gap-2 pb-1">
+      <div className="horizontal-scroll-ribbon border-b border-[var(--editorial-rule)] mb-8 pb-1 gap-2 max-w-full">
         <button
           type="button"
           onClick={() => setActiveTab('appearance')}
-          className={`flex items-center gap-2 px-4 py-2.5 font-mono text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
+          className={`flex items-center gap-2 px-4 py-2.5 font-mono text-xs font-bold uppercase tracking-wider border-b-2 transition-all whitespace-nowrap flex-shrink-0 ${
             activeTab === 'appearance'
               ? 'border-[var(--editorial-coral)] text-[var(--editorial-ink)] bg-[var(--editorial-surface)]'
               : 'border-transparent text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]'
@@ -302,7 +302,7 @@ export const Settings: React.FC<SettingsProps> = () => {
         <button
           type="button"
           onClick={() => setActiveTab('providers')}
-          className={`flex items-center gap-2 px-4 py-2.5 font-mono text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
+          className={`flex items-center gap-2 px-4 py-2.5 font-mono text-xs font-bold uppercase tracking-wider border-b-2 transition-all whitespace-nowrap flex-shrink-0 ${
             activeTab === 'providers'
               ? 'border-[var(--editorial-coral)] text-[var(--editorial-ink)] bg-[var(--editorial-surface)]'
               : 'border-transparent text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]'
@@ -315,7 +315,7 @@ export const Settings: React.FC<SettingsProps> = () => {
         <button
           type="button"
           onClick={() => setActiveTab('policy')}
-          className={`flex items-center gap-2 px-4 py-2.5 font-mono text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
+          className={`flex items-center gap-2 px-4 py-2.5 font-mono text-xs font-bold uppercase tracking-wider border-b-2 transition-all whitespace-nowrap flex-shrink-0 ${
             activeTab === 'policy'
               ? 'border-[var(--editorial-coral)] text-[var(--editorial-ink)] bg-[var(--editorial-surface)]'
               : 'border-transparent text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]'
@@ -328,7 +328,7 @@ export const Settings: React.FC<SettingsProps> = () => {
         <button
           type="button"
           onClick={() => setActiveTab('diagnostics')}
-          className={`flex items-center gap-2 px-4 py-2.5 font-mono text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${
+          className={`flex items-center gap-2 px-4 py-2.5 font-mono text-xs font-bold uppercase tracking-wider border-b-2 transition-all whitespace-nowrap flex-shrink-0 ${
             activeTab === 'diagnostics'
               ? 'border-[var(--editorial-coral)] text-[var(--editorial-ink)] bg-[var(--editorial-surface)]'
               : 'border-transparent text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]'

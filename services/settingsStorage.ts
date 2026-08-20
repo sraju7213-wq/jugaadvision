@@ -18,7 +18,7 @@ const STORAGE_KEYS = {
 } as const;
 
 export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
-  theme: 'dark',
+  theme: 'light',
   accentColor: '#f43f5e', // Coral default
   uiDensity: 'comfortable',
   animationsEnabled: true,
@@ -88,12 +88,21 @@ export function loadAppearanceSettings(): AppearanceSettings {
   return { ...DEFAULT_APPEARANCE_SETTINGS };
 }
 
+function dispatchAppearanceChanged(updated: AppearanceSettings): void {
+  try {
+    window.dispatchEvent(new CustomEvent('jugaad:appearancechange', { detail: updated }));
+  } catch {}
+}
+
 export function saveAppearanceSettings(settings: Partial<AppearanceSettings>): AppearanceSettings {
   try {
     const current = loadAppearanceSettings();
     const updated: AppearanceSettings = { ...current, ...settings };
     localStorage.setItem(STORAGE_KEYS.APPEARANCE, JSON.stringify(updated));
+    // keep legacy key in sync for early-boot script + backwards compat
+    if (settings.theme) localStorage.setItem('theme', settings.theme);
     applyAppearanceToDOM(updated);
+    dispatchAppearanceChanged(updated);
     return updated;
   } catch (err) {
     console.warn('[SettingsStorage] Error saving appearance settings:', err);
@@ -104,7 +113,9 @@ export function saveAppearanceSettings(settings: Partial<AppearanceSettings>): A
 export function resetAppearanceSettings(): AppearanceSettings {
   try {
     localStorage.setItem(STORAGE_KEYS.APPEARANCE, JSON.stringify(DEFAULT_APPEARANCE_SETTINGS));
+    localStorage.setItem('theme', DEFAULT_APPEARANCE_SETTINGS.theme);
     applyAppearanceToDOM(DEFAULT_APPEARANCE_SETTINGS);
+    dispatchAppearanceChanged(DEFAULT_APPEARANCE_SETTINGS);
   } catch (err) {
     console.warn('[SettingsStorage] Error resetting appearance settings:', err);
   }
@@ -153,18 +164,28 @@ export function applyAppearanceToDOM(settings: AppearanceSettings): void {
   const root = document.documentElement;
 
   // 1. Theme class
+  let resolvedTheme: 'light' | 'dark' = 'light';
   if (settings.theme === 'dark') {
     root.classList.add('dark');
+    resolvedTheme = 'dark';
   } else if (settings.theme === 'light') {
     root.classList.remove('dark');
+    resolvedTheme = 'light';
   } else if (settings.theme === 'system') {
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     if (prefersDark) {
       root.classList.add('dark');
+      resolvedTheme = 'dark';
     } else {
       root.classList.remove('dark');
+      resolvedTheme = 'light';
     }
   }
+  // Keep <meta name="theme-color"> in sync for PWA/browser chrome
+  try {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', resolvedTheme === 'dark' ? '#0c0d11' : '#f4f1ec');
+  } catch {}
 
   // 2. Accent Color CSS variable
   if (settings.accentColor) {

@@ -9,6 +9,60 @@ function aiDevServerPlugin(): Plugin {
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         if (req.url && (req.url.startsWith('/api/ai') || req.url.startsWith('/api/settings') || req.url.startsWith('/api/creative-mix') || req.url.startsWith('/api/remove-bg'))) {
+          // Vision stream — SSE passthrough
+          const isVisionStream = req.url.startsWith('/api/ai/vision/stream');
+          if (isVisionStream) {
+            try {
+              const { handleVisionStreamRequest } = await server.ssrLoadModule('./server/ai/visionStreamHandler.ts');
+              const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket?.remoteAddress || '127.0.0.1';
+              let body: any = {};
+              if (req.method === 'POST' || req.method === 'PUT') {
+                const buffers: any[] = [];
+                let totalBytes = 0;
+                const maxPayloadBytes = 15 * 1024 * 1024;
+                for await (const chunk of req) {
+                  totalBytes += chunk.length;
+                  if (totalBytes > maxPayloadBytes) {
+                    res.statusCode = 413;
+                    res.setHeader('Content-Type', 'application/json');
+                    res.end(JSON.stringify({ success: false, error: 'Payload exceeds maximum limit (15MB)' }));
+                    return;
+                  }
+                  buffers.push(chunk);
+                }
+                const rawBody = Buffer.concat(buffers).toString('utf-8');
+                if (rawBody) { try { body = JSON.parse(rawBody); } catch { body = { prompt: rawBody }; } }
+              }
+              const streamRes = await handleVisionStreamRequest(body, clientIp);
+              res.writeHead(streamRes.status, Object.fromEntries(streamRes.headers.entries()));
+              if (streamRes.body) {
+                const reader = streamRes.body.getReader();
+                const pump = async () => {
+                  try {
+                    while (true) {
+                      const { done, value } = await reader.read();
+                      if (done) break;
+                      res.write(value);
+                    }
+                    res.end();
+                  } catch { try { res.end(); } catch {} }
+                };
+                await pump();
+              } else {
+                res.end();
+              }
+              return;
+            } catch (err: any) {
+              console.error('[ViteDevServer] Vision Stream Error:', err);
+              if (!res.headersSent) {
+                res.statusCode = 500;
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ success: false, error: err?.message || 'Vision stream failed' }));
+              } else { try { res.end(); } catch {} }
+              return;
+            }
+          }
+
           try {
             const { handleAIRequest } = await server.ssrLoadModule('./server/ai/serverHandler.ts');
             const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket?.remoteAddress || '127.0.0.1';

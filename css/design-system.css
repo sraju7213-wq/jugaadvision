@@ -1212,6 +1212,42 @@ html.dark {
   }
 }
 
+/* Mobile Touch Ergonomics & Safe Area Utilities */
+.pt-safe {
+  padding-top: max(1rem, env(safe-area-inset-top, 0px));
+}
+
+.pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+}
+
+.pl-safe {
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+}
+
+.pr-safe {
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
+}
+
+.h-screen-dynamic {
+  height: 100vh;
+  height: 100dvh;
+}
+
+.horizontal-scroll-ribbon {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  padding-bottom: 0.35rem;
+  scrollbar-width: none;
+}
+
+.horizontal-scroll-ribbon::-webkit-scrollbar {
+  display: none;
+}
+
 /* ---------------------------------------------------------------------
    9. EDITORIAL NAVIGATION & HEADER
    --------------------------------------------------------------------- */
@@ -1223,7 +1259,8 @@ html.dark {
   right: 0;
   z-index: 50;
   width: 100%;
-  height: 3.75rem;
+  height: calc(3.75rem + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
   background: color-mix(in srgb, var(--editorial-paper) 95%, transparent);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
@@ -1371,14 +1408,15 @@ html.dark {
 /* Mobile Navigation Drawer */
 .editorial-nav__drawer {
   position: fixed;
-  top: 3.75rem;
+  top: calc(3.75rem + env(safe-area-inset-top, 0px));
   left: 0;
   right: 0;
   bottom: 0;
   background: var(--editorial-paper);
   border-bottom: 1px solid var(--editorial-rule);
   overflow-y: auto;
-  padding: 1.5rem clamp(1rem, 4vw, 2rem) 3rem;
+  -webkit-overflow-scrolling: touch;
+  padding: 1.5rem clamp(1rem, 4vw, 2rem) calc(5rem + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -1812,17 +1850,225 @@ html.dark {
 }
 
 /* ---------------------------------------------------------------------
-   14. ACCESSIBILITY - PREFERS REDUCED MOTION
+   15. GLOBAL MOBILE FOUNDATION & TOUCH OPTIMIZATION
    --------------------------------------------------------------------- */
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+/* Prevent horizontal overflow globally */
+.app-canvas {
+  overflow-x: hidden;
+}
+
+/* Ensure all grid children can shrink below content size */
+.grid > *,
+.flex > * {
+  min-width: 0;
+}
+
+/* Touch target minimum for interactive elements */
+@media (max-width: 768px) {
+  .editorial-button,
+  .editorial-button--sm,
+  button,
+  [role="button"],
+  a {
+    min-height: 44px;
   }
+
+  .editorial-button--sm {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0.5rem 0.75rem;
+  }
+
+  /* Ensure nav icon buttons are touch-friendly */
+  .editorial-nav__icon-button {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  /* Larger touch targets for drawer items */
+  .editorial-nav__drawer-item {
+    padding: 0.9rem 1rem;
+    min-height: 48px;
+  }
+
+  /* Form controls touch sizing */
+  .editorial-input,
+  .editorial-select,
+  .editorial-textarea {
+    min-height: 44px;
+    padding: 0.75rem 1rem;
+  }
+
+  /* Ensure badges don't get too small on mobile */
+  .editorial-badge {
+    padding: 0.3rem 0.65rem;
+    font-size: 0.62rem;
+  }
+
+  /* Panel header/footer spacing on mobile */
+  .editorial-panel__header {
+    padding: 0.9rem clamp(0.75rem, 2.5vw, 1.25rem);
+  }
+
+  .editorial-panel__body {
+    padding: clamp(0.75rem, 2.5vw, 1.25rem);
+  }
+
+  .editorial-panel__footer {
+    padding: 0.75rem clamp(0.75rem, 2.5vw, 1.25rem);
+  }
+
+  /* Range inputs need larger touch area */
+  .editorial-range {
+    height: 1.75rem;
+  }
+
+  .editorial-range::-webkit-slider-thumb {
+    width: 1.5rem;
+    height: 1.5rem;
+    margin-top: -0.5rem;
+  }
+
+  .editorial-range::-moz-range-thumb {
+    width: 1.35rem;
+    height: 1.35rem;
+  }
+}
+
+/* Momentum scrolling for all scrollable areas */
+.custom-scrollbar,
+.editorial-nav__drawer,
+.horizontal-scroll-ribbon {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Safe area padding utility for fixed bottom elements */
+.pb-safe-nav {
+  padding-bottom: max(5rem, calc(env(safe-area-inset-bottom, 0px) + 4.5rem));
+}
+
+/* Mobile-first spacing for page content areas */
+.mobile-content-padding {
+  padding-left: clamp(0.75rem, 3vw, 1rem);
+  padding-right: clamp(0.75rem, 3vw, 1rem);
+}
+
+/* Hide scrollbar but keep functionality on mobile */
+@media (max-width: 768px) {
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Full-width bottom sheet pattern for mobile */
+.mobile-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  max-height: 90vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 1rem 1rem 0 0;
+  background: var(--editorial-paper);
+  border-top: 1px solid var(--editorial-rule);
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  animation: slideUp 0.3s var(--motion-ease) both;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* Backdrop for modals and sheets */
+.mobile-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: fadeIn 0.2s ease both;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Horizontal scroll ribbon with fade indicators */
+.scroll-ribbon-fade {
+  position: relative;
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  padding-bottom: 0.35rem;
+  scrollbar-width: none;
+}
+
+.scroll-ribbon-fade::-webkit-scrollbar {
+  display: none;
+}
+
+.scroll-ribbon-fade::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2rem;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--editorial-paper));
+}
+
+/* Ensure text doesn't overflow on mobile */
+@media (max-width: 768px) {
+  .text-truncate-mobile {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+
+  /* Stack flex rows on mobile */
+  .flex-stack-mobile {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  /* Full width on mobile */
+  .w-full-mobile {
+    width: 100% !important;
+  }
+}
+
+/* Toast notification positioning above mobile nav */
+.toast-container {
+  position: fixed;
+  bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  width: max-content;
+  max-width: calc(100% - 2rem);
+  pointer-events: none;
+}
+
+.toast-container > * {
+  pointer-events: auto;
 }
 

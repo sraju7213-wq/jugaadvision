@@ -173,6 +173,89 @@ export async function aiAnalyzeVision(
   return postJsonWithRetry('/api/ai/vision', options, 65000, 1, options.signal);
 }
 
+export interface VisionStreamEvent {
+  event: 'status' | 'meta' | 'token' | 'structured' | 'done' | 'error';
+  data: any;
+}
+
+export async function aiAnalyzeVisionStream(
+  options: AIVisionOptions,
+  onEvent: (ev: VisionStreamEvent) => void
+): Promise<{ result: string; model: string; provider: string; durationMs: number }> {
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  options.signal?.addEventListener('abort', onAbort);
+
+  let timeoutId: any;
+  try {
+    const res = await fetch('/api/ai/vision/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+      body: JSON.stringify(options),
+      signal: options.signal || controller.signal,
+    });
+
+    if (!res.ok || !res.body) {
+      // Fallback to non-streaming
+      const json = await res.json().catch(async () => ({ error: await res.text() }));
+      throw new Error(json.error || `HTTP ${res.status}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finalResult: any = null;
+    let errorMessage: string | null = null;
+
+    // 65s overall timeout for stream
+    timeoutId = setTimeout(() => controller.abort(), 65000);
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() || '';
+      for (const part of parts) {
+        const lines = part.split('\n');
+        let event = 'message';
+        let dataStr = '';
+        for (const line of lines) {
+          if (line.startsWith('event:')) event = line.slice(6).trim();
+          else if (line.startsWith('data:')) dataStr += line.slice(5).trim();
+        }
+        if (!dataStr) continue;
+        try {
+          const data = JSON.parse(dataStr);
+          onEvent({ event: event as any, data });
+          if (event === 'done') finalResult = data;
+          if (event === 'error') errorMessage = data.error || 'Stream error';
+        } catch { /* ignore parse */ }
+      }
+      if (options.signal?.aborted) throw new Error('Request was cancelled by user.');
+    }
+
+    if (errorMessage) throw new Error(errorMessage);
+    if (finalResult) {
+      return {
+        result: finalResult.result || finalResult.parsedJson?.assembledPrompt || '',
+        model: finalResult.model || '',
+        provider: finalResult.provider || '',
+        durationMs: finalResult.durationMs || 0,
+      };
+    }
+    throw new Error('Stream completed without result');
+  } catch (err: any) {
+    // Fallback: try non-streaming endpoint once
+    if (err.message?.includes('cancelled') || options.signal?.aborted) throw err;
+    console.warn('[aiGateway] Vision stream failed, falling back to non-stream:', err.message);
+    return aiAnalyzeVision(options);
+  } finally {
+    clearTimeout(timeoutId);
+    options.signal?.removeEventListener('abort', onAbort);
+  }
+}
+
 export interface ModelCatalogResponse {
   success: boolean;
   freeOnly: boolean;

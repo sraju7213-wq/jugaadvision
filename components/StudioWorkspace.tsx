@@ -74,8 +74,8 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
   onSendToBuilder,
   onSaveToLibrary,
 }) => {
-  const [leftOpen, setLeftOpen] = useState(true);
-  const [rightOpen, setRightOpen] = useState(true);
+  const [leftOpen, setLeftOpen] = useState(() => (typeof window !== "undefined" ? window.innerWidth >= 1024 : false));
+  const [rightOpen, setRightOpen] = useState(() => (typeof window !== "undefined" ? window.innerWidth >= 1024 : false));
   const [leftTab, setLeftTab] = useState<"history" | "batch">("history");
 
   const [input, setInput] = useState("");
@@ -306,7 +306,7 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
 
   return (
     <div
-      className="feature-theme-studio relative h-[calc(100vh-7rem)] min-h-[640px] w-full overflow-hidden editorial-panel shadow-sm"
+      className="feature-theme-studio relative h-[calc(100vh-8rem)] sm:h-[calc(100vh-7rem)] min-h-[480px] sm:min-h-[640px] w-full overflow-hidden editorial-panel shadow-sm"
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
     >
@@ -316,6 +316,7 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
           type="button"
           onClick={mobileToggleLeft}
           className="editorial-button editorial-button--sm editorial-button--secondary p-2 shadow-sm"
+          aria-label="Toggle Studio Archive"
         >
           <ListIcon className="w-4 h-4" />
         </button>
@@ -323,17 +324,34 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
           type="button"
           onClick={mobileToggleRight}
           className="editorial-button editorial-button--sm editorial-button--secondary p-2 shadow-sm"
+          aria-label="Toggle Controls"
         >
           <SlidersIcon className="w-4 h-4" />
         </button>
       </div>
 
+      {/* Mobile Backdrop for Left Panel */}
+      {leftOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-30 lg:hidden"
+          onClick={() => setLeftOpen(false)}
+        />
+      )}
+
+      {/* Mobile Backdrop for Right Panel */}
+      {rightOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-30 lg:hidden"
+          onClick={() => setRightOpen(false)}
+        />
+      )}
+
       <div className="absolute inset-0 flex">
         {/* Left Panel: Real History & Batch Logic */}
         <div
-          className={`transition-all duration-300 bg-[var(--editorial-surface)] border-r border-[var(--editorial-rule)] h-full flex flex-col ${
-            leftOpen ? "w-[300px]" : "w-0"
-          } overflow-hidden z-10`}
+          className={`transition-transform lg:transition-all duration-300 bg-[var(--editorial-surface)] border-r border-[var(--editorial-rule)] h-full flex flex-col fixed inset-y-0 left-0 z-40 w-[85vw] max-w-[320px] shadow-2xl lg:shadow-none lg:static lg:z-10 ${
+            leftOpen ? "translate-x-0 lg:w-[300px]" : "-translate-x-full lg:translate-x-0 lg:w-0"
+          } overflow-hidden`}
         >
           <div className="flex items-center justify-between px-4 py-3 bg-[var(--editorial-surface-strong)] border-b border-[var(--editorial-rule)]">
             <div className="flex items-center gap-2">
@@ -574,9 +592,9 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
 
         {/* Right Panel: Persona & Semantic Sliders */}
         <div
-          className={`transition-all duration-300 bg-[var(--editorial-surface)] border-l border-[var(--editorial-rule)] h-full flex flex-col ${
-            rightOpen ? "w-[300px]" : "w-0"
-          } overflow-hidden z-10`}
+          className={`transition-transform lg:transition-all duration-300 bg-[var(--editorial-surface)] border-l border-[var(--editorial-rule)] h-full flex flex-col fixed inset-y-0 right-0 z-40 w-[85vw] max-w-[320px] shadow-2xl lg:shadow-none lg:static lg:z-10 ${
+            rightOpen ? "translate-x-0 lg:w-[300px]" : "translate-x-full lg:translate-x-0 lg:w-0"
+          } overflow-hidden`}
         >
           <div className="flex items-center justify-between px-4 py-3 bg-[var(--editorial-surface-strong)] border-b border-[var(--editorial-rule)]">
             <div className="flex items-center gap-2">

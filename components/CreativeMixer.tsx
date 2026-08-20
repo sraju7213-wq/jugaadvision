@@ -734,7 +734,7 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
               <label className="font-mono text-[10.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider">
                 Target Rendering Platform
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
                 {(['general', 'midjourney', 'dalle', 'flux', 'sdxl'] as const).map((plt) => (
                   <button
                     key={plt}

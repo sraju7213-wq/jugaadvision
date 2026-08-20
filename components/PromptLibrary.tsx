@@ -252,13 +252,13 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ prompts, setPrompts, onUs
       </div>
 
       {/* Feature and Tag Filters */}
-      <div className="flex flex-col gap-2 mb-4">
+      <div className="flex flex-col gap-2.5 mb-4">
         {allFeatures.length > 0 && (
-          <div className="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
-            <span className="text-[11px] font-bold text-[var(--editorial-muted)] uppercase self-center mr-1 font-mono">Feature:</span>
+          <div className="horizontal-scroll-ribbon items-center max-w-full">
+            <span className="text-[11px] font-bold text-[var(--editorial-muted)] uppercase self-center mr-1 font-mono whitespace-nowrap flex-shrink-0">Feature:</span>
             <button
               onClick={() => setSelectedFeature(null)}
-              className={`px-3 py-1 text-xs font-bold font-mono uppercase transition-all ${
+              className={`px-3 py-1.5 text-xs font-bold font-mono uppercase transition-all whitespace-nowrap flex-shrink-0 ${
                 selectedFeature === null
                   ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
                   : "bg-[var(--editorial-surface)] border border-[var(--editorial-rule)] text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
@@ -272,7 +272,7 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ prompts, setPrompts, onUs
                 <button
                   key={feat}
                   onClick={() => setSelectedFeature(selectedFeature === feat ? null : feat)}
-                  className={`px-3 py-1 text-xs font-bold font-mono uppercase transition-all ${
+                  className={`px-3 py-1.5 text-xs font-bold font-mono uppercase transition-all whitespace-nowrap flex-shrink-0 ${
                     selectedFeature === feat
                       ? "bg-[var(--editorial-coral)] text-white shadow-sm"
                       : "bg-[var(--editorial-surface)] border border-[var(--editorial-rule)] text-[var(--editorial-muted)] hover:border-[var(--editorial-coral)] hover:text-[var(--editorial-coral)]"
@@ -286,11 +286,11 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ prompts, setPrompts, onUs
         )}
 
         {allTags.length > 0 && (
-          <div className="flex gap-1.5 overflow-x-auto pb-2 custom-scrollbar">
-            <span className="text-[11px] font-bold text-[var(--editorial-muted)] uppercase self-center mr-1 font-mono">Tag:</span>
+          <div className="horizontal-scroll-ribbon items-center max-w-full">
+            <span className="text-[11px] font-bold text-[var(--editorial-muted)] uppercase self-center mr-1 font-mono whitespace-nowrap flex-shrink-0">Tag:</span>
             <button
               onClick={() => setSelectedTag(null)}
-              className={`px-3 py-1 text-xs font-bold font-mono transition-all ${
+              className={`px-3 py-1.5 text-xs font-bold font-mono transition-all whitespace-nowrap flex-shrink-0 ${
                 selectedTag === null
                   ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
                   : "bg-[var(--editorial-surface)] border border-[var(--editorial-rule)] text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
@@ -302,10 +302,10 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ prompts, setPrompts, onUs
               <button
                 key={tag}
                 onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
-                className={`px-3 py-1 text-xs font-bold font-mono transition-all border ${
+                className={`px-3 py-1.5 text-xs font-bold font-mono transition-all whitespace-nowrap flex-shrink-0 ${
                   selectedTag === tag
-                    ? "bg-[var(--editorial-violet)] text-white border-[var(--editorial-violet)] shadow-sm"
-                    : "bg-[var(--editorial-surface)] border-[var(--editorial-rule)] text-[var(--editorial-muted)] hover:text-[var(--editorial-violet)]"
+                    ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
+                    : "bg-[var(--editorial-surface)] border border-[var(--editorial-rule)] text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
                 }`}
               >
                 #{tag}
