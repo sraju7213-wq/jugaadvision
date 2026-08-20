@@ -6,12 +6,9 @@
     }
   ],
   "functions": {
-    "api/ai/vision.js": { "maxDuration": 60 },
     "api/ai/vision/stream.js": { "maxDuration": 60 },
     "api/ai/generate.js": { "maxDuration": 30 },
-    "api/ai/batch.js": { "maxDuration": 60 },
-    "api/ai/chat.js": { "maxDuration": 30 },
-    "api/ai/structured.js": { "maxDuration": 30 },
+    "api/ai/[...slug].js": { "maxDuration": 60 },
     "api/creative-mix.js": { "maxDuration": 30 },
     "api/remove-bg.js": { "maxDuration": 30 }
   },
