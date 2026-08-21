@@ -266,9 +266,13 @@ export class AIRouter {
             status: statusCode,
           });
 
-          // Detect auth/key failures — skip entire provider immediately
-          const isAuthFailure = statusCode === 401 || statusCode === 403 ||
-            (statusCode === 400 && (errMsg.includes('API key') || errMsg.includes('API_KEY_INVALID') || errMsg.includes('INVALID_ARGUMENT')));
+          // Detect auth, quota, or payment failures — skip entire provider immediately
+          const isAuthFailure = statusCode === 401 || statusCode === 403 || statusCode === 402 ||
+            (statusCode === 400 && (errMsg.includes('API key') || errMsg.includes('API_KEY_INVALID') || errMsg.includes('INVALID_ARGUMENT') || errMsg.includes('credits') || errMsg.includes('quota'))) ||
+            errMsg.toLowerCase().includes('depleted') ||
+            errMsg.toLowerCase().includes('monthly included credits') ||
+            errMsg.toLowerCase().includes('insufficient_quota') ||
+            errMsg.toLowerCase().includes('payment required');
           const isModelGone = statusCode === 404;
           const isTimeout = errMsg.toLowerCase().includes('timeout') || errMsg.toLowerCase().includes('timed out');
 

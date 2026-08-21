@@ -150,7 +150,6 @@ export class ModelScoringEngine {
       case 'complex_reasoning' as any:
       case 'reasoning':
       case 'coding':
-      case 'advanced_image_analysis':
       case 'multi_step_tasks':
         return 'quality';
 
@@ -159,6 +158,7 @@ export class ModelScoringEngine {
       case 'chat':
       case 'vision':
       case 'image_analysis':
+      case 'advanced_image_analysis':
       case 'structured_json':
       default:
         return 'balanced';

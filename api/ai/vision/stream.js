@@ -352,7 +352,7 @@ var HuggingFaceAdapter = class {
           "Content-Type": "application/json"
         },
         body: JSON.stringify(body)
-      }, 6e4);
+      }, 28e3);
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
         throw new AdapterError(
@@ -583,7 +583,7 @@ var NvidiaNimAdapter = class {
           "Content-Type": "application/json"
         },
         body: JSON.stringify(body)
-      }, 6e4);
+      }, 28e3);
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
         throw new AdapterError(
@@ -775,7 +775,7 @@ var OpenRouterAdapter = class {
           "Content-Type": "application/json"
         },
         body: JSON.stringify(body)
-      }, 6e4);
+      }, 28e3);
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
         throw new AdapterError(
@@ -2628,7 +2628,6 @@ var ModelScoringEngine = class {
       case "complex_reasoning":
       case "reasoning":
       case "coding":
-      case "advanced_image_analysis":
       case "multi_step_tasks":
         return "quality";
       // Intermediate / Balanced
@@ -2636,6 +2635,7 @@ var ModelScoringEngine = class {
       case "chat":
       case "vision":
       case "image_analysis":
+      case "advanced_image_analysis":
       case "structured_json":
       default:
         return "balanced";
@@ -2872,7 +2872,7 @@ var AIRouter = class {
             error: errMsg,
             status: statusCode
           });
-          const isAuthFailure = statusCode === 401 || statusCode === 403 || statusCode === 400 && (errMsg.includes("API key") || errMsg.includes("API_KEY_INVALID") || errMsg.includes("INVALID_ARGUMENT"));
+          const isAuthFailure = statusCode === 401 || statusCode === 403 || statusCode === 402 || statusCode === 400 && (errMsg.includes("API key") || errMsg.includes("API_KEY_INVALID") || errMsg.includes("INVALID_ARGUMENT") || errMsg.includes("credits") || errMsg.includes("quota")) || errMsg.toLowerCase().includes("depleted") || errMsg.toLowerCase().includes("monthly included credits") || errMsg.toLowerCase().includes("insufficient_quota") || errMsg.toLowerCase().includes("payment required");
           const isModelGone = statusCode === 404;
           const isTimeout = errMsg.toLowerCase().includes("timeout") || errMsg.toLowerCase().includes("timed out");
           if (isAuthFailure) {

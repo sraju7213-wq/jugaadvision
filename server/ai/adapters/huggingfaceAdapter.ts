@@ -130,7 +130,7 @@ export class HuggingFaceAdapter implements IProviderAdapter {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
-      }, 60000);
+      }, 28000);
 
       if (!res.ok) {
         const errorText = await res.text().catch(() => '');
