@@ -278,10 +278,10 @@ html.dark {
   overflow-x: hidden;
 }
 
-/* Responsive Editorial Content Wrapper (1200px - 1440px max width) */
+/* Responsive Editorial Content Wrapper (wide workstation shell) */
 .editorial-page__inner,
 .editorial-page__content {
-  width: min(100%, 1440px);
+  width: min(100%, 1820px);
   margin-left: auto;
   margin-right: auto;
   padding-left: clamp(1rem, 3.5vw, 3rem);

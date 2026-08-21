@@ -32,7 +32,7 @@ const PromptBuilderPage: React.FC<PromptBuilderPageProps> = ({
   }, [searchParams, navigate]);
 
   return (
-    <div className="feature-theme-builder w-full max-w-6xl mx-auto pb-16 pt-2">
+    <div className="feature-theme-builder w-full max-w-[1820px] mx-auto pb-16 pt-2">
       <FeatureHeader
         currentId="builder"
         title="Prompt Builder"

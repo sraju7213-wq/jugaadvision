@@ -698,7 +698,7 @@ const BannerPrompter: React.FC<BannerPrompterProps> = ({
     }, [generatedResult, refImages, selectedPlatform, onSaveToLibrary]);
 
     return (
-        <div className="w-full max-w-6xl mx-auto space-y-6 animate-fade-in">
+        <div className="w-full max-w-[1820px] mx-auto space-y-6 animate-fade-in">
             {/* Main Editorial Form */}
             <div className="editorial-panel">
                 <div className="editorial-panel__header">

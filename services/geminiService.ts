@@ -998,7 +998,7 @@ TARGET DEFECTS TO PREVENT:
 - Watermarks, signatures, ugly text, borders
 - Plastic/oversaturated look if aiming for photorealism
 
-Output ONLY the negative prompt string (comma-separated). Under ${maxChars} characters.`;
+Output ONLY the negative prompt string (comma-separated). Keep it under 600 characters.`;
 
   try {
     const res = await aiGenerateText({

@@ -156,8 +156,7 @@ export class CapabilityClassifier {
                      id.includes('neva') ||
                      id.includes('florence') ||
                      id.includes('kosmos') ||
-                     (Array.isArray(raw.modalities) && raw.modalities.includes('vision')) ||
-                     (Array.isArray(raw.capabilities) && raw.capabilities.includes('vision'));
+                     /vision|image|multimodal/i.test(raw.architecture?.modality || '');
     const vision = isVision ? 'supported' : (isChat ? 'unsupported' : 'unknown');
 
     // 3. Reasoning

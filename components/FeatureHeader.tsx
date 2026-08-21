@@ -122,7 +122,7 @@ export const FeatureHeader: React.FC<FeatureHeaderProps> = ({
   };
 
   return (
-    <div className="w-full max-w-6xl mx-auto mb-8 motion-section-enter">
+    <div className="w-full max-w-[1820px] mx-auto mb-8 motion-section-enter">
       {/* Quiet, thin breadcrumb */}
       <div className="mb-6 flex items-center justify-between gap-4">
         <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-xs font-medium">

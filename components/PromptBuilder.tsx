@@ -59,6 +59,10 @@ import {
   Terminal,
   Binary,
   Maximize2,
+  Compass,
+  Target,
+  Focus,
+  CheckCircle2,
 } from "lucide-react";
 import useSpeechToText from "../hooks/useSpeechToText";
 import Tooltip from "./Tooltip";
@@ -71,6 +75,67 @@ interface PromptBuilderProps {
 
 type BuilderMode = "canvas" | "fusion" | "mutation" | "formula" | "dissect" | "wildcard";
 type MobilePane = "canvas" | "params" | "vault";
+type BriefField = "objective" | "audience" | "message" | "emotion" | "references" | "guardrails";
+
+type DirectorBrief = {
+  objective: string;
+  audience: string;
+  message: string;
+  emotion: string;
+  references: string;
+  guardrails: string;
+};
+
+const DIRECTOR_PRESETS = [
+  {
+    id: "campaign-film",
+    label: "Campaign Film",
+    note: "High-concept, emotionally legible",
+    brief: {
+      objective: "Build a memorable hero image with a clear point of view",
+      audience: "Design-literate culture seekers",
+      message: "The product belongs in a world with its own mythology",
+      emotion: "Desire with a trace of danger",
+      references: "Editorial fashion film, tactile product cinema, surreal restraint",
+      guardrails: "No generic stock imagery, no clutter, no literal copy",
+    },
+  },
+  {
+    id: "world-building",
+    label: "World Building",
+    note: "Cohesive visual language across a series",
+    brief: {
+      objective: "Define a repeatable visual system for a multi-image world",
+      audience: "Creative teams and visual storytellers",
+      message: "Every frame feels like evidence from the same universe",
+      emotion: "Curiosity, tension, and scale",
+      references: "Production design bibles, speculative architecture, analog texture",
+      guardrails: "Keep palette, lens language, and material logic consistent",
+    },
+  },
+  {
+    id: "portrait-study",
+    label: "Portrait Study",
+    note: "Character-first with precise psychology",
+    brief: {
+      objective: "Reveal character through gesture, styling, and light",
+      audience: "Art directors, casting teams, and fashion editors",
+      message: "The subject has a story before the frame begins",
+      emotion: "Composure under pressure",
+      references: "Contemporary portraiture, archival beauty editorials, quiet cinema",
+      guardrails: "Protect facial identity, natural hands, intentional negative space",
+    },
+  },
+];
+
+const BRIEF_FIELDS: Array<{ key: BriefField; label: string; prompt: string; accent: string }> = [
+  { key: "objective", label: "Creative objective", prompt: "What must this image make possible?", accent: "violet" },
+  { key: "audience", label: "Audience / context", prompt: "Who is this for, and where will it live?", accent: "blue" },
+  { key: "message", label: "Core message", prompt: "What should survive after the first glance?", accent: "coral" },
+  { key: "emotion", label: "Emotional temperature", prompt: "What should the viewer feel?", accent: "gold" },
+  { key: "references", label: "Reference language", prompt: "Name the visual lineage, not just a style label.", accent: "green" },
+  { key: "guardrails", label: "Guardrails", prompt: "What should never appear or drift?", accent: "ink" },
+];
 
 const PLATFORMS: { id: Platform; label: string; code: string; icon: string; badge: string }[] = [
   { id: Platform.Natural, label: "Natural Language", code: "NATURAL::LLM", icon: "🌐", badge: "Universal" },
@@ -97,6 +162,14 @@ const PROMPT_BUDGET_PRESETS = [
   { label: "2,000", desc: "Master Ultra", value: 2000 },
 ];
 
+const DIRECTING_STYLES = [
+  { label: "Balanced", note: "Clean intent with controlled detail" },
+  { label: "Cinematic", note: "Story-first framing and atmosphere" },
+  { label: "Editorial", note: "Art-directed, tactile, publication-ready" },
+  { label: "Surreal", note: "Unexpected associations and dream logic" },
+  { label: "Graphic", note: "Bold shape, contrast, and visual rhythm" },
+];
+
 const VIDEO_MOTIONS = [
   "Tracking push-in",
   "360° orbit around subject",
@@ -121,24 +194,22 @@ const QuantumTokenChip: React.FC<{
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-mono font-medium border transition-all select-none relative group ${
-        isEmphasized
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-mono font-medium border transition-all select-none relative group ${isEmphasized
           ? "bg-[var(--editorial-violet-soft)] border-[var(--editorial-violet)] text-[var(--editorial-ink)] shadow-[2px_2px_0_var(--editorial-violet)]"
           : isDeemphasized
-          ? "bg-[var(--editorial-surface)] border-[var(--editorial-rule)] text-[var(--editorial-muted)] opacity-75"
-          : "bg-[var(--editorial-surface)] border-[var(--editorial-rule)] text-[var(--editorial-ink)] shadow-[1px_1px_0_var(--editorial-rule)] hover:border-[var(--editorial-violet)]"
-      }`}
+            ? "bg-[var(--editorial-surface)] border-[var(--editorial-rule)] text-[var(--editorial-muted)] opacity-75"
+            : "bg-[var(--editorial-surface)] border-[var(--editorial-rule)] text-[var(--editorial-ink)] shadow-[1px_1px_0_var(--editorial-rule)] hover:border-[var(--editorial-violet)]"
+        }`}
     >
       <span className="text-[10px] text-[var(--editorial-violet)] font-bold opacity-60">λ</span>
       <span className="cursor-default tracking-tight">{token.text}</span>
 
       {weight !== 1.0 && (
         <span
-          className={`text-[8.5px] px-1 rounded font-mono font-bold ${
-            isEmphasized
+          className={`text-[8.5px] px-1 rounded font-mono font-bold ${isEmphasized
               ? "bg-[var(--editorial-violet)] text-white"
               : "bg-[var(--editorial-rule)] text-[var(--editorial-muted)]"
-          }`}
+            }`}
         >
           {weight.toFixed(1)}Ψ
         </span>
@@ -242,13 +313,12 @@ const SpectralWaveform: React.FC<{ tokenCount: number; charCount: number; maxCha
         return (
           <div
             key={i}
-            className={`w-1 rounded-none transition-all duration-300 ${
-              isFilled
+            className={`w-1 rounded-none transition-all duration-300 ${isFilled
                 ? active
                   ? "bg-[var(--editorial-violet)]"
                   : "bg-[var(--editorial-coral)]"
                 : "bg-[var(--editorial-rule)]"
-            }`}
+              }`}
             style={{ height: `${heightPercent}%` }}
           />
         );
@@ -268,6 +338,17 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
 
   // Prompt Size / Capacity Controller (up to 2000 characters)
   const [maxChars, setMaxChars] = useState<number>(1000);
+
+  // Creative Director Brief State
+  const [directorBrief, setDirectorBrief] = useState<DirectorBrief>({
+    objective: "",
+    audience: "",
+    message: "",
+    emotion: "",
+    references: "",
+    guardrails: "",
+  });
+  const [activeBriefPreset, setActiveBriefPreset] = useState<string | null>(null);
 
   // Canvas Tokens State
   const [tokens, setTokens] = useState<TokenItem[]>([]);
@@ -314,6 +395,13 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
   const [styleRaw, setStyleRaw] = useState(false);
   const [tileMode, setTileMode] = useState(false);
   const [videoMotion, setVideoMotion] = useState<string>("");
+
+  // Advanced directorial controls: keep exploration intentional while preserving a readable prompt.
+  const [directingStyle, setDirectingStyle] = useState("Balanced");
+  const [explorationLevel, setExplorationLevel] = useState(35);
+  const [variationCount, setVariationCount] = useState(4);
+  const [continuityLock, setContinuityLock] = useState(true);
+  const [seed, setSeed] = useState("");
 
   const [activeLeftTab, setActiveLeftTab] = useState<"params" | "negative" | "iq">("params");
   const [copied, setCopied] = useState(false);
@@ -431,6 +519,11 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
       }));
       setTokens(newTokens);
       setPlatform(initialPrompt.platform || Platform.Natural);
+      const savedBrief = initialPrompt.originalInput?.directorBrief as Partial<DirectorBrief> | undefined;
+      if (savedBrief) {
+        setDirectorBrief((prev) => ({ ...prev, ...savedBrief }));
+        setActiveBriefPreset(null);
+      }
     } else {
       handleClear();
     }
@@ -466,11 +559,36 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
       .join(", ");
   }, [tokens, builderMode, formulaSlots, platform]);
 
+  const briefContext = useMemo(() => {
+    return BRIEF_FIELDS
+      .map(({ key, label }) => directorBrief[key].trim() ? `${label}: ${directorBrief[key].trim()}` : "")
+      .filter(Boolean)
+      .join("; ");
+  }, [directorBrief]);
+
+  const completedBriefFields = useMemo(
+    () => BRIEF_FIELDS.filter(({ key }) => directorBrief[key].trim()).length,
+    [directorBrief]
+  );
+
   // Final Compiled Output
   const finalPrompt = useMemo(() => {
-    if (!tokenString.trim()) return "";
+    if (!tokenString.trim() && !briefContext.trim()) return "";
 
-    let compiled = tokenString.trim();
+    const directorialControl = [
+      directingStyle !== "Balanced" ? `Direction style: ${directingStyle}` : "",
+      explorationLevel > 0 ? `Exploration: ${explorationLevel}%` : "",
+      continuityLock ? "Maintain visual continuity across the frame" : "Allow controlled visual drift",
+      seed.trim() ? `Seed: ${seed.trim()}` : "",
+    ].filter(Boolean).join(", ");
+
+    let compiled = [
+      tokenString.trim(),
+      briefContext.trim() ? `Creative direction — ${briefContext.trim()}` : "",
+      directorialControl ? `Directorial controls — ${directorialControl}` : "",
+    ]
+      .filter(Boolean)
+      .join(". ");
 
     if (platform === Platform.Midjourney) {
       let params = "";
@@ -508,7 +626,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
     }
 
     return compiled;
-  }, [tokenString, platform, dimension, stylizeValue, chaosValue, weirdValue, styleRaw, tileMode, negativePrompt, videoMotion]);
+  }, [tokenString, briefContext, platform, dimension, stylizeValue, chaosValue, weirdValue, styleRaw, tileMode, negativePrompt, videoMotion, directingStyle, explorationLevel, continuityLock, seed]);
 
   const charCount = finalPrompt.length;
   const isOverLimit = charCount > maxChars;
@@ -638,6 +756,17 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
     setFormulaSlots((prev) => ({ ...prev, [slot]: value }));
   };
 
+  const handleBriefChange = (field: BriefField, value: string) => {
+    setDirectorBrief((prev) => ({ ...prev, [field]: value }));
+    setActiveBriefPreset(null);
+  };
+
+  const handleApplyDirectorPreset = (preset: typeof DIRECTOR_PRESETS[number]) => {
+    setDirectorBrief({ ...preset.brief });
+    setActiveBriefPreset(preset.id);
+    setError(null);
+  };
+
   const handleSave = () => {
     if (!finalPrompt.trim()) {
       setError("Please add prompt text before saving.");
@@ -655,8 +784,18 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
       sourceFeature: "prompt-builder",
       tags: promptId ? (initialPrompt?.tags ?? ["builder"]) : ["builder", "laboratory-spliced"],
       createdAt: new Date().toISOString(),
-      originalInput: { tokens, formulaSlots, dimension, platform, negativePrompt, stylizeValue, styleRaw, maxChars },
-      version: 2,
+      originalInput: {
+        tokens,
+        formulaSlots,
+        dimension,
+        platform,
+        negativePrompt,
+        stylizeValue,
+        styleRaw,
+        maxChars,
+        directorBrief,
+      },
+      version: 3,
     };
 
     if (promptId) {
@@ -688,6 +827,15 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
     setStyleRaw(false);
     setTileMode(false);
     setVideoMotion("");
+    setDirectorBrief({
+      objective: "",
+      audience: "",
+      message: "",
+      emotion: "",
+      references: "",
+      guardrails: "",
+    });
+    setActiveBriefPreset(null);
     setPromptId(null);
     setPlatform(Platform.Natural);
     setQualityReport(null);
@@ -757,8 +905,11 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
 
   // AI Co-Pilot Actions
   const handleEnhanceWithPersona = async () => {
-    if (isEnhancing || !tokenString.trim()) {
-      if (!tokenString.trim()) setError("Please enter keywords or a concept to enhance.");
+    const copilotInput = [tokenString.trim(), briefContext.trim() ? `Creative direction: ${briefContext.trim()}` : ""]
+      .filter(Boolean)
+      .join(". ");
+    if (isEnhancing || !copilotInput) {
+      if (!copilotInput) setError("Add a visual concept or a director brief before enhancing.");
       return;
     }
 
@@ -771,7 +922,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
 
     try {
       const enhanced = await aiElaboratePromptWithPersona(
-        tokenString,
+        copilotInput,
         selectedPersona,
         creativity,
         platform,
@@ -811,8 +962,11 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
   };
 
   const handleGenerateVariations = async () => {
-    if (isGeneratingVariations || !tokenString.trim()) {
-      if (!tokenString.trim()) setError("Please enter prompt keywords to generate variations.");
+    const variationInput = [tokenString.trim(), briefContext.trim() ? `Creative direction: ${briefContext.trim()}` : ""]
+      .filter(Boolean)
+      .join(". ");
+    if (isGeneratingVariations || !variationInput) {
+      if (!variationInput) setError("Add a visual concept or a director brief before generating variations.");
       return;
     }
 
@@ -821,7 +975,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
     setShowAiPopover(false);
 
     try {
-      const vars = await aiGeneratePromptVariations(tokenString, 3, maxChars);
+      const vars = await aiGeneratePromptVariations(variationInput, 3, maxChars);
       if (isMounted.current && vars.length > 0) {
         setVariationsList(vars);
         setVariationsModalOpen(true);
@@ -1012,13 +1166,12 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
             active={!isOverLimit}
           />
           <span
-            className={`px-1.5 py-0.5 border text-[9.5px] font-bold ${
-              isOverLimit
+            className={`px-1.5 py-0.5 border text-[9.5px] font-bold ${isOverLimit
                 ? "bg-red-500/10 text-red-600 border-red-500"
                 : charCount >= maxChars * 0.85
-                ? "bg-amber-500/10 text-amber-600 border-amber-500"
-                : "bg-[var(--editorial-paper)] text-[var(--editorial-ink)] border-[var(--editorial-rule)]"
-            }`}
+                  ? "bg-amber-500/10 text-amber-600 border-amber-500"
+                  : "bg-[var(--editorial-paper)] text-[var(--editorial-ink)] border-[var(--editorial-rule)]"
+              }`}
           >
             {charCount}/{maxChars}λ
           </span>
@@ -1030,33 +1183,30 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
         <button
           type="button"
           onClick={() => setMobilePane("canvas")}
-          className={`flex-1 py-1.5 text-xs font-mono font-bold uppercase transition-all ${
-            mobilePane === "canvas"
+          className={`flex-1 py-1.5 text-xs font-mono font-bold uppercase transition-all ${mobilePane === "canvas"
               ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
               : "text-[var(--editorial-muted)]"
-          }`}
+            }`}
         >
           Workbench
         </button>
         <button
           type="button"
           onClick={() => setMobilePane("params")}
-          className={`flex-1 py-1.5 text-xs font-mono font-bold uppercase transition-all ${
-            mobilePane === "params"
+          className={`flex-1 py-1.5 text-xs font-mono font-bold uppercase transition-all ${mobilePane === "params"
               ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
               : "text-[var(--editorial-muted)]"
-          }`}
+            }`}
         >
           Telemetry
         </button>
         <button
           type="button"
           onClick={() => setMobilePane("vault")}
-          className={`flex-1 py-1.5 text-xs font-mono font-bold uppercase transition-all ${
-            mobilePane === "vault"
+          className={`flex-1 py-1.5 text-xs font-mono font-bold uppercase transition-all ${mobilePane === "vault"
               ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
               : "text-[var(--editorial-muted)]"
-          }`}
+            }`}
         >
           Specimen Vault
         </button>
@@ -1075,6 +1225,175 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
         </div>
       )}
 
+      {/* CREATIVE DIRECTOR BRIEF / STRATEGY LAYER */}
+      <section className="editorial-panel overflow-hidden" aria-labelledby="director-brief-title">
+        <div className="editorial-panel__header px-3 py-2.5 bg-[var(--editorial-ink)] text-[var(--editorial-paper)] flex-col sm:flex-row sm:items-center gap-2">
+          <div className="flex items-center gap-2">
+            <Compass className="w-4 h-4 text-[var(--editorial-coral)]" />
+            <div>
+              <h2 id="director-brief-title" className="m-0 text-xs font-bold uppercase tracking-[0.16em] text-[var(--editorial-paper)]">
+                Director&apos;s Brief
+              </h2>
+              <p className="m-0 mt-0.5 text-[9px] font-mono text-white/60">
+                Strategy layer • intent before syntax
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-[9px] font-mono uppercase tracking-wider">
+            <span className="text-white/55">Articulation</span>
+            <span className="px-1.5 py-0.5 border border-white/20 text-[var(--editorial-coral)] font-bold">
+              {completedBriefFields}/6 fields
+            </span>
+          </div>
+        </div>
+
+        <div className="p-3 sm:p-4 bg-[var(--editorial-paper)] space-y-3.5">
+          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-2">
+            <div>
+              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--editorial-muted)]">Start from a point of view</p>
+              <p className="m-0 mt-1 text-[11px] text-[var(--editorial-muted)] max-w-2xl leading-relaxed">
+                Give the engine the why, who, and no-go zones. The compiled prompt will carry this strategic context into the technical string.
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 text-[9px] font-mono text-[var(--editorial-muted)]">
+              <Target className="w-3 h-3 text-[var(--editorial-coral)]" />
+              <span>{completedBriefFields === 6 ? "Brief is production-ready" : "Recommended: complete all six fields"}</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+            {DIRECTOR_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => handleApplyDirectorPreset(preset)}
+                className={`text-left p-2.5 border transition-all ${activeBriefPreset === preset.id
+                  ? "bg-[var(--editorial-violet-soft)] border-[var(--editorial-violet)] shadow-[2px_2px_0_var(--editorial-violet)]"
+                  : "bg-[var(--editorial-surface)] border-[var(--editorial-rule)] hover:border-[var(--editorial-violet)]"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--editorial-ink)]">{preset.label}</span>
+                  {activeBriefPreset === preset.id && <CheckCircle2 className="w-3.5 h-3.5 text-[var(--editorial-violet)]" />}
+                </div>
+                <span className="block mt-1 text-[9px] leading-snug text-[var(--editorial-muted)]">{preset.note}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
+            {BRIEF_FIELDS.map(({ key, label, prompt }, index) => (
+              <label key={key} className="block p-2.5 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)] focus-within:border-[var(--editorial-violet)] transition-colors">
+                <span className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-[var(--editorial-ink)]">
+                  <span className="text-[var(--editorial-coral)] font-mono">0{index + 1}</span>
+                  {label}
+                </span>
+                <span className="block mt-1 text-[9px] text-[var(--editorial-muted)] leading-snug">{prompt}</span>
+                <textarea
+                  value={directorBrief[key]}
+                  onChange={(e) => handleBriefChange(key, e.target.value)}
+                  rows={2}
+                  maxLength={260}
+                  placeholder="Write a concise director-level note..."
+                  className="editorial-textarea mt-2 min-h-[58px] resize-y text-[11px] leading-relaxed"
+                />
+              </label>
+            ))}
+          </div>
+
+          {briefContext && (
+            <div className="flex items-start gap-2 p-2.5 border border-[var(--editorial-violet)] bg-[var(--editorial-violet-soft)] text-[10px] leading-relaxed text-[var(--editorial-ink)]">
+              <Focus className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[var(--editorial-violet)]" />
+              <span><strong>Strategy signal:</strong> {briefContext}</span>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ADVANCED CREATIVE DIRECTION CONTROLS */}
+      <section className="editorial-panel overflow-hidden" aria-labelledby="advanced-controls-title">
+        <div className="editorial-panel__header px-3 py-2.5 bg-[var(--editorial-surface)] flex-col sm:flex-row sm:items-center gap-2">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal className="w-4 h-4 text-[var(--editorial-coral)]" />
+            <div>
+              <h2 id="advanced-controls-title" className="m-0 text-xs font-bold uppercase tracking-[0.16em] text-[var(--editorial-ink)]">
+                Advanced direction controls
+              </h2>
+              <p className="m-0 mt-0.5 text-[9px] font-mono text-[var(--editorial-muted)]">
+                Set the creative latitude before the engine assembles syntax.
+              </p>
+            </div>
+          </div>
+          <span className="text-[9px] font-mono uppercase tracking-wider text-[var(--editorial-violet)]">Directorial layer / 08</span>
+        </div>
+
+        <div className="p-3 sm:p-4 bg-[var(--editorial-paper)] grid grid-cols-1 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,.65fr)] gap-4">
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--editorial-muted)]">Direction style</span>
+              <span className="text-[9px] font-mono text-[var(--editorial-violet)]">{directingStyle.toUpperCase()}</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+              {DIRECTING_STYLES.map((style) => (
+                <button
+                  key={style.label}
+                  type="button"
+                  onClick={() => setDirectingStyle(style.label)}
+                  className={`min-h-[64px] p-2 text-left border transition-all ${directingStyle === style.label
+                    ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)] shadow-[2px_2px_0_var(--editorial-coral)]"
+                    : "bg-[var(--editorial-surface)] text-[var(--editorial-ink)] border-[var(--editorial-rule)] hover:border-[var(--editorial-violet)]"
+                  }`}
+                >
+                  <span className="block text-[10px] font-bold uppercase tracking-wide">{style.label}</span>
+                  <span className={`block mt-1 text-[8.5px] leading-snug ${directingStyle === style.label ? "text-white/65" : "text-[var(--editorial-muted)]"}`}>{style.note}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="col-span-2 p-2.5 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
+              <div className="flex justify-between items-center text-[9.5px] font-mono mb-1">
+                <span className="font-bold uppercase text-[var(--editorial-ink)]">Exploration latitude</span>
+                <span className="font-bold text-[var(--editorial-violet)]">{explorationLevel}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="5"
+                value={explorationLevel}
+                onChange={(e) => setExplorationLevel(parseInt(e.target.value, 10))}
+                className="editorial-range editorial-range--violet"
+                style={{ "--range-progress": `${explorationLevel}%` } as React.CSSProperties}
+                aria-label="Exploration latitude"
+              />
+            </label>
+            <label className="p-2.5 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
+              <span className="block text-[9px] font-bold uppercase text-[var(--editorial-muted)] mb-1">Variations</span>
+              <select value={variationCount} onChange={(e) => setVariationCount(parseInt(e.target.value, 10))} className="editorial-input w-full text-xs font-mono">
+                {[2, 4, 6, 8, 12].map((count) => <option key={count} value={count}>{count} frames</option>)}
+              </select>
+            </label>
+            <label className="p-2.5 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
+              <span className="block text-[9px] font-bold uppercase text-[var(--editorial-muted)] mb-1">Seed / thread</span>
+              <input value={seed} onChange={(e) => setSeed(e.target.value)} placeholder="auto" className="editorial-input w-full text-xs font-mono" aria-label="Seed or thread identifier" />
+            </label>
+            <button
+              type="button"
+              onClick={() => setContinuityLock((current) => !current)}
+              className={`col-span-2 flex items-center justify-between gap-2 px-2.5 py-2 border text-[9.5px] font-mono font-bold uppercase transition-all ${continuityLock
+                ? "bg-emerald-500/10 text-emerald-700 border-emerald-500/40"
+                : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-[var(--editorial-rule)]"
+              }`}
+            >
+              <span>{continuityLock ? "Continuity lock engaged" : "Continuity lock open"}</span>
+              <span>{continuityLock ? "ON" : "OFF"}</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
       {/* 3-COLUMN PANORAMIC WORKSTATION GRID */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-3.5 lg:gap-4 items-start">
 
@@ -1082,9 +1401,8 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
         {/* LEFT PANE: OPTICAL BENCH, TELEMETRY & DIRECTIVES (3.5 cols)          */}
         {/* ==================================================================== */}
         <div
-          className={`xl:col-span-3 flex-col gap-3.5 ${
-            mobilePane === "params" ? "flex" : "hidden xl:flex"
-          }`}
+          className={`xl:col-span-3 flex-col gap-3.5 ${mobilePane === "params" ? "flex" : "hidden xl:flex"
+            }`}
         >
           {/* Target Platform Engine */}
           <div className="editorial-panel">
@@ -1105,11 +1423,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                     key={p.id}
                     type="button"
                     onClick={() => setPlatform(p.id)}
-                    className={`p-1.5 flex flex-col items-center justify-center gap-0.5 border text-center transition-all ${
-                      isActive
+                    className={`p-1.5 flex flex-col items-center justify-center gap-0.5 border text-center transition-all ${isActive
                         ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)] shadow-[1px_1px_0_var(--editorial-violet)]"
                         : "bg-[var(--editorial-surface)] text-[var(--editorial-ink)] border-[var(--editorial-rule)] hover:border-[var(--editorial-violet)]"
-                    }`}
+                      }`}
                   >
                     <span className="text-xs leading-none">{p.icon}</span>
                     <span className="truncate w-full text-[9px] font-mono uppercase font-bold">
@@ -1128,33 +1445,30 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveLeftTab("params")}
-                  className={`flex-1 py-1 text-[10px] font-mono font-bold uppercase border transition-all ${
-                    activeLeftTab === "params"
+                  className={`flex-1 py-1 text-[10px] font-mono font-bold uppercase border transition-all ${activeLeftTab === "params"
                       ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)]"
                       : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-transparent hover:text-[var(--editorial-ink)]"
-                  }`}
+                    }`}
                 >
                   Optics
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveLeftTab("negative")}
-                  className={`flex-1 py-1 text-[10px] font-mono font-bold uppercase border transition-all ${
-                    activeLeftTab === "negative"
+                  className={`flex-1 py-1 text-[10px] font-mono font-bold uppercase border transition-all ${activeLeftTab === "negative"
                       ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)]"
                       : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-transparent hover:text-[var(--editorial-ink)]"
-                  }`}
+                    }`}
                 >
                   Negative {negativePrompt ? "•" : ""}
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveLeftTab("iq")}
-                  className={`flex-1 py-1 text-[10px] font-mono font-bold uppercase border transition-all ${
-                    activeLeftTab === "iq"
+                  className={`flex-1 py-1 text-[10px] font-mono font-bold uppercase border transition-all ${activeLeftTab === "iq"
                       ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)]"
                       : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-transparent hover:text-[var(--editorial-ink)]"
-                  }`}
+                    }`}
                 >
                   Spectral IQ
                 </button>
@@ -1182,11 +1496,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                           key={preset.value}
                           type="button"
                           onClick={() => setMaxChars(preset.value)}
-                          className={`py-1 px-0.5 text-center border transition-all ${
-                            maxChars === preset.value
+                          className={`py-1 px-0.5 text-center border transition-all ${maxChars === preset.value
                               ? "bg-[var(--editorial-violet)] text-white border-[var(--editorial-violet)] font-bold shadow-[1px_1px_0_var(--editorial-violet)]"
                               : "bg-[var(--editorial-surface)] text-[var(--editorial-ink)] border-[var(--editorial-rule)] hover:border-[var(--editorial-violet)]"
-                          }`}
+                            }`}
                         >
                           <div className="text-[9.5px] leading-tight font-bold">{preset.label}</div>
                           <div className="text-[7.5px] text-[var(--editorial-muted)] opacity-80">{preset.desc}</div>
@@ -1222,11 +1535,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                             key={ar.ratio}
                             type="button"
                             onClick={() => setDimension(ar.ratio)}
-                            className={`p-1 text-center border transition-all ${
-                              isSelected
+                            className={`p-1 text-center border transition-all ${isSelected
                                 ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)] font-bold shadow-[1px_1px_0_var(--editorial-coral)]"
                                 : "bg-[var(--editorial-surface)] text-[var(--editorial-ink)] border-[var(--editorial-rule)] hover:border-[var(--editorial-coral)]"
-                            }`}
+                              }`}
                           >
                             <div className="font-mono text-[10.5px] leading-tight">{ar.ratio}</div>
                             <div className="text-[8px] text-[var(--editorial-muted)] font-mono">{ar.sub}</div>
@@ -1298,22 +1610,20 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                         <button
                           type="button"
                           onClick={() => setStyleRaw(!styleRaw)}
-                          className={`p-1.5 text-[9.5px] font-mono font-bold border transition-all text-center ${
-                            styleRaw
+                          className={`p-1.5 text-[9.5px] font-mono font-bold border transition-all text-center ${styleRaw
                               ? "bg-[var(--editorial-violet)] text-white border-[var(--editorial-violet)]"
                               : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-[var(--editorial-rule)]"
-                          }`}
+                            }`}
                         >
                           Style Raw: {styleRaw ? "ON" : "OFF"}
                         </button>
                         <button
                           type="button"
                           onClick={() => setTileMode(!tileMode)}
-                          className={`p-1.5 text-[9.5px] font-mono font-bold border transition-all text-center ${
-                            tileMode
+                          className={`p-1.5 text-[9.5px] font-mono font-bold border transition-all text-center ${tileMode
                               ? "bg-[var(--editorial-violet)] text-white border-[var(--editorial-violet)]"
                               : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-[var(--editorial-rule)]"
-                          }`}
+                            }`}
                         >
                           Tile Mesh: {tileMode ? "ON" : "OFF"}
                         </button>
@@ -1333,11 +1643,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                             key={vm}
                             type="button"
                             onClick={() => setVideoMotion(videoMotion === vm ? "" : vm)}
-                            className={`px-1.5 py-0.5 text-[9.5px] font-mono border transition-all ${
-                              videoMotion === vm
+                            className={`px-1.5 py-0.5 text-[9.5px] font-mono border transition-all ${videoMotion === vm
                                 ? "bg-[var(--editorial-violet)] text-white border-[var(--editorial-violet)] font-bold"
                                 : "bg-[var(--editorial-surface)] border-[var(--editorial-rule)] text-[var(--editorial-ink)]"
-                            }`}
+                              }`}
                           >
                             {videoMotion === vm ? `✓ ${vm}` : `+ ${vm}`}
                           </button>
@@ -1397,20 +1706,16 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                                         .join(", ")
                                     );
                                   } else {
-                                    setNegativePrompt(
-                                      negativePrompt
-                                        .split(",")
-                                        .map((s) => s.trim())
-                                        .filter((s) => s.toLowerCase() !== neg.toLowerCase())
-                                        .join(", ")
-                                    );
+                                    const nextNegative = [...negativePrompt.split(",").map((s) => s.trim()).filter(Boolean), neg];
+                                    setNegativePrompt(Array.from(new Set(nextNegative.map((item) => item.toLowerCase())))
+                                      .map((normalized) => nextNegative.find((item) => item.toLowerCase() === normalized) || normalized)
+                                      .join(", "));
                                   }
                                 }}
-                                className={`px-1.5 py-0.5 text-[9px] font-mono border transition-all ${
-                                  isAdded
+                                className={`px-1.5 py-0.5 text-[9px] font-mono border transition-all ${isAdded
                                     ? "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30 font-bold"
                                     : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-[var(--editorial-rule)] hover:border-red-500/40"
-                                }`}
+                                  }`}
                               >
                                 {isAdded ? `✕ ${neg}` : `+ ${neg}`}
                               </button>
@@ -1431,11 +1736,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                       <div className="flex items-center justify-between p-2 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
                         <span className="font-mono text-xs font-bold text-[var(--editorial-ink)]">Quality Index</span>
                         <span
-                          className={`px-2 py-0.5 text-xs font-mono font-bold border ${
-                            qualityReport.grade === "S" || qualityReport.grade === "A"
+                          className={`px-2 py-0.5 text-xs font-mono font-bold border ${qualityReport.grade === "S" || qualityReport.grade === "A"
                               ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
                               : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
-                          }`}
+                            }`}
                         >
                           Grade {qualityReport.grade} ({qualityReport.overallScore}/100)
                         </span>
@@ -1490,9 +1794,8 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
         {/* CENTER PANE: CREATIVE LABORATORY BENCH & INSTRUMENTS (5.5 cols)     */}
         {/* ==================================================================== */}
         <div
-          className={`xl:col-span-6 flex-col gap-3.5 ${
-            mobilePane === "canvas" ? "flex" : "hidden xl:flex"
-          }`}
+          className={`xl:col-span-6 flex-col gap-3.5 ${mobilePane === "canvas" ? "flex" : "hidden xl:flex"
+            }`}
         >
           {/* Main Laboratory Instrument Workspace Panel */}
           <div className="editorial-panel flex flex-col">
@@ -1503,11 +1806,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                 <button
                   type="button"
                   onClick={() => setBuilderMode("canvas")}
-                  className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${
-                    builderMode === "canvas"
+                  className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${builderMode === "canvas"
                       ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
                       : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
-                  }`}
+                    }`}
                 >
                   <Atom className="w-3 h-3" />
                   Tokens
@@ -1515,11 +1817,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                 <button
                   type="button"
                   onClick={() => setBuilderMode("fusion")}
-                  className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${
-                    builderMode === "fusion"
+                  className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${builderMode === "fusion"
                       ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
                       : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
-                  }`}
+                    }`}
                 >
                   <FlaskConical className="w-3 h-3" />
                   Fusion Lab
@@ -1527,11 +1828,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                 <button
                   type="button"
                   onClick={() => setBuilderMode("mutation")}
-                  className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${
-                    builderMode === "mutation"
+                  className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${builderMode === "mutation"
                       ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
                       : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
-                  }`}
+                    }`}
                 >
                   <Dna className="w-3 h-3" />
                   Mutator
@@ -1539,11 +1839,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                 <button
                   type="button"
                   onClick={() => setBuilderMode("formula")}
-                  className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${
-                    builderMode === "formula"
+                  className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${builderMode === "formula"
                       ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
                       : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
-                  }`}
+                    }`}
                 >
                   <Layers className="w-3 h-3" />
                   Matrix
@@ -1551,11 +1850,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                 <button
                   type="button"
                   onClick={() => setBuilderMode("dissect")}
-                  className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${
-                    builderMode === "dissect"
+                  className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${builderMode === "dissect"
                       ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
                       : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
-                  }`}
+                    }`}
                 >
                   <ScanText className="w-3 h-3" />
                   Dissect
@@ -1563,11 +1861,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                 <button
                   type="button"
                   onClick={() => setBuilderMode("wildcard")}
-                  className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${
-                    builderMode === "wildcard"
+                  className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${builderMode === "wildcard"
                       ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
                       : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
-                  }`}
+                    }`}
                 >
                   <Dices className="w-3 h-3" />
                   Wildcard
@@ -1596,10 +1893,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                         isJsonConverting
                           ? "Calibrating Structured JSON Coordinates"
                           : isCompressing
-                          ? "Quantum Token Densification in Progress"
-                          : isGeneratingVariations
-                          ? "Synthesizing 3 Parallel Quantum States"
-                          : "Neural Semantic Synthesis"
+                            ? "Quantum Token Densification in Progress"
+                            : isGeneratingVariations
+                              ? "Synthesizing 3 Parallel Quantum States"
+                              : "Neural Semantic Synthesis"
                       }
                       status={`Calibrating tensor dimensions (max: ${maxChars} chars)...`}
                       stages={[
@@ -1937,9 +2234,8 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                   <button
                     type="button"
                     onClick={startListening}
-                    className={`editorial-button editorial-button--sm ${
-                      isListening ? "bg-red-500 text-white animate-pulse" : "editorial-button--secondary"
-                    }`}
+                    className={`editorial-button editorial-button--sm ${isListening ? "bg-red-500 text-white animate-pulse" : "editorial-button--secondary"
+                      }`}
                     title={isListening ? "Stop Voice" : "Voice Input"}
                   >
                     {isListening ? <MicOffIcon className="w-3 h-3" /> : <MicIcon className="w-3 h-3" />}
@@ -1977,9 +2273,8 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                     type="button"
                     onClick={() => setShowAiPopover(!showAiPopover)}
                     disabled={!tokenString.trim() || isEnhancing || isCompressing || isGeneratingVariations}
-                    className={`editorial-button editorial-button--sm ${
-                      showAiPopover ? "editorial-button--violet" : "editorial-button--primary"
-                    }`}
+                    className={`editorial-button editorial-button--sm ${showAiPopover ? "editorial-button--violet" : "editorial-button--primary"
+                      }`}
                   >
                     <Zap className="w-3 h-3 mr-1" />
                     <span>Neural Co-Pilot</span>
@@ -2003,11 +2298,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                             key={key}
                             type="button"
                             onClick={() => setSelectedPersona(key)}
-                            className={`p-1 text-left border text-[9.5px] font-mono flex items-center gap-1 transition-all ${
-                              selectedPersona === key
+                            className={`p-1 text-left border text-[9.5px] font-mono flex items-center gap-1 transition-all ${selectedPersona === key
                                 ? "bg-[var(--editorial-violet)] text-white border-[var(--editorial-violet)] font-bold"
                                 : "bg-[var(--editorial-surface)] text-[var(--editorial-ink)] border-[var(--editorial-rule)]"
-                            }`}
+                              }`}
                           >
                             <span>{p.icon}</span>
                             <span className="truncate">{p.name.split(" ")[0]}</span>
@@ -2152,9 +2446,8 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
         {/* RIGHT PANE: SPECIMEN ARCHIVES & SMART KNOWLEDGE VAULT (3 cols)      */}
         {/* ==================================================================== */}
         <div
-          className={`xl:col-span-3 flex-col gap-3.5 ${
-            mobilePane === "vault" ? "flex" : "hidden xl:flex"
-          }`}
+          className={`xl:col-span-3 flex-col gap-3.5 ${mobilePane === "vault" ? "flex" : "hidden xl:flex"
+            }`}
         >
           <div className="editorial-panel flex flex-col h-full">
             <RightExplorerPanel
@@ -2345,22 +2638,20 @@ const RightExplorerPanel: React.FC<{
           <button
             type="button"
             onClick={() => setActiveTab("keywords")}
-            className={`px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider border transition-all ${
-              activeTab === "keywords"
+            className={`px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider border transition-all ${activeTab === "keywords"
                 ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)]"
                 : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-transparent hover:text-[var(--editorial-ink)]"
-            }`}
+              }`}
           >
             Specimens
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("archetypes")}
-            className={`px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider border transition-all ${
-              activeTab === "archetypes"
+            className={`px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider border transition-all ${activeTab === "archetypes"
                 ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)]"
                 : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-transparent hover:text-[var(--editorial-ink)]"
-            }`}
+              }`}
           >
             Blueprints
           </button>
@@ -2527,11 +2818,10 @@ const SmartWordLibrary: React.FC<{
               setActiveCategory(cat);
               setSearch("");
             }}
-            className={`px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider border transition-all ${
-              activeCategory === cat && !search
+            className={`px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider border transition-all ${activeCategory === cat && !search
                 ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)]"
                 : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-[var(--editorial-rule)] hover:text-[var(--editorial-ink)]"
-            }`}
+              }`}
           >
             {cat.split(" ")[0]}
           </button>
@@ -2559,11 +2849,10 @@ const SmartWordLibrary: React.FC<{
                       type="button"
                       onClick={() => onWordClick(word)}
                       disabled={isSelected}
-                      className={`px-1.5 py-0.5 text-[10px] font-mono transition-all border ${
-                        isSelected
+                      className={`px-1.5 py-0.5 text-[10px] font-mono transition-all border ${isSelected
                           ? "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-[var(--editorial-rule)] opacity-40 cursor-not-allowed"
                           : "bg-[var(--editorial-surface)] hover:bg-[var(--editorial-violet-soft)] text-[var(--editorial-ink)] hover:text-[var(--editorial-violet)] border-[var(--editorial-rule)] hover:border-[var(--editorial-violet)]"
-                      }`}
+                        }`}
                     >
                       + {word}
                     </button>
