@@ -1,9 +1,10 @@
 export enum Platform {
   Natural = "Natural Language",
   Midjourney = "Midjourney v6.1",
-  SDXL = "SDXL",
   Flux = "Flux AI Pro",
+  SDXL = "SDXL",
   DallE3 = "DALL-E 3",
+  Video = "Video AI (Runway/Kling)",
 }
 
 export enum Workflow {
@@ -61,3 +62,66 @@ export interface UniversalPromptRecord {
 
 // Backward compatibility alias
 export type Prompt = UniversalPromptRecord;
+
+export interface TokenItem {
+  id: string;
+  text: string;
+  weight?: number; // 1.0 = normal, 1.2 = emphasized, 0.8 = de-emphasized
+  category?: "subject" | "environment" | "lighting" | "camera" | "style" | "medium" | "general";
+}
+
+export interface FormulaSlots {
+  subject: string;
+  environment: string;
+  lighting: string;
+  camera: string;
+  style: string;
+  renderEngine: string;
+}
+
+export interface PromptQualityReport {
+  overallScore: number;
+  grade: "S" | "A" | "B" | "C" | "D";
+  metrics: {
+    subjectClarity: number; // 0-100
+    lightingDepth: number; // 0-100
+    opticalCamera: number; // 0-100
+    colorAtmosphere: number; // 0-100
+    platformOptimization: number; // 0-100
+  };
+  strengths: string[];
+  suggestions: {
+    title: string;
+    description: string;
+    quickFixModifier?: string;
+    slotTarget?: keyof FormulaSlots;
+  }[];
+}
+
+export interface DissectedPrompt {
+  subject: string;
+  environment: string;
+  lighting: string;
+  camera: string;
+  style: string;
+  renderEngine: string;
+  negativePrompt: string;
+  parameters: {
+    aspectRatio?: string;
+    stylize?: number;
+    chaos?: number;
+    weird?: number;
+    styleRaw?: boolean;
+    tile?: boolean;
+    quality?: number;
+  };
+  rawCleanPrompt: string;
+}
+
+export interface PromptVariationOption {
+  title: string;
+  prompt: string;
+  description: string;
+  persona: string;
+}
+

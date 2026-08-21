@@ -161,17 +161,17 @@ const PromptStudio: React.FC<PromptStudioProps> = ({
   ]);
 
   return (
-    <div className="w-full max-w-6xl mx-auto pb-20 pt-10">
-      <div className="text-center space-y-3 mb-12">
-        <p className="text-xs uppercase tracking-[0.3em] text-gray-500 dark:text-gray-400">
-          AI Prompt Builder Hub
+    <div className="w-full max-w-[1760px] mx-auto px-2 sm:px-4 lg:px-6 pb-20 pt-4 sm:pt-6">
+      <div className="text-center space-y-1.5 mb-6">
+        <p className="text-[11px] uppercase tracking-[0.25em] font-mono text-[var(--editorial-muted)]">
+          AI Prompt Studio &amp; Engineering Workstation
         </p>
-        <h1 className="text-4xl md:text-5xl font-bold text-gray-900 dark:text-white">
-          AI Prompt Builder
+        <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-[var(--editorial-ink)] tracking-tight">
+          Prompt Engineering Studio
         </h1>
       </div>
 
-      <div className="flex justify-center mb-6">
+      <div className="flex justify-center mb-5">
         {/* Mobile: Full-width scrollable tabs */}
         <div className="relative w-full md:hidden">
           <div
@@ -185,7 +185,7 @@ const PromptStudio: React.FC<PromptStudioProps> = ({
                   <button
                     key={`mobile-${tab.id}`}
                     onClick={() => handleTabChange(tab.id)}
-                    className={`relative px-3 py-2 min-h-[40px] text-xs font-mono font-bold uppercase tracking-wider transition-all whitespace-nowrap snap-start ${isActive ? tab.activeClass : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"}`}
+                    className={`relative px-3 py-1.5 min-h-[36px] text-xs font-mono font-bold uppercase tracking-wider transition-all whitespace-nowrap snap-start ${isActive ? tab.activeClass : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"}`}
                   >
                     {tab.label}
                   </button>
@@ -196,14 +196,14 @@ const PromptStudio: React.FC<PromptStudioProps> = ({
         </div>
         {/* Desktop: Centered tabs */}
         <div className="hidden md:flex justify-center">
-          <div className="inline-flex bg-[var(--editorial-surface)] border border-[var(--editorial-rule)] p-1.5 gap-1 shadow-sm">
+          <div className="inline-flex bg-[var(--editorial-surface)] border border-[var(--editorial-rule)] p-1 gap-1 shadow-sm">
             {tabs.map((tab) => {
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={`desktop-${tab.id}`}
                   onClick={() => handleTabChange(tab.id)}
-                  className={`relative px-4 py-2 min-h-[40px] text-xs font-mono font-bold uppercase tracking-wider transition-all ${isActive ? tab.activeClass : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"}`}
+                  className={`relative px-4 py-1.5 min-h-[36px] text-xs font-mono font-bold uppercase tracking-wider transition-all ${isActive ? tab.activeClass : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"}`}
                 >
                   {tab.label}
                 </button>
@@ -213,7 +213,7 @@ const PromptStudio: React.FC<PromptStudioProps> = ({
         </div>
       </div>
 
-      <div className="mt-10 editorial-panel p-4 sm:p-8">
+      <div className="editorial-panel p-3 sm:p-5 lg:p-6 shadow-sm">
         <Suspense
           fallback={
             <div className="flex justify-center py-10">
@@ -229,3 +229,4 @@ const PromptStudio: React.FC<PromptStudioProps> = ({
 };
 
 export default PromptStudio;
+
