@@ -46,9 +46,11 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
 } from "./icons";
+import QuickImageGenerators from "./QuickImageGenerators";
 import { Loader2 } from "lucide-react";
 import useSpeechToText from "../hooks/useSpeechToText";
 import AdvancedSettingsPanel from "./creative-mixer/AdvancedSettingsPanel";
+import NodeModePanel from "./node-mode/NodeModePanel";
 
 
 interface CreativeMixerProps {
@@ -252,6 +254,7 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
   const [statusMessage, setStatusMessage] = useState("");
   const [showReferences, setShowReferences] = useState(false);
   const [advancedSettings, setAdvancedSettings] = useState<Partial<ProfessionalPrompt>>({});
+  const [viewMode, setViewMode] = useState<"guided" | "node">("guided");
 
   // JSON Prompt Conversion state
   const [jsonPromptData, setJsonPromptData] = useState<JsonPrompt | null>(null);
@@ -315,13 +318,14 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
     });
   }, []);
 
-  const handleGenerate = async () => {
+  const handleGenerate = async (promptOverride?: string) => {
     // Prevent double clicks
     if (isGenerating) return;
 
     // Allow generation if prompt is present OR if at least one image is uploaded
     const hasImages = refImages.some((img) => img !== null);
-    if (!prompt.trim() && !hasImages) return;
+    const generationPrompt = promptOverride ?? prompt;
+    if (!generationPrompt.trim() && !hasImages) return;
 
     setIsGenerating(true);
     setStatusMessage("Initializing...");
@@ -349,7 +353,7 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
 
         if (validImages.length > 0) {
           result = await generateProfessionalFromImages(
-            prompt,
+            generationPrompt,
             validImages,
             selectedStyle || 'product',
             selectedMood || 'Commercial',
@@ -361,7 +365,7 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
           );
         } else {
           result = await generateProfessionalPrompt(
-            prompt,
+            generationPrompt,
             selectedStyle || 'product',
             selectedMood || 'Commercial',
             selectedPlatform,
@@ -376,6 +380,7 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
           if (result.success && result.data && result.constructedPrompt) {
             setProfessionalResult(result.data);
             setGeneratedResult(result.constructedPrompt);
+            return result.constructedPrompt;
           } else {
             setError(`Professional Backend failed: ${result.error}`);
           }
@@ -386,7 +391,7 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
 
         if (validImages.length > 0) {
           result = await generateCinematicFromImages(
-            prompt,
+            generationPrompt,
             validImages,
             selectedStyle,
             selectedMood,
@@ -396,7 +401,7 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
           );
         } else {
           result = await generateCinematicPrompt(
-            prompt,
+            generationPrompt,
             selectedStyle,
             selectedMood,
             undefined,
@@ -409,7 +414,9 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
         if (isMounted.current) {
           if (result.success && result.data) {
             setStructuredResult(result.data);
-            setGeneratedResult(constructPrompt(result.data));
+            const promptStr = constructPrompt(result.data);
+            setGeneratedResult(promptStr);
+            return promptStr;
           } else {
             setError(`Neural Backend failed: ${result.error}`);
           }
@@ -419,7 +426,7 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
         if (isMounted.current) setStatusMessage("Creating creative mix...");
 
         const result = await generateCreativeMix(
-          prompt,
+          generationPrompt,
           selectedStyle,
           selectedMood,
           validImages
@@ -428,6 +435,7 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
         if (isMounted.current) {
           setGeneratedResult(result);
         }
+        return result;
       }
     } catch (e: any) {
       console.error("Generation failed:", e);
@@ -493,7 +501,31 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
 
 
   return (
-    <div className="w-full max-w-6xl mx-auto space-y-6 animate-fade-in">
+    <div className="w-full max-w-full w-full mx-auto space-y-6 animate-fade-in">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--editorial-rule)] pb-3">
+        <div>
+          <p className="m-0 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--editorial-muted)]">Workspace mode</p>
+          <p className="m-0 mt-1 text-xs text-[var(--editorial-muted)]">Use the guided matrix for speed or the visual compiler for connected creative directions.</p>
+        </div>
+        <div className="flex border border-[var(--editorial-rule)] bg-[var(--editorial-surface)] p-0.5">
+          <button type="button" onClick={() => setViewMode("guided")} className={`px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider ${viewMode === "guided" ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)]" : "text-[var(--editorial-muted)]"}`}>Guided Form</button>
+          <button type="button" onClick={() => setViewMode("node")} className={`px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider ${viewMode === "node" ? "bg-[var(--editorial-pink)] text-white" : "text-[var(--editorial-muted)]"}`}>Node Mode</button>
+        </div>
+      </div>
+
+      {viewMode === "node" ? (
+        <NodeModePanel
+          feature="creative-mixer"
+          initialPrompt={prompt}
+          selectedStyle={selectedStyle}
+          selectedMood={selectedMood}
+          selectedPlatform={selectedPlatform}
+          onGenerate={(nextPrompt) => handleGenerate(nextPrompt)}
+          onSendToBuilder={onSendToBuilder}
+          onSaveToLibrary={onSaveToLibrary}
+        />
+      ) : (
+        <>
       {/* Editorial Fusion Board Controls */}
       <div className="editorial-panel">
         <div className="editorial-panel__header">
@@ -767,7 +799,7 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
           <div className="pt-2">
             <button
               type="button"
-              onClick={handleGenerate}
+              onClick={() => handleGenerate()}
               disabled={isGenerating || (!prompt.trim() && !refImages.some(img => img !== null))}
               className="editorial-button editorial-button--primary editorial-button--coral w-full justify-center text-xs"
             >
@@ -917,45 +949,49 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
 
             {/* Actions Bar */}
             {!isGenerating && generatedResult && (
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleCopy}
-                    className="editorial-button editorial-button--sm editorial-button--secondary"
-                  >
-                    {copied ? <CheckIcon className="w-3.5 h-3.5 text-emerald-500" /> : <CopyIcon className="w-3.5 h-3.5" />}
-                    <span>{copied ? "Copied" : "Copy"}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    className="editorial-button editorial-button--sm editorial-button--secondary"
-                  >
-                    {saved ? <CheckIcon className="w-3.5 h-3.5 text-emerald-500" /> : <FolderIcon className="w-3.5 h-3.5" />}
-                    <span>{saved ? "Saved" : "Save to Vault"}</span>
-                  </button>
-                  {generatedResult && !neuralMode && !professionalMode && (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={handleConvertToJson}
+                      onClick={handleCopy}
                       className="editorial-button editorial-button--sm editorial-button--secondary"
                     >
-                      <CodeIcon className="w-3.5 h-3.5" />
-                      <span>View JSON</span>
+                      {copied ? <CheckIcon className="w-3.5 h-3.5 text-emerald-500" /> : <CopyIcon className="w-3.5 h-3.5" />}
+                      <span>{copied ? "Copied" : "Copy"}</span>
                     </button>
-                  )}
+                    <button
+                      type="button"
+                      onClick={handleSave}
+                      className="editorial-button editorial-button--sm editorial-button--secondary"
+                    >
+                      {saved ? <CheckIcon className="w-3.5 h-3.5 text-emerald-500" /> : <FolderIcon className="w-3.5 h-3.5" />}
+                      <span>{saved ? "Saved" : "Save to Vault"}</span>
+                    </button>
+                    {generatedResult && !neuralMode && !professionalMode && (
+                      <button
+                        type="button"
+                        onClick={handleConvertToJson}
+                        className="editorial-button editorial-button--sm editorial-button--secondary"
+                      >
+                        <CodeIcon className="w-3.5 h-3.5" />
+                        <span>View JSON</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => onSendToBuilder(generatedResult)}
+                    className="editorial-button editorial-button--sm editorial-button--primary"
+                  >
+                    <SparklesIcon className="w-3.5 h-3.5" />
+                    <span>Send to Builder</span>
+                  </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => onSendToBuilder(generatedResult)}
-                  className="editorial-button editorial-button--sm editorial-button--primary"
-                >
-                  <SparklesIcon className="w-3.5 h-3.5" />
-                  <span>Send to Builder</span>
-                </button>
-              </div>
+                <QuickImageGenerators prompt={generatedResult} variant="compact" />
+              </>
             )}
 
             {/* JSON Code Viewer Drawer */}
@@ -1006,6 +1042,8 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
             )}
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

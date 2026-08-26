@@ -27,6 +27,8 @@ import {
     ChevronUpIcon,
 } from "./icons";
 import { Loader2 } from "lucide-react";
+import NodeModePanel from "./node-mode/NodeModePanel";
+import QuickImageGenerators from "./QuickImageGenerators";
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -483,6 +485,7 @@ const BannerPrompter: React.FC<BannerPrompterProps> = ({
     const [saved, setSaved] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [statusMessage, setStatusMessage] = useState("");
+    const [viewMode, setViewMode] = useState<"guided" | "node">("guided");
 
     // Expanded sections - ALL COLLAPSED BY DEFAULT
     const [showBreakdown, setShowBreakdown] = useState(false);
@@ -599,12 +602,13 @@ const BannerPrompter: React.FC<BannerPrompterProps> = ({
         });
     }, []);
 
-    const handleGenerate = async () => {
+    const handleGenerate = async (promptOverride?: string) => {
         if (isGenerating) return;
 
         const hasImages = refImages.some((img) => img !== null);
         const enhancedDescription = getEnhancedDescription();
-        if (!enhancedDescription.trim() && !hasImages) return;
+        const generationPrompt = promptOverride ?? enhancedDescription;
+        if (!generationPrompt.trim() && !hasImages) return;
 
         setIsGenerating(true);
         setStatusMessage("Initializing...");
@@ -633,7 +637,7 @@ const BannerPrompter: React.FC<BannerPrompterProps> = ({
 
             if (validImages.length > 0) {
                 result = await generateBannerFromImages(
-                    enhancedDescription,
+                    generationPrompt,
                     validImages,
                     envToUse,
                     moodToUse,
@@ -646,7 +650,7 @@ const BannerPrompter: React.FC<BannerPrompterProps> = ({
                 );
             } else {
                 result = await generateBannerPrompt(
-                    enhancedDescription,
+                    generationPrompt,
                     envToUse,
                     moodToUse,
                     selectedAspectRatio,
@@ -662,6 +666,7 @@ const BannerPrompter: React.FC<BannerPrompterProps> = ({
                 if (result.success && result.data && result.constructedPrompt) {
                     setBannerData(result.data);
                     setGeneratedResult(result.constructedPrompt);
+                    return result.constructedPrompt;
                 } else {
                     setError(`Banner generation failed: ${result.error}`);
                 }
@@ -698,7 +703,32 @@ const BannerPrompter: React.FC<BannerPrompterProps> = ({
     }, [generatedResult, refImages, selectedPlatform, onSaveToLibrary]);
 
     return (
-        <div className="w-full max-w-6xl mx-auto space-y-6 animate-fade-in">
+        <div className="w-full max-w-full w-full mx-auto space-y-6 animate-fade-in">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--editorial-rule)] pb-3">
+                <div>
+                    <p className="m-0 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--editorial-muted)]">Workspace mode</p>
+                    <p className="m-0 mt-1 text-xs text-[var(--editorial-muted)]">Keep the P1–P4 form for speed or assemble the commercial brief as a connected graph.</p>
+                </div>
+                <div className="flex border border-[var(--editorial-rule)] bg-[var(--editorial-surface)] p-0.5">
+                    <button type="button" onClick={() => setViewMode("guided")} className={`px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider ${viewMode === "guided" ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)]" : "text-[var(--editorial-muted)]"}`}>Guided Form</button>
+                    <button type="button" onClick={() => setViewMode("node")} className={`px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wider ${viewMode === "node" ? "bg-[var(--editorial-teal)] text-white" : "text-[var(--editorial-muted)]"}`}>Node Mode</button>
+                </div>
+            </div>
+
+            {viewMode === "node" ? (
+                <NodeModePanel
+                    feature="pro-prompter"
+                    initialPrompt={productDescription}
+                    selectedStyle={selectedMedium}
+                    selectedMood={selectedMood}
+                    selectedPlatform={selectedPlatform}
+                    aspectRatio={selectedAspectRatio}
+                    onGenerate={(nextPrompt) => handleGenerate(nextPrompt)}
+                    onSendToBuilder={onSendToBuilder}
+                    onSaveToLibrary={(nextPrompt) => onSaveToLibrary(nextPrompt, undefined, undefined, ["pro-prompter", "node-mode", selectedPlatform])}
+                />
+            ) : (
+                <>
             {/* Main Editorial Form */}
             <div className="editorial-panel">
                 <div className="editorial-panel__header">
@@ -1044,7 +1074,7 @@ const BannerPrompter: React.FC<BannerPrompterProps> = ({
                     <div className="pt-2">
                         <button
                             type="button"
-                            onClick={handleGenerate}
+                            onClick={() => handleGenerate()}
                             disabled={isGenerating}
                             className="editorial-button editorial-button--primary editorial-button--coral w-full justify-center text-xs"
                         >
@@ -1198,10 +1228,15 @@ const BannerPrompter: React.FC<BannerPrompterProps> = ({
                                 <span>Send to Builder</span>
                             </button>
                         </div>
+
+                        {/* Direct Jump to AI Image Creators */}
+                        <QuickImageGenerators prompt={generatedResult} variant="compact" />
                         </>
                         )}
                     </div>
                 </div>
+            )}
+                </>
             )}
         </div>
     );

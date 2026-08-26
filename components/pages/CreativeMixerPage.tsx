@@ -12,7 +12,7 @@ const CreativeMixerPage: React.FC<CreativeMixerPageProps> = ({
   onSaveToLibrary,
 }) => {
   return (
-    <div className="feature-theme-mixer w-full max-w-6xl mx-auto pb-16 pt-2">
+    <div className="feature-theme-mixer w-full max-w-full w-full mx-auto pb-16 pt-2">
       <FeatureHeader
         currentId="creative-mixer"
         title="Creative Mixer"

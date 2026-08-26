@@ -281,7 +281,7 @@ html.dark {
 /* Responsive Editorial Content Wrapper (1200px - 1440px max width) */
 .editorial-page__inner,
 .editorial-page__content {
-  width: min(100%, 1440px);
+  width: 100%;
   margin-left: auto;
   margin-right: auto;
   padding-left: clamp(1rem, 3.5vw, 3rem);
@@ -1273,7 +1273,7 @@ html.dark {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  width: min(100%, 1440px);
+  width: 100%;
   height: 100%;
   margin: 0 auto;
   padding: 0 clamp(1rem, 3vw, 2.5rem);
@@ -1486,7 +1486,7 @@ html.dark {
   align-items: center;
   justify-content: space-between;
   gap: 1.5rem;
-  width: min(100%, 1440px);
+  width: 100%;
   margin: 0 auto;
   padding: 0 clamp(1rem, 3.5vw, 3rem);
 }

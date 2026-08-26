@@ -1,4 +1,5 @@
 @import './css/design-system.css';
+@import './css/a11y-overlays.css';
 
 @tailwind base;
 @tailwind components;
@@ -140,7 +141,7 @@ p {
 
 .container {
   width: 100%;
-  max-width: 1200px;
+  max-width: 100%;
   margin-left: auto;
   margin-right: auto;
   padding-left: 1rem;
@@ -178,7 +179,7 @@ p {
 }
 
 .home-footer > div {
-  width: min(100%, 1440px);
+  width: 100%;
   margin: 0 auto;
 }
 
@@ -951,7 +952,7 @@ input[type="range"]::-moz-range-thumb {
   position: relative;
   isolation: isolate;
   width: 100%;
-  max-width: 1180px;
+  max-width: 100%;
   margin: 0 auto;
   padding: 2.5rem 1.25rem 5rem;
   color: var(--editorial-ink);
@@ -1092,7 +1093,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .home-studio__inner {
-  width: min(100%, 1440px);
+  width: 100%;
   margin: 0 auto;
   padding: 0 clamp(1rem, 3vw, 3rem);
 }

@@ -29,6 +29,7 @@ import {
 } from "./icons";
 import { Loader2 } from "lucide-react";
 import useSpeechToText from "../hooks/useSpeechToText";
+import QuickImageGenerators from "./QuickImageGenerators";
 
 interface StudioWorkspaceProps {
   onSendToBuilder: (prompt: string) => void;
@@ -528,6 +529,7 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                           {savedIndex === idx ? <CheckIcon className="w-3.5 h-3.5 text-emerald-500" /> : <FolderIcon className="w-3.5 h-3.5" />}
                           <span>{savedIndex === idx ? "Saved" : "Save"}</span>
                         </button>
+                        <QuickImageGenerators prompt={item.prompt} variant="dropdown" />
                         <button
                           type="button"
                           onClick={() => onSendToBuilder(item.prompt)}

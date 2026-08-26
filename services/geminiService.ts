@@ -251,6 +251,20 @@ Output ONLY the prompt text.`;
   return res.result || "";
 };
 
+export interface VisionPromptCustomization {
+  platform?: string;
+  useCase?: string;
+  fidelity?: string;
+  detailLevel?: string;
+  aspectRatio?: string;
+  composition?: string;
+  lighting?: string;
+  colorTreatment?: string;
+  styleDirection?: string;
+  creativeDirection?: string;
+  extraNegative?: string;
+}
+
 export interface StructuredVisionPrompt {
   subject: string;
   composition: string;
@@ -271,32 +285,48 @@ export const generateStructuredVisionPrompt = async (
   styles: string[] = [],
   preferredModel?: string,
   preferFree = true,
+  customization: VisionPromptCustomization = {},
   opts?: { signal?: AbortSignal },
 ): Promise<StructuredVisionPrompt & { durationMs?: number; model?: string; provider?: string }> => {
   const styleList = styles.join(", ");
   const styleInstruction = styleList
     ? `TARGET AESTHETICS: ${styleList}`
     : "TARGET AESTHETICS: None selected. Describe the image's observed visual style without applying a preset.";
-  const systemPrompt = `You are an expert AI Vision Analyst and Creative Prompt Architect.
-Analyze the provided image in exhaustive detail and reverse-engineer it into a structured prompt breakdown.
+  const guidance = [
+    ["OUTPUT PLATFORM", customization.platform],
+    ["INTENDED USE", customization.useCase],
+    ["REFERENCE FIDELITY", customization.fidelity],
+    ["DETAIL LEVEL", customization.detailLevel],
+    ["ASPECT RATIO", customization.aspectRatio],
+    ["COMPOSITION DIRECTION", customization.composition],
+    ["LIGHTING DIRECTION", customization.lighting],
+    ["COLOR TREATMENT", customization.colorTreatment],
+    ["STYLE DIRECTION", customization.styleDirection],
+    ["CREATIVE DIRECTION", customization.creativeDirection],
+    ["ADDITIONAL EXCLUSIONS", customization.extraNegative],
+  ]
+    .filter(([, value]) => value && String(value).trim())
+    .map(([label, value]) => `${label}: ${String(value).trim()}`)
+    .join("\n");
+  const guidanceInstruction = guidance || "No custom guidance selected. Preserve the observed image faithfully.";
+  const systemPrompt = `You are an expert AI Vision Analyst, art director, and cross-platform prompt architect.
+Analyze the provided image carefully and reverse-engineer it into a structured, production-ready prompt. Your job is to give the user a strong first-pass prompt, not a vague caption.
 
 ${styleInstruction}
 
+USER GUIDANCE (apply it without inventing details that contradict the reference):
+${guidanceInstruction}
+
+PROFESSIONAL RULES:
+- Separate observed facts from reasonable photographic or artistic inferences. Never claim an exact lens, camera body, seed, CFG, sampler, or original prompt was recovered; use plausible language such as "lens look" when uncertain.
+- Build the assembled prompt in this order: intended use or visual goal, scene/environment, primary subject and exact visible details, pose/action/interaction, composition and framing, camera or medium, lighting, color and materials, mood/style, then constraints.
+- Keep the prompt concrete and skimmable. Use short labeled clauses or clean comma-separated phrases rather than generic filler or keyword spam.
+- Respect the selected platform's conventions. For Midjourney, favor a concise descriptive prompt followed by compatible parameters such as aspect ratio only when selected. For Stable Diffusion/Flux, favor descriptive positive language plus a separate comma-separated negative prompt. For DALL·E/GPT Image, use clear instruction-style prose. For Universal, produce readable cross-platform prose.
+- Preserve exact text found in the image. If text is unclear, say it is illegible instead of hallucinating words. If the user requests a creative reinterpretation, preserve the reference's core subject and composition while applying the requested direction.
+- The negative prompt should contain only useful, image-relevant exclusions and the user's additions; avoid bloated boilerplate.
+
 OUTPUT FORMAT:
-Return valid JSON matching this schema:
-{
-  "subject": "Detailed breakdown of the primary subject, expressions, attire, and poses",
-  "composition": "Rule of thirds, symmetry, perspective, depth layers",
-  "camera": "Lens, focal length, angle (e.g. 50mm f/1.8, low-angle shot)",
-  "lighting": "Key light, rim light, ambient, shadows, volumetric cues",
-  "colorPalette": "Dominant tones, saturation, harmony, color accents",
-  "materials": "Textures, surfaces, fabric details, finishes",
-  "style": "Observed visual style from the image",
-  "mood": "Atmospheric, emotional vibe",
-  "textInImage": "Preserve any exact visible words or text found in the image, or empty string if none",
-  "negativePrompt": "Elements to avoid (e.g. blurry, low quality, artifacts)",
-  "assembledPrompt": "Complete, production-ready image generation prompt synthesizing all above elements"
-}`;
+Return valid JSON matching this schema:`;
 
   const schema = {
     type: "object",
@@ -343,7 +373,7 @@ Return valid JSON matching this schema:
         style: styleList,
         mood: "Atmospheric",
         textInImage: "",
-        negativePrompt: "blurry, low quality, distortion",
+        negativePrompt: customization.extraNegative || "blurry, low quality, distortion, unintended text, watermark",
         assembledPrompt: rawRes.result.trim(),
         durationMs: (rawRes as any).durationMs,
         model: (rawRes as any).model,
@@ -361,7 +391,7 @@ Return valid JSON matching this schema:
       style: parsed.style || styleList,
       mood: parsed.mood || "Cinematic",
       textInImage: parsed.textInImage || "",
-      negativePrompt: parsed.negativePrompt || "blurry, artifacts, bad anatomy",
+      negativePrompt: parsed.negativePrompt || customization.extraNegative || "blurry, artifacts, bad anatomy, unintended text, watermark",
       assembledPrompt: parsed.assembledPrompt || `${parsed.subject}, ${parsed.lighting}, ${parsed.style}`,
       durationMs: (rawRes as any).durationMs,
       model: (rawRes as any).model,
@@ -585,59 +615,24 @@ export interface PersonaPromptOption {
   instruction: string;
 }
 
-export const PROMPT_ENGINEERING_PERSONAS: Record<string, { name: string; icon: string; systemDirective: string }> = {
-  cinematographer: {
-    name: "Cinematographer",
-    icon: "🎬",
-    systemDirective: "Act as an award-winning Director of Photography and Master Cinematographer. Formulate cinematic prompts focusing on optical geometry, camera bodies (ARRI Alexa, IMAX 70mm), prime lenses (35mm/85mm Anamorphic), lighting ratios, volumetric depth, color grading, and film stocks."
-  },
-  fashion: {
-    name: "Editorial Fashion",
-    icon: "📸",
-    systemDirective: "Act as a high-end Vogue fashion photographer and creative director. Emphasize couture textiles, sculpted silhouettes, skin texture realism, studio lighting (Rembrandt, softbox catchlights), and editorial composition."
-  },
-  concept_art: {
-    name: "Concept Art / Matte",
-    icon: "🚀",
-    systemDirective: "Act as a senior environment concept artist and matte painter for AAA films. Emphasize monumental scale, atmospheric depth, complex architecture, terrain storytelling, and ArtStation trending aesthetic."
-  },
-  anime: {
-    name: "Anime / Manga Master",
-    icon: "🌅",
-    systemDirective: "Act as a visionary anime director (Makoto Shinkai & Studio Ghibli style). Emphasize emotional sky gradients, painterly light bloom, dramatic keyframe angles, expressive character energy, and crisp cel-shading."
-  },
-  avant_garde: {
-    name: "Avant-Garde & Surreal",
-    icon: "🔮",
-    systemDirective: "Act as an avant-garde surrealist art director. Focus on metaphorical symbolism, juxtaposition of unexpected elements, sculptural textures, dramatic chiaroscuro contrast, and thought-provoking visual tension."
-  },
-  flux_physics: {
-    name: "Flux Pro Physics",
-    icon: "⚡",
-    systemDirective: "Act as a Flux.1 / DALL-E 3 prompt architect. Construct natural language descriptive paragraphs with rich sensory physics, subsurface scattering, accurate tactile materials, natural hand/eye descriptions, and precise spatial layout."
-  }
-};
-
 /**
- * Elaborates a simple prompt into an expertly engineered visual prompt tailored by persona
+ * Elaborates a simple prompt into an expertly engineered visual prompt as a common enhancer
  */
-export const aiElaboratePromptWithPersona = async (
+export const aiElaboratePrompt = async (
   originalPrompt: string,
-  personaKey: string = "cinematographer",
   creativityLevel: number = 50,
   platform: string = "Natural Language",
   maxChars: number = 1000
 ): Promise<string> => {
-  const persona = PROMPT_ENGINEERING_PERSONAS[personaKey] || PROMPT_ENGINEERING_PERSONAS.cinematographer;
   const targetChars = Math.min(2000, Math.max(300, maxChars));
 
   const systemPrompt = `SYSTEM ROLE:
-${persona.systemDirective}
+Act as a master AI prompt architect and visual director. Formulate highly detailed, evocative, and technically precise prompts that elevate the user's concept with rich sensory details, precise lighting, composition, and stylistic coherence.
 
 TARGET PLATFORM SYNTAX: ${platform}
 
 TASK:
-Take the user's raw prompt concept and elaborate it into a world-class, production-ready AI image generation prompt following the style and discipline of your persona.
+Take the user's raw prompt concept and elaborate it into a world-class, production-ready AI image generation prompt following the highest standards of visual design.
 
 RULES & CONSTRAINTS:
 1. Preserve the user's core subject and focal intent.
@@ -811,7 +806,8 @@ Return valid JSON:
  */
 export const aiAnalyzePromptQuality = async (
   promptText: string,
-  platform: string = "Natural Language"
+  platform: string = "Natural Language",
+  signal?: AbortSignal,
 ): Promise<{
   overallScore: number;
   grade: "S" | "A" | "B" | "C" | "D";
@@ -932,6 +928,7 @@ Return valid JSON:
       taskType: "structured_json",
       schema,
       temperature: 0.2,
+      signal,
     });
 
     if (res.result && typeof res.result.overallScore === "number") {
@@ -985,7 +982,8 @@ Return valid JSON:
  */
 export const aiGenerateSmartNegative = async (
   positivePrompt: string,
-  platform: string = "Natural Language"
+  platform: string = "Natural Language",
+  maxChars: number = 600,
 ): Promise<string> => {
   const systemPrompt = `You are an AI Negative Prompt Specialist.
 Generate a concise, targeted negative prompt for the following positive concept:

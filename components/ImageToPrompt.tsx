@@ -4,6 +4,7 @@ import {
   generatePromptFromImage,
   generateStructuredVisionPrompt,
   StructuredVisionPrompt,
+  VisionPromptCustomization,
 } from "../services/geminiService";
 import { convertToStructuredPrompt } from "../services/cinematicPromptService";
 import { aiFetchModels } from "../services/aiGatewayClient";
@@ -32,11 +33,36 @@ import {
   XIcon,
 } from "./icons";
 import { Loader2 } from "lucide-react";
+import QuickImageGenerators from "./QuickImageGenerators";
 
 interface ImageToPromptProps {
   onSendToBuilder: (prompt: string) => void;
   onSaveToLibrary: (prompt: string, platform?: any, imageUrl?: string, tags?: string[]) => void;
 }
+
+const DEFAULT_CUSTOMIZATION: VisionPromptCustomization = {
+  platform: "Universal",
+  useCase: "Reference recreation",
+  fidelity: "Faithful reconstruction",
+  detailLevel: "Professional",
+  aspectRatio: "Match source",
+  composition: "Preserve observed framing",
+  lighting: "Preserve observed lighting",
+  colorTreatment: "Preserve observed palette",
+  styleDirection: "Preserve observed style",
+  creativeDirection: "",
+  extraNegative: "",
+};
+
+const PLATFORM_OPTIONS = ["Universal", "Midjourney", "Stable Diffusion / SDXL", "DALL·E / GPT Image"];
+const USE_CASE_OPTIONS = ["Reference recreation", "Editorial / campaign", "Product / e-commerce", "Concept art", "Social / thumbnail"];
+const FIDELITY_OPTIONS = ["Faithful reconstruction", "Balanced interpretation", "Creative reinterpretation"];
+const DETAIL_OPTIONS = ["Essential", "Professional", "Maximum detail"];
+const RATIO_OPTIONS = ["Match source", "1:1 square", "4:5 portrait", "3:2 landscape", "16:9 widescreen", "9:16 vertical"];
+const COMPOSITION_OPTIONS = ["Preserve observed framing", "Centered subject", "Rule of thirds", "Add negative space", "Close-up crop", "Wide establishing view"];
+const LIGHTING_OPTIONS = ["Preserve observed lighting", "Soft natural light", "Dramatic contrast", "Studio commercial light", "Golden hour", "Neon / colored light"];
+const COLOR_OPTIONS = ["Preserve observed palette", "Neutral accurate color", "Warm cinematic grade", "Cool cinematic grade", "High saturation", "Muted / desaturated"];
+const STYLE_OPTIONS = ["Preserve observed style", "Photorealistic", "Editorial fashion", "Cinematic still", "Fine-art portrait", "Clean 3D render", "Graphic illustration"];
 
 const ImageToPrompt: React.FC<ImageToPromptProps> = ({
   onSendToBuilder,
@@ -60,7 +86,10 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
   // Aesthetics are optional guidance. Start neutral so the first analysis
   // describes the image as it is rather than imposing a preset style.
   const [activeStyles, setActiveStyles] = useState<string[]>([]);
+  const [customization, setCustomization] = useState<VisionPromptCustomization>(DEFAULT_CUSTOMIZATION);
+  const [negativePrompt, setNegativePrompt] = useState("");
   const [copied, setCopied] = useState(false);
+  const [copiedNegative, setCopiedNegative] = useState(false);
   const [saved, setSaved] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
   const [isCached, setIsCached] = useState(false);
@@ -126,7 +155,28 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
   }, []);
 
   useEffect(() => {
-    refreshModelCatalog();
+    let cancelled = false;
+    const run = () => {
+      if (!cancelled) refreshModelCatalog();
+    };
+    const idle = (window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    }).requestIdleCallback;
+
+    if (idle) {
+      const handle = idle(run, { timeout: 2000 });
+      return () => {
+        cancelled = true;
+        (window as Window & { cancelIdleCallback?: (handle: number) => void }).cancelIdleCallback?.(handle);
+      };
+    }
+
+    const handle = window.setTimeout(run, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
   }, [refreshModelCatalog]);
 
   const handleCancel = useCallback(() => {
@@ -136,7 +186,7 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
     setLoadingProgress(0);
   }, []);
 
-  const generatePrompt = useCallback(async (file: File, styles: string[], preferredModel = "", preferFree = true) => {
+  const generatePrompt = useCallback(async (file: File, styles: string[], preferredModel = "", preferFree = true, guidance: VisionPromptCustomization = DEFAULT_CUSTOMIZATION) => {
     // Cancel any in-flight request
     abortControllerRef.current?.abort();
     const controller = new AbortController();
@@ -155,7 +205,10 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
       // Stage 1: Check Cache (IndexedDB + sessionStorage)
       setLoadingStage("Checking instant cache...");
       setLoadingProgress(10);
-      const cacheContext = preferredModel ? [...styles, `model:${preferredModel}`, `free:${preferFree}`] : [...styles, `free:${preferFree}`];
+      const guidanceContext = Object.entries(guidance).map(([key, value]) => `${key}:${value || ""}`);
+      const cacheContext = preferredModel
+        ? [...styles, ...guidanceContext, `model:${preferredModel}`, `free:${preferFree}`]
+        : [...styles, ...guidanceContext, `free:${preferFree}`];
       const hash = await generateImageHash(file, cacheContext);
       if (signal.aborted) throw new Error('Request was cancelled by user.');
       // Try async cache first (IndexedDB), fallback to sync
@@ -164,7 +217,10 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
       if (cachedResult) {
         const cachedVision = (asyncCached as any)?.structuredVision || null;
         setPrompt(cachedResult);
-        if (cachedVision) setStructuredVision(cachedVision);
+        if (cachedVision) {
+          setStructuredVision(cachedVision);
+          setNegativePrompt(cachedVision.negativePrompt || "");
+        }
         setIsCached(true);
         setLoadingProgress(100);
         setIsLoading(false);
@@ -194,12 +250,14 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
         styles,
         preferredModel,
         preferFree,
+        guidance,
         { signal },
       );
       if (signal.aborted) throw new Error('Request was cancelled by user.');
 
       setStructuredVision(visionData);
       setPrompt(visionData.assembledPrompt);
+      setNegativePrompt(visionData.negativePrompt || "");
       setLoadingProgress(100);
       const duration = (visionData as any).durationMs || Math.round(performance.now() - tStart);
       setLastDurationMs(duration);
@@ -241,14 +299,9 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
         setStructuredVision(null);
         setIsCached(false);
 
-        // Generate thumbnail for instant preview
-        try {
-          const thumbnail = await generateThumbnail(file, 400);
-          setThumbnailUrl(thumbnail);
-        } catch (e) {
-          console.error("Thumbnail generation failed:", e);
-        }
-
+        // Use a blob URL for the immediate preview. Generate a compact data URL
+        // only when the user explicitly saves, avoiding a duplicate encode pass.
+        setThumbnailUrl(null);
         const objectUrl = URL.createObjectURL(file);
         safeRevokeObjectURL(imageUrlRef.current);
         imageUrlRef.current = objectUrl;
@@ -259,7 +312,7 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
         }
 
         debounceTimerRef.current = setTimeout(() => {
-          generatePrompt(file, activeStyles, selectedModel);
+          generatePrompt(file, activeStyles, selectedModel, true, customization);
         }, 300);
       } catch (err: any) {
         setError(err.message || "Invalid image file.");
@@ -276,6 +329,7 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
     setThumbnailUrl(null);
     setImageMeta(null);
     setPrompt("");
+    setNegativePrompt("");
     setStructuredVision(null);
     setError("");
     setIsLoading(false);
@@ -312,7 +366,7 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
     if (image) {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = setTimeout(() => {
-        generatePrompt(image, newStyles, selectedModel);
+        generatePrompt(image, newStyles, selectedModel, true, customization);
       }, 400);
     }
   };
@@ -324,9 +378,36 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleSave = () => {
+  const handleCopyNegative = () => {
+    if (!negativePrompt) return;
+    navigator.clipboard.writeText(negativePrompt);
+    setCopiedNegative(true);
+    setTimeout(() => setCopiedNegative(false), 2000);
+  };
+
+  const updateCustomization = (key: keyof VisionPromptCustomization, value: string) => {
+    setCustomization((current) => ({ ...current, [key]: value }));
+  };
+
+  const handleApplyGuidance = () => {
+    if (!image || isLoading) return;
+    generatePrompt(image, activeStyles, selectedModel, true, customization);
+  };
+
+  const handleSave = async () => {
     if (!prompt) return;
-    onSaveToLibrary(prompt, undefined, thumbnailUrl || imageUrl || undefined, ["image-to-prompt", ...activeStyles]);
+
+    let savedImageUrl = thumbnailUrl;
+    if (!savedImageUrl && image) {
+      try {
+        savedImageUrl = await generateThumbnail(image, 400);
+        setThumbnailUrl(savedImageUrl);
+      } catch (e) {
+        console.warn("Deferred thumbnail generation failed:", e);
+      }
+    }
+
+    onSaveToLibrary(prompt, undefined, savedImageUrl || undefined, ["image-to-prompt", ...activeStyles]);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -357,7 +438,7 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
     `${model.name || model.providerModelId || model.id} · ${(model.provider || "AI").toUpperCase()}`;
 
   return (
-    <div className="flex flex-col gap-6 max-w-6xl mx-auto animate-fade-in">
+    <div className="flex flex-col gap-6 max-w-full w-full mx-auto animate-fade-in">
       {/* Editorial Meta Notice */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-3 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)] text-xs font-mono text-[var(--editorial-muted)]">
         <span className="flex items-center gap-1.5 text-[var(--editorial-ink)]">
@@ -479,10 +560,86 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
                 </div>
               </div>
 
+              {/* Guided professional controls: explicit inputs reduce vague first-pass prompts */}
+              <div className="border border-[var(--editorial-rule)] bg-[var(--editorial-surface)] p-3 sm:p-4">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="editorial-badge editorial-badge--gold">GUIDANCE</span>
+                      <h3 className="font-mono text-xs font-bold uppercase tracking-wider text-[var(--editorial-ink)] m-0">Prompt Direction</h3>
+                    </div>
+                    <p className="m-0 mt-1 font-mono text-[10px] leading-relaxed text-[var(--editorial-muted)]">Set the brief once. The analyzer will preserve what is visible, apply your intent, and format the result for your target model.</p>
+                  </div>
+                  <span className="hidden sm:inline font-mono text-[9px] uppercase tracking-wider text-[var(--editorial-coral)]">ONE-PASS BRIEF</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {([
+                    ["platform", "Output platform", PLATFORM_OPTIONS],
+                    ["useCase", "Intended use", USE_CASE_OPTIONS],
+                    ["fidelity", "Reference fidelity", FIDELITY_OPTIONS],
+                    ["detailLevel", "Detail level", DETAIL_OPTIONS],
+                    ["aspectRatio", "Aspect ratio", RATIO_OPTIONS],
+                    ["composition", "Composition", COMPOSITION_OPTIONS],
+                    ["lighting", "Lighting direction", LIGHTING_OPTIONS],
+                    ["colorTreatment", "Color treatment", COLOR_OPTIONS],
+                    ["styleDirection", "Style direction", STYLE_OPTIONS],
+                  ] as [keyof VisionPromptCustomization, string, string[]][]).map(([key, label, options]) => (
+                    <label key={key} className="flex flex-col gap-1">
+                      <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-[var(--editorial-muted)]">{label}</span>
+                      <select
+                        value={customization[key] || ""}
+                        onChange={(e) => updateCustomization(key, e.target.value)}
+                        disabled={isLoading}
+                        className="h-8 w-full border border-[var(--editorial-rule)] bg-[var(--editorial-paper)] px-2 font-mono text-[10px] text-[var(--editorial-ink)] outline-none focus:border-[var(--editorial-coral)]"
+                      >
+                        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 gap-2.5 mt-2.5">
+                  <label className="flex flex-col gap-1">
+                    <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-[var(--editorial-muted)]">Creative direction <span className="font-normal normal-case">(optional)</span></span>
+                    <textarea
+                      value={customization.creativeDirection || ""}
+                      onChange={(e) => updateCustomization("creativeDirection", e.target.value)}
+                      disabled={isLoading}
+                      placeholder="e.g. Make the mood more premium and add clean negative space for headline copy."
+                      rows={2}
+                      className="w-full resize-none border border-[var(--editorial-rule)] bg-[var(--editorial-paper)] px-2 py-1.5 font-mono text-[10px] leading-relaxed text-[var(--editorial-ink)] outline-none placeholder:text-[var(--editorial-muted)] focus:border-[var(--editorial-coral)]"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-[var(--editorial-muted)]">Exclude / preserve <span className="font-normal normal-case">(optional)</span></span>
+                    <input
+                      value={customization.extraNegative || ""}
+                      onChange={(e) => updateCustomization("extraNegative", e.target.value)}
+                      disabled={isLoading}
+                      placeholder="e.g. no extra people, no watermark, preserve exact logo"
+                      className="h-8 w-full border border-[var(--editorial-rule)] bg-[var(--editorial-paper)] px-2 font-mono text-[10px] text-[var(--editorial-ink)] outline-none placeholder:text-[var(--editorial-muted)] focus:border-[var(--editorial-coral)]"
+                    />
+                  </label>
+                </div>
+
+                {image && (
+                  <button
+                    type="button"
+                    onClick={handleApplyGuidance}
+                    disabled={isLoading}
+                    className="editorial-button editorial-button--secondary editorial-button--sm mt-3 w-full justify-center"
+                  >
+                    {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <BrainCircuitIcon className="w-3.5 h-3.5" />}
+                    <span>{isLoading ? "Building professional prompt..." : "Apply direction & analyze"}</span>
+                  </button>
+                )}
+              </div>
+
               {image && (
                 <button
                   type="button"
-                  onClick={() => generatePrompt(image, activeStyles, selectedModel)}
+                  onClick={() => generatePrompt(image, activeStyles, selectedModel, true, customization)}
                   disabled={isLoading}
                   className="editorial-button editorial-button--primary editorial-button--sm w-full justify-center"
                 >
@@ -652,7 +809,7 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
                   {image && error.includes("No verified free AI models") && (
                     <button
                       type="button"
-                      onClick={() => generatePrompt(image, activeStyles, selectedModel, false)}
+                      onClick={() => generatePrompt(image, activeStyles, selectedModel, false, customization)}
                       className="px-3 py-1.5 bg-[var(--editorial-coral)] text-white font-mono text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
                     >
                       Retry with Paid Models
@@ -662,19 +819,45 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
               ) : prompt ? (
                 <>
                   {activeTab === "assembled" && (
-                    <div className="flex flex-col h-full">
+                    <div className="flex flex-col h-full gap-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-[var(--editorial-coral)]">Primary prompt</span>
+                          <p className="m-0 mt-1 font-mono text-[10px] text-[var(--editorial-muted)]">{customization.platform} · {customization.fidelity} · {customization.detailLevel}</p>
+                        </div>
+                        <button type="button" onClick={handleCopy} className="editorial-button editorial-button--secondary editorial-button--sm !min-h-7 !px-2" aria-label="Copy primary prompt">
+                          {copied ? <CheckIcon className="w-3 h-3 text-green-500" /> : <CopyIcon className="w-3 h-3" />}
+                          <span>{copied ? "Copied" : "Copy"}</span>
+                        </button>
+                      </div>
                       <textarea
                         value={prompt}
                         onChange={(e) => setPrompt(e.target.value)}
-                        className="editorial-textarea w-full flex-grow min-h-[220px] font-mono text-xs leading-relaxed resize-none"
+                        aria-label="Professional image generation prompt"
+                        className="editorial-textarea w-full min-h-[150px] font-mono text-xs leading-relaxed resize-y"
                       />
-                      <div className="pt-2 flex items-center justify-between flex-wrap gap-2">
+                      <div className="border border-[var(--editorial-rule)] bg-[var(--editorial-surface)] p-2.5">
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                          <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-[var(--editorial-muted)]">Negative prompt / exclusions</span>
+                          <button type="button" onClick={handleCopyNegative} disabled={!negativePrompt} className="font-mono text-[9px] font-bold uppercase tracking-wider text-[var(--editorial-coral)] hover:underline disabled:opacity-40" aria-label="Copy negative prompt">
+                            {copiedNegative ? "Copied" : "Copy"}
+                          </button>
+                        </div>
+                        <textarea
+                          value={negativePrompt}
+                          onChange={(e) => setNegativePrompt(e.target.value)}
+                          aria-label="Negative prompt and exclusions"
+                          rows={3}
+                          className="w-full resize-y border border-[var(--editorial-rule)] bg-[var(--editorial-paper)] px-2 py-1.5 font-mono text-[10px] leading-relaxed text-[var(--editorial-ink)] outline-none focus:border-[var(--editorial-coral)]"
+                        />
+                      </div>
+                      <div className="pt-0.5 flex items-center justify-between flex-wrap gap-2">
                         {isCached ? (
                           <span className="text-[10px] text-green-600 dark:text-green-400 font-mono">⚡ Instant cache · 0ms</span>
                         ) : lastDurationMs ? (
                           <span className="text-[10px] text-[var(--editorial-muted)] font-mono">{lastDurationMs}ms{lastModel ? ` · ${lastModel}` : ''}</span>
                         ) : <span />}
-                        <span className="text-[10px] text-[var(--editorial-muted)] font-mono">{prompt.length} chars</span>
+                        <span className="text-[10px] text-[var(--editorial-muted)] font-mono">{prompt.length} chars · human-editable</span>
                       </div>
                     </div>
                   )}
@@ -735,35 +918,41 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
 
             {/* Action Bar */}
             {prompt && (
-              <div className="editorial-panel__footer flex flex-wrap items-center justify-between gap-3">
-                <div className="flex gap-2">
+              <>
+                <div className="editorial-panel__footer flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleCopy}
+                      className="editorial-button editorial-button--secondary editorial-button--sm"
+                    >
+                      {copied ? <CheckIcon className="w-3.5 h-3.5 text-green-500" /> : <CopyIcon className="w-3.5 h-3.5" />}
+                      <span>{copied ? "Copied" : "Copy"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSave}
+                      className="editorial-button editorial-button--secondary editorial-button--sm"
+                    >
+                      {saved ? <CheckIcon className="w-3.5 h-3.5 text-green-500" /> : <FolderIcon className="w-3.5 h-3.5" />}
+                      <span>{saved ? "Saved" : "Save to Vault"}</span>
+                    </button>
+                  </div>
+
                   <button
                     type="button"
-                    onClick={handleCopy}
-                    className="editorial-button editorial-button--secondary editorial-button--sm"
+                    onClick={handleSendToBuilder}
+                    className="editorial-button editorial-button--primary editorial-button--sm"
                   >
-                    {copied ? <CheckIcon className="w-3.5 h-3.5 text-green-500" /> : <CopyIcon className="w-3.5 h-3.5" />}
-                    <span>{copied ? "Copied" : "Copy"}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    className="editorial-button editorial-button--secondary editorial-button--sm"
-                  >
-                    {saved ? <CheckIcon className="w-3.5 h-3.5 text-green-500" /> : <FolderIcon className="w-3.5 h-3.5" />}
-                    <span>{saved ? "Saved" : "Save to Vault"}</span>
+                    <SparklesIcon className="w-3.5 h-3.5" />
+                    <span>Transfer to Builder ➔</span>
                   </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleSendToBuilder}
-                  className="editorial-button editorial-button--primary editorial-button--sm"
-                >
-                  <SparklesIcon className="w-3.5 h-3.5" />
-                  <span>Transfer to Builder ➔</span>
-                </button>
-              </div>
+                <div className="p-3 border-t border-[var(--editorial-rule)] bg-[var(--editorial-surface-muted)]">
+                  <QuickImageGenerators prompt={prompt} variant="compact" />
+                </div>
+              </>
             )}
           </div>
         </div>

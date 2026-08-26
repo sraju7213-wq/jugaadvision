@@ -137,6 +137,24 @@ export default defineConfig(({ mode }) => {
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
+        workbox: {
+          // Keep installation/update lightweight; route chunks remain genuinely lazy.
+          globPatterns: ['**/*.{html,css,ico,webmanifest}'],
+          runtimeCaching: [
+            {
+              urlPattern: /\/assets\/.*\.(?:js|css)$/,
+              handler: 'StaleWhileRevalidate',
+              options: {
+                cacheName: 'jugaad-static-assets',
+                expiration: {
+                  maxEntries: 40,
+                  maxAgeSeconds: 60 * 60 * 24 * 30,
+                },
+                cacheableResponse: { statuses: [0, 200] },
+              },
+            },
+          ],
+        },
         manifest: {
           name: 'Jugaad Visuals',
           short_name: 'Jugaad',

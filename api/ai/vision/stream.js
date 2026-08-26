@@ -2724,7 +2724,7 @@ var AIRouter = class {
   }
   async performRouting(request) {
     if (freeModelRegistry.isRefreshDue()) {
-      await freeModelRegistry.waitForFreshCatalog();
+      freeModelRegistry.refreshInBackground(true);
     }
     let allModels = freeModelRegistry.getAllModels();
     if (allModels.length === 0) {

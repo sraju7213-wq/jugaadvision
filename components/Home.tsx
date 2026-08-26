@@ -40,6 +40,7 @@ import {
   Wand2,
   Zap,
 } from "lucide-react";
+import QuickImageGenerators from "./QuickImageGenerators";
 
 type IconType = React.ComponentType<{ className?: string; strokeWidth?: number; "aria-hidden"?: boolean | "true" | "false" }>;
 
@@ -573,6 +574,13 @@ const Home: React.FC = () => {
                       </>
                     )}
                   </button>
+                </div>
+
+                <div className="pt-2">
+                  <QuickImageGenerators
+                    prompt={`${currentPreset.subject}, directed with ${currentPreset.light}, shot on ${currentPreset.lens}, expressing ${currentPreset.mood} --ar 16:9 --v 6.1`}
+                    variant="compact"
+                  />
                 </div>
               </div>
             </div>

@@ -269,7 +269,7 @@ export const Settings: React.FC<SettingsProps> = () => {
   };
 
   return (
-    <div className="editorial-page max-w-6xl mx-auto px-4 py-8">
+    <div className="editorial-page max-w-full w-full mx-auto px-4 py-8">
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-2 mb-2">

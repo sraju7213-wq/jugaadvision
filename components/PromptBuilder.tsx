@@ -11,14 +11,13 @@ import {
   SMART_WORD_LIBRARY,
   MASTER_FORMULA_ARCHETYPES,
   NEGATIVE_PROMPT_CATEGORIES,
-  WILDCARD_TEMPLATES,
   RANDOM_SUBJECTS,
   RANDOM_SETTINGS,
   RANDOM_MOODS,
   RANDOM_STYLES,
 } from "../constants";
 import {
-  aiElaboratePromptWithPersona,
+  aiElaboratePrompt,
   aiCompressPrompt,
   aiGeneratePromptVariations,
   aiDissectPrompt,
@@ -26,9 +25,15 @@ import {
   aiGenerateSmartNegative,
   aiMolecularRecombination,
   aiQuantumEntropyMutate,
-  PROMPT_ENGINEERING_PERSONAS,
 } from "../services/geminiService";
 import { convertToStructuredPrompt } from "../services/cinematicPromptService";
+
+import TemplateGallery from "./template-library/TemplateGallery";
+import GuidedTour from "./accessibility/GuidedTour";
+import AnalyticsDashboard from "./analytics/AnalyticsDashboard";
+import { usePromptVersion } from "../hooks/usePromptVersion";
+import { runCreativeFusion } from "../services/creativeFusionService";
+import QuickImageGenerators from "./QuickImageGenerators";
 
 import {
   CopyIcon,
@@ -43,7 +48,7 @@ import {
 import {
   Loader2,
   SlidersHorizontal,
-  Dices,
+
   ScanText,
   ArrowRightLeft,
   Minimize2,
@@ -59,6 +64,8 @@ import {
   Terminal,
   Binary,
   Maximize2,
+  Network,
+  Workflow,
 } from "lucide-react";
 import useSpeechToText from "../hooks/useSpeechToText";
 import Tooltip from "./Tooltip";
@@ -69,7 +76,7 @@ interface PromptBuilderProps {
   initialPrompt: Prompt | null;
 }
 
-type BuilderMode = "canvas" | "fusion" | "mutation" | "formula" | "dissect" | "wildcard";
+type BuilderMode = "canvas" | "fusion" | "mutation" | "formula" | "dissect";
 type MobilePane = "canvas" | "params" | "vault";
 
 const PLATFORMS: { id: Platform; label: string; code: string; icon: string; badge: string }[] = [
@@ -121,24 +128,22 @@ const QuantumTokenChip: React.FC<{
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-mono font-medium border transition-all select-none relative group ${
-        isEmphasized
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-mono font-medium border transition-all select-none relative group ${isEmphasized
           ? "bg-[var(--editorial-violet-soft)] border-[var(--editorial-violet)] text-[var(--editorial-ink)] shadow-[2px_2px_0_var(--editorial-violet)]"
           : isDeemphasized
-          ? "bg-[var(--editorial-surface)] border-[var(--editorial-rule)] text-[var(--editorial-muted)] opacity-75"
-          : "bg-[var(--editorial-surface)] border-[var(--editorial-rule)] text-[var(--editorial-ink)] shadow-[1px_1px_0_var(--editorial-rule)] hover:border-[var(--editorial-violet)]"
-      }`}
+            ? "bg-[var(--editorial-surface)] border-[var(--editorial-rule)] text-[var(--editorial-muted)] opacity-75"
+            : "bg-[var(--editorial-surface)] border-[var(--editorial-rule)] text-[var(--editorial-ink)] shadow-[1px_1px_0_var(--editorial-rule)] hover:border-[var(--editorial-violet)]"
+        }`}
     >
       <span className="text-[10px] text-[var(--editorial-violet)] font-bold opacity-60">λ</span>
       <span className="cursor-default tracking-tight">{token.text}</span>
 
       {weight !== 1.0 && (
         <span
-          className={`text-[8.5px] px-1 rounded font-mono font-bold ${
-            isEmphasized
+          className={`text-[8.5px] px-1 rounded font-mono font-bold ${isEmphasized
               ? "bg-[var(--editorial-violet)] text-white"
               : "bg-[var(--editorial-rule)] text-[var(--editorial-muted)]"
-          }`}
+            }`}
         >
           {weight.toFixed(1)}Ψ
         </span>
@@ -242,13 +247,12 @@ const SpectralWaveform: React.FC<{ tokenCount: number; charCount: number; maxCha
         return (
           <div
             key={i}
-            className={`w-1 rounded-none transition-all duration-300 ${
-              isFilled
+            className={`w-1 rounded-none transition-all duration-300 ${isFilled
                 ? active
                   ? "bg-[var(--editorial-violet)]"
                   : "bg-[var(--editorial-coral)]"
                 : "bg-[var(--editorial-rule)]"
-            }`}
+              }`}
             style={{ height: `${heightPercent}%` }}
           />
         );
@@ -285,6 +289,11 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
   const [isMutating, setIsMutating] = useState(false);
   const [mutationResult, setMutationResult] = useState("");
 
+  // Version tracking
+  const version = usePromptVersion(promptId ?? "draft", tokens.map((t) => t.text).join(", "));
+  const [isBrainstorming, setIsBrainstorming] = useState(false);
+  const [brainstormResult, setBrainstormResult] = useState<{ fusedPrompt: string; candidates: string[] } | null>(null);
+
   // Formula Matrix State
   const [formulaSlots, setFormulaSlots] = useState<FormulaSlots>({
     subject: "",
@@ -300,9 +309,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
   const [isDissecting, setIsDissecting] = useState(false);
   const [dissectedResult, setDissectedResult] = useState<DissectedPrompt | null>(null);
 
-  // Wildcard Matrix State
-  const [wildcardTemplate, setWildcardTemplate] = useState<string>(WILDCARD_TEMPLATES[0].template);
-  const [wildcardGenerated, setWildcardGenerated] = useState<string>("");
+
 
   // Target Platform & Parameters
   const [platform, setPlatform] = useState<Platform>(Platform.Natural);
@@ -331,7 +338,6 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
   const [isJsonConverting, setIsJsonConverting] = useState(false);
   const [isGeneratingVariations, setIsGeneratingVariations] = useState(false);
   const [isGeneratingSmartNeg, setIsGeneratingSmartNeg] = useState(false);
-  const [selectedPersona, setSelectedPersona] = useState<string>("cinematographer");
   const [creativity, setCreativity] = useState(50);
   const [showAiPopover, setShowAiPopover] = useState(false);
 
@@ -354,6 +360,8 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
   const [jsonCopied, setJsonCopied] = useState(false);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const qualityAbortControllerRef = useRef<AbortController | null>(null);
+  const qualityRequestIdRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const isMounted = useRef(true);
 
@@ -371,6 +379,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
     return () => {
       isMounted.current = false;
       abortControllerRef.current?.abort();
+      qualityAbortControllerRef.current?.abort();
     };
   }, []);
 
@@ -555,28 +564,42 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
     }
   };
 
-  // Live Prompt Quality Analysis (Debounced)
+  // Live Prompt Quality Analysis (Debounced and cancellable)
   useEffect(() => {
+    qualityAbortControllerRef.current?.abort();
+    const requestId = ++qualityRequestIdRef.current;
+
     if (!tokenString || tokenString.length < 5) {
       setQualityReport(null);
+      setIsValidatingQuality(false);
       return;
     }
 
     const timer = setTimeout(async () => {
+      const controller = new AbortController();
+      qualityAbortControllerRef.current = controller;
+
       try {
         setIsValidatingQuality(true);
-        const report = await aiAnalyzePromptQuality(tokenString, platform);
-        if (isMounted.current) {
+        const report = await aiAnalyzePromptQuality(tokenString, platform, controller.signal);
+        if (isMounted.current && requestId === qualityRequestIdRef.current && !controller.signal.aborted) {
           setQualityReport(report as any);
         }
-      } catch (err) {
-        // silent
+      } catch (err: any) {
+        if (err?.name !== "AbortError" && !controller.signal.aborted) {
+          // Keep the editor usable when the optional quality request fails.
+        }
       } finally {
-        if (isMounted.current) setIsValidatingQuality(false);
+        if (isMounted.current && requestId === qualityRequestIdRef.current) {
+          setIsValidatingQuality(false);
+        }
       }
     }, 1200);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      qualityAbortControllerRef.current?.abort();
+    };
   }, [tokenString, platform]);
 
   const addToken = (text: string, category?: TokenItem["category"]) => {
@@ -756,7 +779,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
   };
 
   // AI Co-Pilot Actions
-  const handleEnhanceWithPersona = async () => {
+  const handleEnhancePrompt = async () => {
     if (isEnhancing || !tokenString.trim()) {
       if (!tokenString.trim()) setError("Please enter keywords or a concept to enhance.");
       return;
@@ -770,9 +793,8 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
     abortControllerRef.current = new AbortController();
 
     try {
-      const enhanced = await aiElaboratePromptWithPersona(
+      const enhanced = await aiElaboratePrompt(
         tokenString,
-        selectedPersona,
         creativity,
         platform,
         maxChars
@@ -913,21 +935,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
     setDissectInput("");
   };
 
-  const handleRollWildcard = () => {
-    if (!wildcardTemplate) return;
-    const rolled = wildcardTemplate.replace(/\{([^{}]+)\}/g, (_, group) => {
-      const choices = group.split("|").map((c: string) => c.trim()).filter(Boolean);
-      return choices[Math.floor(Math.random() * choices.length)] || "";
-    });
-    setWildcardGenerated(rolled);
-  };
 
-  const handleApplyWildcard = () => {
-    if (!wildcardGenerated) return;
-    const parts = wildcardGenerated.split(/,\s*/).filter(Boolean);
-    setTokens(parts.map((p, idx) => ({ id: `tok_${idx}_${Date.now()}`, text: p, weight: 1.0 })));
-    setBuilderMode("canvas");
-  };
 
   const handleJsonConvert = async () => {
     if (isJsonConverting || !finalPrompt.trim()) return;
@@ -980,30 +988,91 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
     setError(null);
   };
 
+  const renderModePills = () => (
+    <div className="flex items-center gap-0.5 bg-[var(--editorial-paper)] p-0.5 border border-[var(--editorial-rule)] overflow-x-auto">
+      <button
+        type="button"
+        onClick={() => setBuilderMode("canvas")}
+        className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${
+          builderMode === "canvas"
+            ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
+            : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
+        }`}
+      >
+        <Atom className="w-3 h-3" />
+        Canvas
+      </button>
+      <button
+        type="button"
+        onClick={() => setBuilderMode("fusion")}
+        className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${
+          builderMode === "fusion"
+            ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
+            : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
+        }`}
+      >
+        <FlaskConical className="w-3 h-3" />
+        Fusion
+      </button>
+      <button
+        type="button"
+        onClick={() => setBuilderMode("mutation")}
+        className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${
+          builderMode === "mutation"
+            ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
+            : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
+        }`}
+      >
+        <Dna className="w-3 h-3" />
+        Remix
+      </button>
+      <button
+        type="button"
+        onClick={() => setBuilderMode("formula")}
+        className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${
+          builderMode === "formula"
+            ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
+            : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
+        }`}
+      >
+        <Layers className="w-3 h-3" />
+        Formula
+      </button>
+      <button
+        type="button"
+        onClick={() => setBuilderMode("dissect")}
+        className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${
+          builderMode === "dissect"
+            ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
+            : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
+        }`}
+      >
+        <ScanText className="w-3 h-3" />
+        Reverse Engineer
+      </button>
+
+    </div>
+  );
+
   return (
     <div className="w-full flex flex-col gap-3.5 animate-fade-in font-mono">
-      {/* SCIENTIFIC LABORATORY HUD & TELEMETRY BAND */}
+      {/* Compact Status Bar */}
       <div className="bg-[var(--editorial-surface)] border border-[var(--editorial-rule)] px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-[10px] shadow-sm">
         <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping inline-block" />
-            <span className="font-bold text-[var(--editorial-ink)]">LABORATORY APPARATUS // ONLINE</span>
-          </div>
-          <span className="text-[var(--editorial-rule)]">|</span>
-          <span className="text-[var(--editorial-muted)]">
-            VALENCE FLUX: <strong className="text-[var(--editorial-violet)]">{latentTension}Ψ</strong>
+          <span className="font-bold text-[var(--editorial-ink)] flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+            {tokens.length} tokens
           </span>
-          <span className="text-[var(--editorial-rule)]">|</span>
+          <span className="text-[var(--editorial-rule)]">·</span>
           <span className="text-[var(--editorial-muted)]">
-            ENTROPY: <strong className="text-[var(--editorial-coral)]">{entropyLevel}%</strong>
+            Budget: <strong className="text-[var(--editorial-ink)]">{maxChars}</strong>
           </span>
-          <span className="text-[var(--editorial-rule)] hidden sm:inline">|</span>
+          <span className="text-[var(--editorial-rule)] hidden sm:inline">·</span>
           <span className="text-[var(--editorial-muted)] hidden sm:inline">
-            CAPACITY: <strong className="text-[var(--editorial-ink)]">{maxChars}λ</strong>
+            Platform: <strong className="text-[var(--editorial-violet)]">{platform.split(" ")[0]}</strong>
           </span>
         </div>
 
-        {/* Live Spectral Frequency Waveform & Dynamic Budget */}
         <div className="flex items-center gap-2">
           <SpectralWaveform
             tokenCount={tokens.length}
@@ -1012,15 +1081,14 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
             active={!isOverLimit}
           />
           <span
-            className={`px-1.5 py-0.5 border text-[9.5px] font-bold ${
-              isOverLimit
+            className={`px-1.5 py-0.5 border text-[9.5px] font-bold ${isOverLimit
                 ? "bg-red-500/10 text-red-600 border-red-500"
                 : charCount >= maxChars * 0.85
-                ? "bg-amber-500/10 text-amber-600 border-amber-500"
-                : "bg-[var(--editorial-paper)] text-[var(--editorial-ink)] border-[var(--editorial-rule)]"
-            }`}
+                  ? "bg-amber-500/10 text-amber-600 border-amber-500"
+                  : "bg-[var(--editorial-paper)] text-[var(--editorial-ink)] border-[var(--editorial-rule)]"
+              }`}
           >
-            {charCount}/{maxChars}λ
+            {charCount}/{maxChars}
           </span>
         </div>
       </div>
@@ -1030,35 +1098,32 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
         <button
           type="button"
           onClick={() => setMobilePane("canvas")}
-          className={`flex-1 py-1.5 text-xs font-mono font-bold uppercase transition-all ${
-            mobilePane === "canvas"
+          className={`flex-1 py-1.5 text-xs font-mono font-bold uppercase transition-all ${mobilePane === "canvas"
               ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
               : "text-[var(--editorial-muted)]"
-          }`}
+            }`}
         >
           Workbench
         </button>
         <button
           type="button"
           onClick={() => setMobilePane("params")}
-          className={`flex-1 py-1.5 text-xs font-mono font-bold uppercase transition-all ${
-            mobilePane === "params"
+          className={`flex-1 py-1.5 text-xs font-mono font-bold uppercase transition-all ${mobilePane === "params"
               ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
               : "text-[var(--editorial-muted)]"
-          }`}
+            }`}
         >
-          Telemetry
+          Settings
         </button>
         <button
           type="button"
           onClick={() => setMobilePane("vault")}
-          className={`flex-1 py-1.5 text-xs font-mono font-bold uppercase transition-all ${
-            mobilePane === "vault"
+          className={`flex-1 py-1.5 text-xs font-mono font-bold uppercase transition-all ${mobilePane === "vault"
               ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
               : "text-[var(--editorial-muted)]"
-          }`}
+            }`}
         >
-          Specimen Vault
+          Keywords
         </button>
       </div>
 
@@ -1075,11 +1140,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
         </div>
       )}
 
-      {/* 3-COLUMN PANORAMIC WORKSTATION GRID */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-3.5 lg:gap-4 items-start">
-
+      {/* 3-COLUMN PANORAMIC SCIENTIFIC WORKSTATION GRID */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-3.5 lg:gap-4 items-start xl:items-stretch">
         {/* ==================================================================== */}
-        {/* LEFT PANE: OPTICAL BENCH, TELEMETRY & DIRECTIVES (3.5 cols)          */}
+        {/* LEFT PANE: Platform, Settings & Controls (3 cols)                    */}
         {/* ==================================================================== */}
         <div
           className={`xl:col-span-3 flex-col gap-3.5 ${
@@ -1091,7 +1155,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
             <div className="editorial-panel__header py-1.5 px-3">
               <div className="flex items-center gap-1.5">
                 <Cpu className="w-3.5 h-3.5 text-[var(--editorial-violet)]" />
-                <span className="font-mono text-xs font-bold text-[var(--editorial-ink)]">Synthesizer Engine</span>
+                <span className="font-mono text-xs font-bold text-[var(--editorial-ink)]">Platform</span>
               </div>
               <span className="font-mono text-[9px] text-[var(--editorial-violet)] font-bold uppercase">
                 {platform.split(" ")[0]}
@@ -1105,11 +1169,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                     key={p.id}
                     type="button"
                     onClick={() => setPlatform(p.id)}
-                    className={`p-1.5 flex flex-col items-center justify-center gap-0.5 border text-center transition-all ${
-                      isActive
+                    className={`p-1.5 flex flex-col items-center justify-center gap-0.5 border text-center transition-all ${isActive
                         ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)] shadow-[1px_1px_0_var(--editorial-violet)]"
                         : "bg-[var(--editorial-surface)] text-[var(--editorial-ink)] border-[var(--editorial-rule)] hover:border-[var(--editorial-violet)]"
-                    }`}
+                      }`}
                   >
                     <span className="text-xs leading-none">{p.icon}</span>
                     <span className="truncate w-full text-[9px] font-mono uppercase font-bold">
@@ -1128,35 +1191,32 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveLeftTab("params")}
-                  className={`flex-1 py-1 text-[10px] font-mono font-bold uppercase border transition-all ${
-                    activeLeftTab === "params"
+                  className={`flex-1 py-1 text-[10px] font-mono font-bold uppercase border transition-all ${activeLeftTab === "params"
                       ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)]"
                       : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-transparent hover:text-[var(--editorial-ink)]"
-                  }`}
+                    }`}
                 >
-                  Optics
+                  Settings
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveLeftTab("negative")}
-                  className={`flex-1 py-1 text-[10px] font-mono font-bold uppercase border transition-all ${
-                    activeLeftTab === "negative"
+                  className={`flex-1 py-1 text-[10px] font-mono font-bold uppercase border transition-all ${activeLeftTab === "negative"
                       ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)]"
                       : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-transparent hover:text-[var(--editorial-ink)]"
-                  }`}
+                    }`}
                 >
                   Negative {negativePrompt ? "•" : ""}
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveLeftTab("iq")}
-                  className={`flex-1 py-1 text-[10px] font-mono font-bold uppercase border transition-all ${
-                    activeLeftTab === "iq"
+                  className={`flex-1 py-1 text-[10px] font-mono font-bold uppercase border transition-all ${activeLeftTab === "iq"
                       ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)]"
                       : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-transparent hover:text-[var(--editorial-ink)]"
-                  }`}
+                    }`}
                 >
-                  Spectral IQ
+                  Quality
                 </button>
               </div>
             </div>
@@ -1165,54 +1225,36 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
               {/* SUB-TAB 1: OPTICS, PHOTONIC PARAMETERS & CAPACITY CONTROLLER */}
               {activeLeftTab === "params" && (
                 <div className="space-y-3">
-                  {/* PROMPT SIZE / CAPACITY CONTROLLER (UP TO 2000 CHARACTERS) */}
+                  {/* Prompt Budget — Inline */}
                   <div className="p-2 bg-[var(--editorial-paper)] border border-[var(--editorial-rule)] space-y-1.5">
                     <div className="flex justify-between items-center text-[9.5px] font-mono">
                       <span className="font-bold text-[var(--editorial-ink)] uppercase flex items-center gap-1">
                         <Maximize2 className="w-3 h-3 text-[var(--editorial-violet)]" />
-                        Prompt Size Budget
+                        Character Limit
                       </span>
-                      <span className="font-bold text-[var(--editorial-violet)]">{maxChars} Chars</span>
+                      <span className="font-bold text-[var(--editorial-violet)]">{maxChars}</span>
                     </div>
-
-                    {/* Presets */}
                     <div className="grid grid-cols-4 gap-1">
                       {PROMPT_BUDGET_PRESETS.map((preset) => (
                         <button
                           key={preset.value}
                           type="button"
                           onClick={() => setMaxChars(preset.value)}
-                          className={`py-1 px-0.5 text-center border transition-all ${
-                            maxChars === preset.value
+                          className={`py-1 px-0.5 text-center border transition-all ${maxChars === preset.value
                               ? "bg-[var(--editorial-violet)] text-white border-[var(--editorial-violet)] font-bold shadow-[1px_1px_0_var(--editorial-violet)]"
                               : "bg-[var(--editorial-surface)] text-[var(--editorial-ink)] border-[var(--editorial-rule)] hover:border-[var(--editorial-violet)]"
-                          }`}
+                            }`}
                         >
                           <div className="text-[9.5px] leading-tight font-bold">{preset.label}</div>
-                          <div className="text-[7.5px] text-[var(--editorial-muted)] opacity-80">{preset.desc}</div>
                         </button>
                       ))}
-                    </div>
-
-                    {/* Fine Stepper Slider (300 to 2000) */}
-                    <div className="pt-0.5">
-                      <input
-                        type="range"
-                        min="300"
-                        max="2000"
-                        step="50"
-                        value={maxChars}
-                        onChange={(e) => setMaxChars(parseInt(e.target.value, 10))}
-                        className="editorial-range editorial-range--violet"
-                        style={{ "--range-progress": `${((maxChars - 300) / 1700) * 100}%` } as React.CSSProperties}
-                      />
                     </div>
                   </div>
 
                   {/* Aspect Ratio */}
                   <div>
                     <label className="font-mono text-[9.5px] font-bold text-[var(--editorial-muted)] uppercase tracking-wider block mb-1">
-                      Sensor &amp; Frame Geometry
+                      Aspect Ratio
                     </label>
                     <div className="grid grid-cols-3 gap-1">
                       {ASPECT_RATIOS.map((ar) => {
@@ -1222,11 +1264,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                             key={ar.ratio}
                             type="button"
                             onClick={() => setDimension(ar.ratio)}
-                            className={`p-1 text-center border transition-all ${
-                              isSelected
+                            className={`p-1 text-center border transition-all ${isSelected
                                 ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)] font-bold shadow-[1px_1px_0_var(--editorial-coral)]"
                                 : "bg-[var(--editorial-surface)] text-[var(--editorial-ink)] border-[var(--editorial-rule)] hover:border-[var(--editorial-coral)]"
-                            }`}
+                              }`}
                           >
                             <div className="font-mono text-[10.5px] leading-tight">{ar.ratio}</div>
                             <div className="text-[8px] text-[var(--editorial-muted)] font-mono">{ar.sub}</div>
@@ -1298,22 +1339,20 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                         <button
                           type="button"
                           onClick={() => setStyleRaw(!styleRaw)}
-                          className={`p-1.5 text-[9.5px] font-mono font-bold border transition-all text-center ${
-                            styleRaw
+                          className={`p-1.5 text-[9.5px] font-mono font-bold border transition-all text-center ${styleRaw
                               ? "bg-[var(--editorial-violet)] text-white border-[var(--editorial-violet)]"
                               : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-[var(--editorial-rule)]"
-                          }`}
+                            }`}
                         >
                           Style Raw: {styleRaw ? "ON" : "OFF"}
                         </button>
                         <button
                           type="button"
                           onClick={() => setTileMode(!tileMode)}
-                          className={`p-1.5 text-[9.5px] font-mono font-bold border transition-all text-center ${
-                            tileMode
+                          className={`p-1.5 text-[9.5px] font-mono font-bold border transition-all text-center ${tileMode
                               ? "bg-[var(--editorial-violet)] text-white border-[var(--editorial-violet)]"
                               : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-[var(--editorial-rule)]"
-                          }`}
+                            }`}
                         >
                           Tile Mesh: {tileMode ? "ON" : "OFF"}
                         </button>
@@ -1333,11 +1372,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                             key={vm}
                             type="button"
                             onClick={() => setVideoMotion(videoMotion === vm ? "" : vm)}
-                            className={`px-1.5 py-0.5 text-[9.5px] font-mono border transition-all ${
-                              videoMotion === vm
+                            className={`px-1.5 py-0.5 text-[9.5px] font-mono border transition-all ${videoMotion === vm
                                 ? "bg-[var(--editorial-violet)] text-white border-[var(--editorial-violet)] font-bold"
                                 : "bg-[var(--editorial-surface)] border-[var(--editorial-rule)] text-[var(--editorial-ink)]"
-                            }`}
+                              }`}
                           >
                             {videoMotion === vm ? `✓ ${vm}` : `+ ${vm}`}
                           </button>
@@ -1353,7 +1391,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                 <div className="space-y-2.5">
                   <div className="flex justify-between items-center">
                     <span className="font-mono text-[9.5px] font-bold uppercase text-[var(--editorial-muted)]">
-                      Exclusion Chamber Field
+                      Negative Prompt
                     </span>
                     <button
                       type="button"
@@ -1406,11 +1444,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                                     );
                                   }
                                 }}
-                                className={`px-1.5 py-0.5 text-[9px] font-mono border transition-all ${
-                                  isAdded
+                                className={`px-1.5 py-0.5 text-[9px] font-mono border transition-all ${isAdded
                                     ? "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30 font-bold"
                                     : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-[var(--editorial-rule)] hover:border-red-500/40"
-                                }`}
+                                  }`}
                               >
                                 {isAdded ? `✕ ${neg}` : `+ ${neg}`}
                               </button>
@@ -1431,11 +1468,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                       <div className="flex items-center justify-between p-2 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
                         <span className="font-mono text-xs font-bold text-[var(--editorial-ink)]">Quality Index</span>
                         <span
-                          className={`px-2 py-0.5 text-xs font-mono font-bold border ${
-                            qualityReport.grade === "S" || qualityReport.grade === "A"
+                          className={`px-2 py-0.5 text-xs font-mono font-bold border ${qualityReport.grade === "S" || qualityReport.grade === "A"
                               ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
                               : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
-                          }`}
+                            }`}
                         >
                           Grade {qualityReport.grade} ({qualityReport.overallScore}/100)
                         </span>
@@ -1487,104 +1523,28 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
         </div>
 
         {/* ==================================================================== */}
-        {/* CENTER PANE: CREATIVE LABORATORY BENCH & INSTRUMENTS (5.5 cols)     */}
+        {/* CENTER PANE: CREATIVE LABORATORY BENCH & INSTRUMENTS (6 cols)        */}
         {/* ==================================================================== */}
         <div
-          className={`xl:col-span-6 flex-col gap-3.5 ${
-            mobilePane === "canvas" ? "flex" : "hidden xl:flex"
-          }`}
+          className={`xl:col-span-6 flex-col gap-3.5 ${mobilePane === "canvas" ? "flex" : "hidden xl:flex"} xl:self-stretch`}
         >
           {/* Main Laboratory Instrument Workspace Panel */}
           <div className="editorial-panel flex flex-col">
             {/* Mode Instruments Selector */}
             <div className="editorial-panel__header py-1.5 px-3 flex-wrap gap-2 justify-between items-center bg-[var(--editorial-surface)]">
-              {/* Instrument Mode Pills */}
-              <div className="flex items-center gap-0.5 bg-[var(--editorial-paper)] p-0.5 border border-[var(--editorial-rule)] overflow-x-auto">
-                <button
-                  type="button"
-                  onClick={() => setBuilderMode("canvas")}
-                  className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${
-                    builderMode === "canvas"
-                      ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
-                      : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
-                  }`}
-                >
-                  <Atom className="w-3 h-3" />
-                  Tokens
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setBuilderMode("fusion")}
-                  className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${
-                    builderMode === "fusion"
-                      ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
-                      : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
-                  }`}
-                >
-                  <FlaskConical className="w-3 h-3" />
-                  Fusion Lab
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setBuilderMode("mutation")}
-                  className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${
-                    builderMode === "mutation"
-                      ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
-                      : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
-                  }`}
-                >
-                  <Dna className="w-3 h-3" />
-                  Mutator
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setBuilderMode("formula")}
-                  className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${
-                    builderMode === "formula"
-                      ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
-                      : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
-                  }`}
-                >
-                  <Layers className="w-3 h-3" />
-                  Matrix
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setBuilderMode("dissect")}
-                  className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${
-                    builderMode === "dissect"
-                      ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
-                      : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
-                  }`}
-                >
-                  <ScanText className="w-3 h-3" />
-                  Dissect
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setBuilderMode("wildcard")}
-                  className={`px-2 py-1 text-[10px] font-mono font-bold uppercase transition-all flex items-center gap-1 ${
-                    builderMode === "wildcard"
-                      ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] shadow-sm"
-                      : "text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
-                  }`}
-                >
-                  <Dices className="w-3 h-3" />
-                  Wildcard
-                </button>
-              </div>
+              {renderModePills()}
 
               {/* Status Badge */}
               <span className="text-[9.5px] font-mono text-[var(--editorial-muted)] flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--editorial-violet)]" />
-                BUDGET: {maxChars}λ
+                BUDGET: {maxChars}
               </span>
             </div>
 
             {/* INSTRUMENT 1: QUANTUM TOKEN WORKBENCH */}
             {builderMode === "canvas" && (
               <div
-                className="p-3.5 overflow-y-auto cursor-text bg-[var(--editorial-surface)] min-h-[175px] max-h-[280px] border-b border-[var(--editorial-rule)] relative custom-scrollbar"
+                className="p-3.5 overflow-y-auto cursor-text bg-[var(--editorial-surface)] min-h-[220px] max-h-[420px] border-b border-[var(--editorial-rule)] relative custom-scrollbar"
                 onClick={() => inputRef.current?.focus()}
               >
                 {(isEnhancing || isJsonConverting || isCompressing || isGeneratingVariations) && (
@@ -1596,10 +1556,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                         isJsonConverting
                           ? "Calibrating Structured JSON Coordinates"
                           : isCompressing
-                          ? "Quantum Token Densification in Progress"
-                          : isGeneratingVariations
-                          ? "Synthesizing 3 Parallel Quantum States"
-                          : "Neural Semantic Synthesis"
+                            ? "Quantum Token Densification in Progress"
+                            : isGeneratingVariations
+                              ? "Synthesizing 3 Parallel Quantum States"
+                              : "Neural Semantic Synthesis"
                       }
                       status={`Calibrating tensor dimensions (max: ${maxChars} chars)...`}
                       stages={[
@@ -1646,7 +1606,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
 
             {/* INSTRUMENT 2: MOLECULAR FUSION LAB */}
             {builderMode === "fusion" && (
-              <div className="p-3.5 bg-[var(--editorial-surface)] border-b border-[var(--editorial-rule)] space-y-2.5 max-h-[280px] overflow-y-auto custom-scrollbar">
+              <div className="p-3.5 bg-[var(--editorial-surface)] border-b border-[var(--editorial-rule)] space-y-2.5 max-h-[400px] overflow-y-auto custom-scrollbar">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
                   <div>
                     <label className="text-[9px] uppercase font-bold text-[var(--editorial-muted)] block mb-0.5">
@@ -1716,12 +1676,41 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                     </button>
                   </div>
                 )}
+                <div className="border-t border-[var(--editorial-rule)] pt-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-mono font-bold uppercase">Creative Fusion — Multi-Agent Brainstorm</span>
+                    <button
+                      type="button"
+                      disabled={isBrainstorming || !compoundA.trim()}
+                      onClick={async () => {
+                        setIsBrainstorming(true);
+                        try {
+                          const res = await runCreativeFusion(`${compoundA} + ${compoundB}`, ["photographer", "painter", "cgi"]);
+                          setBrainstormResult(res);
+                        } catch { setBrainstormResult(null); } finally { setIsBrainstorming(false); }
+                      }}
+                      className="px-2 py-1 text-[10px] font-mono font-bold border bg-[var(--editorial-ink)] text-white disabled:opacity-40"
+                    >
+                      {isBrainstorming ? "Brainstorming…" : "Brainstorm 3 personas"}
+                    </button>
+                  </div>
+                  {brainstormResult && (
+                    <div className="space-y-1">
+                      <p className="text-[11px] font-mono p-2 border bg-white leading-snug">{brainstormResult.fusedPrompt}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {brainstormResult.candidates.slice(0,3).map((c,i) => (
+                          <button key={i} type="button" onClick={() => { const parts = c.split(/,\s*/).filter(Boolean); setTokens(parts.map((p, j) => ({ id: `brain_${j}_${Date.now()}`, text: p, weight: 1.0 }))); }} className="px-2 py-1 text-[9px] font-mono border bg-white">Use candidate {i+1}</button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
             {/* INSTRUMENT 3: QUANTUM ENTROPY & MUTATION LAB */}
             {builderMode === "mutation" && (
-              <div className="p-3.5 bg-[var(--editorial-surface)] border-b border-[var(--editorial-rule)] space-y-2.5 max-h-[280px] overflow-y-auto custom-scrollbar">
+              <div className="p-3.5 bg-[var(--editorial-surface)] border-b border-[var(--editorial-rule)] space-y-2.5 max-h-[400px] overflow-y-auto custom-scrollbar">
                 <div className="space-y-1">
                   <div className="flex justify-between items-center text-[9.5px] font-mono">
                     <span className="text-[var(--editorial-muted)] uppercase">Entropy Perturbation Level</span>
@@ -1770,7 +1759,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
 
             {/* INSTRUMENT 4: MODULAR FORMULA MATRIX */}
             {builderMode === "formula" && (
-              <div className="p-3.5 bg-[var(--editorial-surface)] border-b border-[var(--editorial-rule)] space-y-2 max-h-[280px] overflow-y-auto custom-scrollbar">
+              <div className="p-3.5 bg-[var(--editorial-surface)] border-b border-[var(--editorial-rule)] space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
                   <div>
                     <label className="text-[9px] uppercase font-bold text-[var(--editorial-muted)] block mb-0.5">
@@ -1862,7 +1851,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
 
             {/* INSTRUMENT 5: REVERSE SPECTROGRAPH (DISSECTOR) */}
             {builderMode === "dissect" && (
-              <div className="p-3.5 bg-[var(--editorial-surface)] border-b border-[var(--editorial-rule)] space-y-2 max-h-[280px] overflow-y-auto custom-scrollbar">
+              <div className="p-3.5 bg-[var(--editorial-surface)] border-b border-[var(--editorial-rule)] space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar">
                 <textarea
                   value={dissectInput}
                   onChange={(e) => setDissectInput(e.target.value)}
@@ -1899,36 +1888,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
               </div>
             )}
 
-            {/* INSTRUMENT 6: COMBINATORIAL WILDCARD MATRIX */}
-            {builderMode === "wildcard" && (
-              <div className="p-3.5 bg-[var(--editorial-surface)] border-b border-[var(--editorial-rule)] space-y-2 max-h-[280px] overflow-y-auto custom-scrollbar">
-                <textarea
-                  value={wildcardTemplate}
-                  onChange={(e) => setWildcardTemplate(e.target.value)}
-                  className="editorial-textarea min-h-[55px] text-xs font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={handleRollWildcard}
-                  className="editorial-button editorial-button--sm editorial-button--primary editorial-button--violet w-full justify-center"
-                >
-                  <Dices className="w-3 h-3 mr-1" />
-                  Roll Combinatorial State
-                </button>
-                {wildcardGenerated && (
-                  <div className="p-2 bg-[var(--editorial-paper)] border border-[var(--editorial-rule)] text-xs font-mono space-y-1 animate-slide-up-fade">
-                    <p className="m-0 text-[10.5px] text-[var(--editorial-ink)] leading-snug">{wildcardGenerated}</p>
-                    <button
-                      type="button"
-                      onClick={handleApplyWildcard}
-                      className="editorial-button editorial-button--sm editorial-button--secondary mt-1"
-                    >
-                      Use in Workbench
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+
 
             {/* Action & AI Co-Pilot Laboratory Toolbar */}
             <div className="p-2 bg-[var(--editorial-paper)] flex flex-wrap justify-between items-center gap-1.5">
@@ -1937,9 +1897,8 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                   <button
                     type="button"
                     onClick={startListening}
-                    className={`editorial-button editorial-button--sm ${
-                      isListening ? "bg-red-500 text-white animate-pulse" : "editorial-button--secondary"
-                    }`}
+                    className={`editorial-button editorial-button--sm ${isListening ? "bg-red-500 text-white animate-pulse" : "editorial-button--secondary"
+                      }`}
                     title={isListening ? "Stop Voice" : "Voice Input"}
                   >
                     {isListening ? <MicOffIcon className="w-3 h-3" /> : <MicIcon className="w-3 h-3" />}
@@ -1977,12 +1936,11 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                     type="button"
                     onClick={() => setShowAiPopover(!showAiPopover)}
                     disabled={!tokenString.trim() || isEnhancing || isCompressing || isGeneratingVariations}
-                    className={`editorial-button editorial-button--sm ${
-                      showAiPopover ? "editorial-button--violet" : "editorial-button--primary"
-                    }`}
+                    className={`editorial-button editorial-button--sm ${showAiPopover ? "editorial-button--violet" : "editorial-button--primary"
+                      }`}
                   >
                     <Zap className="w-3 h-3 mr-1" />
-                    <span>Neural Co-Pilot</span>
+                    <span>AI Assist</span>
                     <ChevronDownIcon className="w-2.5 h-2.5 ml-0.5" />
                   </button>
 
@@ -1990,39 +1948,21 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                     <div className="fixed inset-x-0 bottom-0 p-3 bg-[var(--editorial-paper)] border-t border-[var(--editorial-rule)] shadow-2xl z-50 animate-slide-up-fade lg:absolute lg:bottom-full lg:mb-1.5 lg:right-0 lg:left-auto lg:p-3 lg:border lg:w-[290px]">
                       <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-[var(--editorial-rule)]">
                         <span className="font-mono text-[10px] font-bold text-[var(--editorial-ink)] uppercase">
-                          Scientific Persona Discipline
+                          AI Enhancer
                         </span>
                         <button onClick={() => setShowAiPopover(false)} className="text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]">
                           <XIcon className="w-3 h-3" />
                         </button>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-1 mb-2.5">
-                        {Object.entries(PROMPT_ENGINEERING_PERSONAS).map(([key, p]) => (
-                          <button
-                            key={key}
-                            type="button"
-                            onClick={() => setSelectedPersona(key)}
-                            className={`p-1 text-left border text-[9.5px] font-mono flex items-center gap-1 transition-all ${
-                              selectedPersona === key
-                                ? "bg-[var(--editorial-violet)] text-white border-[var(--editorial-violet)] font-bold"
-                                : "bg-[var(--editorial-surface)] text-[var(--editorial-ink)] border-[var(--editorial-rule)]"
-                            }`}
-                          >
-                            <span>{p.icon}</span>
-                            <span className="truncate">{p.name.split(" ")[0]}</span>
-                          </button>
-                        ))}
-                      </div>
-
                       <div className="space-y-1.5">
                         <button
                           type="button"
-                          onClick={handleEnhanceWithPersona}
+                          onClick={handleEnhancePrompt}
                           className="editorial-button editorial-button--primary editorial-button--violet w-full justify-center text-xs"
                         >
                           <SparklesIcon className="w-3 h-3 mr-1" />
-                          <span>Elaborate Prompt ({maxChars}λ)</span>
+                          <span>Elaborate Prompt ({maxChars})</span>
                         </button>
                         <div className="grid grid-cols-2 gap-1.5">
                           <button
@@ -2047,7 +1987,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                   )}
                 </div>
 
-                <Tooltip content="Surprise Me (Deterministic Random Seed)">
+                <Tooltip content="Random Prompt">
                   <button
                     type="button"
                     onClick={() => {
@@ -2063,10 +2003,11 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                     className="editorial-button editorial-button--sm editorial-button--secondary"
                   >
                     <Atom className="w-3 h-3" />
+                    <span className="hidden sm:inline">Random</span>
                   </button>
                 </Tooltip>
 
-                <Tooltip content="Structured JSON Schema">
+                <Tooltip content="Convert to JSON">
                   <button
                     type="button"
                     onClick={handleJsonConvert}
@@ -2077,7 +2018,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                   </button>
                 </Tooltip>
 
-                <Tooltip content="Clear Apparatus">
+                <Tooltip content="Clear All">
                   <button
                     type="button"
                     onClick={handleClear}
@@ -2089,67 +2030,101 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
               </div>
             </div>
           </div>
-
-          {/* Compiled Live Production Output Specimen Box */}
-          {finalPrompt && (
-            <div className="editorial-panel animate-slide-up-fade">
-              <div className="editorial-panel__header py-1.5 px-3 bg-[var(--editorial-surface)]">
-                <div className="flex items-center gap-1.5">
-                  <Terminal className="w-3.5 h-3.5 text-[var(--editorial-coral)]" />
-                  <span className="font-mono text-xs font-bold text-[var(--editorial-ink)]">Synthesized Specimen String</span>
-                </div>
-                <span className="font-mono text-[9.5px] text-[var(--editorial-muted)] uppercase">
-                  {platform}
-                </span>
+          {/* Version History — collapsed by default */}
+          <details className="editorial-panel">
+            <summary className="p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-[var(--editorial-surface)] transition-colors">
+              <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--editorial-ink)] m-0">Version History</h3>
+              <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 border border-[var(--editorial-rule)] bg-[var(--editorial-surface)] text-[var(--editorial-ink)]">{version.history.length} commits</span>
+            </summary>
+            <div className="p-3.5 pt-0 flex flex-col gap-2.5">
+              <div className="flex gap-1.5">
+                <button type="button" onClick={() => version.commit("Manual checkpoint")} className="px-3 py-1.5 text-xs font-mono font-bold border border-[var(--editorial-ink)] bg-[var(--editorial-ink)] text-[var(--editorial-paper)] hover:bg-[var(--editorial-ink-strong)] transition-colors">Commit</button>
+                <button type="button" onClick={() => { const patch = version.exportPatch(); const blob = new Blob([patch], { type: "text/plain" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `prompt-${promptId ?? "draft"}.patch`; a.click(); URL.revokeObjectURL(url); }} className="px-3 py-1.5 text-xs font-mono font-bold border border-[var(--editorial-rule)] bg-[var(--editorial-paper)] text-[var(--editorial-ink)] hover:border-[var(--editorial-violet)] transition-colors">Export patch</button>
               </div>
-              <div className="p-3 bg-[var(--editorial-paper)] space-y-2.5">
-                <p className="m-0 font-mono text-xs sm:text-[12px] text-[var(--editorial-ink)] leading-relaxed break-words bg-[var(--editorial-surface)] p-2.5 border border-[var(--editorial-rule)] select-all shadow-inner">
-                  {finalPrompt}
-                </p>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    disabled={!finalPrompt.trim() || isOverLimit}
-                    className="editorial-button editorial-button--secondary w-full justify-center min-h-[34px]"
-                  >
-                    {saveFeedback ? (
-                      <>
-                        <CheckIcon className="w-3.5 h-3.5 text-green-500 mr-1" />
-                        <span>Preserved in Vault!</span>
-                      </>
-                    ) : (
-                      <span>{promptId ? "Update Specimen" : "Preserve in Vault"}</span>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleCopyPrompt}
-                    disabled={!finalPrompt.trim() || isOverLimit}
-                    className="editorial-button editorial-button--primary w-full justify-center min-h-[34px]"
-                  >
-                    {copied ? (
-                      <>
-                        <CheckIcon className="w-3.5 h-3.5 mr-1" />
-                        <span>Copied!</span>
-                      </>
-                    ) : (
-                      <>
-                        <CopyIcon className="w-3.5 h-3.5 mr-1" />
-                        <span>Copy Specimen</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
+              {version.history.length > 0 ? (
+                <ul className="max-h-[150px] overflow-auto border border-[var(--editorial-rule)] bg-[var(--editorial-paper)] divide-y divide-[var(--editorial-rule)] text-xs font-mono">
+                  {version.history.slice(-10).reverse().map((v) => (
+                    <li key={v.id} className="flex items-center justify-between p-2.5 gap-2 hover:bg-[var(--editorial-surface)] transition-colors">
+                      <span className="truncate flex-1 text-[var(--editorial-ink)]">{new Date(v.at).toLocaleTimeString()} — {v.message ?? v.text.slice(0, 60)}</span>
+                      <button type="button" onClick={() => { const rolled = version.rollback(v.id); if (rolled) { const parts = rolled.text.split(/,\s*/).filter(Boolean); setTokens(parts.map((p, i) => ({ id: `rb_${i}_${Date.now()}`, text: p, weight: 1.0 }))); } }} className="px-2 py-1 text-[10px] font-mono font-bold border border-[var(--editorial-rule)] bg-[var(--editorial-paper)] text-[var(--editorial-ink)] hover:border-[var(--editorial-violet)] hover:text-[var(--editorial-violet)]">Rollback</button>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="text-xs font-mono text-[var(--editorial-muted)] p-2 border border-dashed border-[var(--editorial-rule)] bg-[var(--editorial-surface)]">No commits yet — hit Commit to snapshot.</p>}
             </div>
-          )}
+          </details>
+
+          {/* Analytics — collapsed by default */}
+          <details className="editorial-panel">
+            <summary className="p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-[var(--editorial-surface)] transition-colors">
+              <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--editorial-ink)] m-0">Analytics</h3>
+            </summary>
+            <div className="p-3.5 pt-0">
+              <AnalyticsDashboard records={prompts.map((p) => ({ text: p.text, createdAt: p.createdAt, grade: (p as any).grade }))} />
+            </div>
+          </details>
+
+          {/* Final Output — always visible */}
+          <div className="editorial-panel">
+            <div className="editorial-panel__header py-1.5 px-3 bg-[var(--editorial-surface)]">
+              <div className="flex items-center gap-1.5">
+                <Terminal className="w-3.5 h-3.5 text-[var(--editorial-coral)]" />
+                <span className="font-mono text-xs font-bold text-[var(--editorial-ink)]">Final Output</span>
+              </div>
+              <span className="font-mono text-[9.5px] text-[var(--editorial-muted)] uppercase">
+                {platform}
+              </span>
+            </div>
+            <div className="p-3 bg-[var(--editorial-paper)] space-y-2.5">
+              <p className={`m-0 font-mono text-xs sm:text-[12px] leading-relaxed break-words bg-[var(--editorial-surface)] p-2.5 border border-[var(--editorial-rule)] select-all shadow-inner ${finalPrompt ? "text-[var(--editorial-ink)]" : "text-[var(--editorial-muted)] italic"}`}>
+                {finalPrompt || "Your composed prompt will appear here…"}
+              </p>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={!finalPrompt.trim() || isOverLimit}
+                  className="editorial-button editorial-button--secondary w-full justify-center min-h-[34px]"
+                >
+                  {saveFeedback ? (
+                    <>
+                      <CheckIcon className="w-3.5 h-3.5 text-green-500 mr-1" />
+                      <span>Saved!</span>
+                    </>
+                  ) : (
+                    <span>{promptId ? "Update Prompt" : "Save Prompt"}</span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCopyPrompt}
+                  disabled={!finalPrompt.trim() || isOverLimit}
+                  className="editorial-button editorial-button--primary w-full justify-center min-h-[34px]"
+                >
+                  {copied ? (
+                    <>
+                      <CheckIcon className="w-3.5 h-3.5 mr-1" />
+                      <span>Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <CopyIcon className="w-3.5 h-3.5 mr-1" />
+                      <span>Copy to Clipboard</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Direct Jump to AI Image Creators */}
+              <QuickImageGenerators prompt={finalPrompt} variant="compact" />
+            </div>
+          </div>
         </div>
 
         {/* ==================================================================== */}
-        {/* RIGHT PANE: SPECIMEN ARCHIVES & SMART KNOWLEDGE VAULT (3 cols)      */}
+        {/* RIGHT PANE: Keywords & Templates Library (3 cols)                   */}
         {/* ==================================================================== */}
         <div
           className={`xl:col-span-3 flex-col gap-3.5 ${
@@ -2161,10 +2136,16 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
               selectedWords={tokens.map((t) => t.text)}
               onWordClick={(word) => handleWordClick(word)}
               onApplyArchetype={(archetype) => handleApplyMasterArchetype(archetype)}
+              onUseTemplate={(filled) => {
+                const parts = filled.split(/,\s*/).filter(Boolean);
+                setTokens((prev) => [...prev, ...parts.map((p, i) => ({ id: `tpl_${Date.now()}_${i}`, text: p.trim(), weight: 1.0 }))]);
+              }}
             />
           </div>
         </div>
       </div>
+      <GuidedTour />
+      <div aria-live="polite" aria-atomic="true" className="sr-only">{isFusing ? "Fusing compounds" : ""}{isMutating ? "Mutating" : ""}{isBrainstorming ? "Brainstorming fusion" : ""}</div>
 
       {/* 3-VARIATIONS GENERATOR MODAL */}
       {variationsModalOpen && (
@@ -2270,6 +2251,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                 </button>
               </div>
             </div>
+
+            <div className="mt-3 pt-2">
+              <QuickImageGenerators prompt={enhancedResultText} variant="compact" title="Direct Jump with Elaborated Prompt" />
+            </div>
           </div>
         </div>
       )}
@@ -2335,8 +2320,9 @@ const RightExplorerPanel: React.FC<{
   selectedWords: string[];
   onWordClick: (word: string) => void;
   onApplyArchetype: (archetype: typeof MASTER_FORMULA_ARCHETYPES[0]) => void;
-}> = ({ selectedWords, onWordClick, onApplyArchetype }) => {
-  const [activeTab, setActiveTab] = useState<"keywords" | "archetypes">("keywords");
+  onUseTemplate?: (filled: string) => void;
+}> = ({ selectedWords, onWordClick, onApplyArchetype, onUseTemplate }) => {
+  const [activeTab, setActiveTab] = useState<"keywords" | "archetypes" | "templates" | "analytics">("keywords");
 
   return (
     <>
@@ -2345,24 +2331,44 @@ const RightExplorerPanel: React.FC<{
           <button
             type="button"
             onClick={() => setActiveTab("keywords")}
-            className={`px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider border transition-all ${
-              activeTab === "keywords"
+            className={`px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider border transition-all ${activeTab === "keywords"
                 ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)]"
                 : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-transparent hover:text-[var(--editorial-ink)]"
-            }`}
+              }`}
           >
             Specimens
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("archetypes")}
-            className={`px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider border transition-all ${
-              activeTab === "archetypes"
+            className={`px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider border transition-all ${activeTab === "archetypes"
                 ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)]"
                 : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-transparent hover:text-[var(--editorial-ink)]"
-            }`}
+              }`}
           >
             Blueprints
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("templates")}
+            aria-label="Templates tab"
+            className={`px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider border transition-all ${activeTab === "templates"
+                ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)]"
+                : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-transparent hover:text-[var(--editorial-ink)]"
+              }`}
+          >
+            Templates
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("analytics")}
+            aria-label="Analytics tab"
+            className={`px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider border transition-all ${activeTab === "analytics"
+                ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)]"
+                : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-transparent hover:text-[var(--editorial-ink)]"
+              }`}
+          >
+            Analytics
           </button>
         </div>
       </div>
@@ -2373,6 +2379,12 @@ const RightExplorerPanel: React.FC<{
         )}
         {activeTab === "archetypes" && (
           <MasterArchetypeLibrary onSelectArchetype={onApplyArchetype} />
+        )}
+        {activeTab === "templates" && (
+          <TemplateGallery onUse={(filled) => onUseTemplate?.(filled)} />
+        )}
+        {activeTab === "analytics" && (
+          <AnalyticsDashboard records={[]} />
         )}
       </div>
     </>
@@ -2527,11 +2539,10 @@ const SmartWordLibrary: React.FC<{
               setActiveCategory(cat);
               setSearch("");
             }}
-            className={`px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider border transition-all ${
-              activeCategory === cat && !search
+            className={`px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider border transition-all ${activeCategory === cat && !search
                 ? "bg-[var(--editorial-ink)] text-[var(--editorial-paper)] border-[var(--editorial-ink)]"
                 : "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-[var(--editorial-rule)] hover:text-[var(--editorial-ink)]"
-            }`}
+              }`}
           >
             {cat.split(" ")[0]}
           </button>
@@ -2559,11 +2570,10 @@ const SmartWordLibrary: React.FC<{
                       type="button"
                       onClick={() => onWordClick(word)}
                       disabled={isSelected}
-                      className={`px-1.5 py-0.5 text-[10px] font-mono transition-all border ${
-                        isSelected
+                      className={`px-1.5 py-0.5 text-[10px] font-mono transition-all border ${isSelected
                           ? "bg-[var(--editorial-surface)] text-[var(--editorial-muted)] border-[var(--editorial-rule)] opacity-40 cursor-not-allowed"
                           : "bg-[var(--editorial-surface)] hover:bg-[var(--editorial-violet-soft)] text-[var(--editorial-ink)] hover:text-[var(--editorial-violet)] border-[var(--editorial-rule)] hover:border-[var(--editorial-violet)]"
-                      }`}
+                        }`}
                     >
                       + {word}
                     </button>

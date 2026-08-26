@@ -3,7 +3,7 @@ import { PenCircuitIcon, SparklesIcon, LayersIcon } from './icons';
 
 const HelpResources: React.FC = () => {
   return (
-    <div className="feature-theme-help max-w-5xl mx-auto py-8 space-y-10">
+    <div className="feature-theme-help max-w-full w-full mx-auto py-8 space-y-10">
       <header className="editorial-page__header editorial-page__header--centered">
         <p className="editorial-page__eyebrow">
           <span className="editorial-page__eyebrow-mark" aria-hidden="true" />

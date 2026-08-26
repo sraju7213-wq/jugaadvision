@@ -1,0 +1,47 @@
+/* PHASE 2 — Accessibility & Theme-polish overlays */
+html[data-theme="high-contrast"] {
+  --ui-bg: #ffffff;
+  --ui-surface: #ffffff;
+  --ui-surface-muted: #ffffff;
+  --ui-ink: #000000;
+  --ui-ink-strong: #000000;
+  --ui-muted: #1a1a1a;
+  --ui-border: #000000;
+  --ui-border-strong: #000000;
+  --ui-violet: #0000ee;
+  --ui-coral: #cc0000;
+}
+html[data-theme="high-contrast"] * { border-color: #000 !important; }
+html[data-theme="high-contrast"] .editorial-panel { border-width: 2px !important; }
+html[data-theme="dyslexia"] body { font-family: "OpenDyslexic", Verdana, sans-serif !important; letter-spacing: 0.04em; line-height: 1.7; }
+html[data-theme="dyslexia"] .font-mono { letter-spacing: 0.03em; }
+
+/* Skip link */
+.skip-link { position: absolute; left: -9999px; top: auto; width: 1px; height: 1px; overflow: hidden; }
+.skip-link:focus { left: 12px; top: 12px; width: auto; height: auto; padding: 8px 12px; background: var(--ui-ink); color: var(--ui-surface); z-index: 9999; border: 2px solid var(--ui-surface); font-family: monospace; font-weight: 700; }
+
+/* Focus */
+*:focus-visible { outline: 2px solid var(--ui-violet); outline-offset: 2px; }
+.editorial-panel:focus-within { border-color: var(--ui-violet); }
+
+/* Ensure all text in panels is readable */
+.editorial-panel { color: var(--editorial-ink); background: var(--editorial-paper); border: 1px solid var(--editorial-rule); }
+.editorial-panel__header { color: var(--editorial-ink); }
+.editorial-input, .editorial-textarea { color: var(--editorial-ink); background: var(--editorial-paper); border-color: var(--editorial-rule); }
+.editorial-input::placeholder, .editorial-textarea::placeholder { color: var(--editorial-muted); opacity: 0.9; }
+
+/* Inputs in new components — high contrast placeholder */
+input::placeholder { color: var(--editorial-muted); opacity: 0.85; }
+
+/* Scrollbar polish */
+.custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: var(--editorial-rule); }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: var(--editorial-muted); }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; } }
+
+/* Dark mode polish — ensure editorial tokens still readable */
+html.dark { --ui-bg: #0c0d11; --ui-surface: #1a1c22; --ui-surface-muted: #1e2028; --ui-ink: #f4f1ec; --ui-muted: #a8a6ac; --ui-border: rgba(255,255,255,0.14); }
+html.dark .editorial-panel { background: var(--ui-surface); }
+html.dark .editorial-surface { background: rgba(255,255,255,0.06); }

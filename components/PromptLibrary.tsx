@@ -9,6 +9,7 @@ import {
   SparklesIcon,
   SearchIcon,
 } from "./icons";
+import QuickImageGenerators from "./QuickImageGenerators";
 
 interface PromptLibraryProps {
   prompts: Prompt[];
@@ -149,14 +150,17 @@ const PromptCard: React.FC<{
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={() => onUse(prompt)}
-          className="editorial-button editorial-button--sm editorial-button--primary"
-        >
-          <SparklesIcon className="w-3.5 h-3.5" />
-          <span>Load</span>
-        </button>
+        <div className="flex items-center gap-1.5">
+          <QuickImageGenerators prompt={prompt.text} variant="dropdown" />
+          <button
+            type="button"
+            onClick={() => onUse(prompt)}
+            className="editorial-button editorial-button--sm editorial-button--primary"
+          >
+            <SparklesIcon className="w-3.5 h-3.5" />
+            <span>Load</span>
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -205,7 +209,7 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ prompts, setPrompts, onUs
   };
 
   return (
-    <div className="feature-theme-library py-6 h-[calc(100vh-8rem)] flex flex-col max-w-7xl mx-auto">
+    <div className="feature-theme-library py-6 h-[calc(100vh-8rem)] flex flex-col max-w-full w-full mx-auto">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4 pb-4 border-b border-[var(--editorial-rule)]">
         <div>
           <p className="editorial-page__eyebrow mb-1">

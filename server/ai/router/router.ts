@@ -68,12 +68,11 @@ export class AIRouter {
   }
 
   private async performRouting(request: AIRequest): Promise<AIResponse> {
-    // Keep model discovery current in long-lived servers and serverless
-    // instances alike. Give live discovery a short head start so first-use
-    // routing can select a current model, then continue in the background if
-    // a provider is slow.
+    // Never make a normal user request wait for live model discovery. The
+    // registry is initialized with bootstrap models and refreshes in the
+    // background; only an empty registry may synchronously bootstrap once.
     if (freeModelRegistry.isRefreshDue()) {
-      await freeModelRegistry.waitForFreshCatalog();
+      freeModelRegistry.refreshInBackground(true);
     }
 
     // 1. Get all models from FreeModelRegistry

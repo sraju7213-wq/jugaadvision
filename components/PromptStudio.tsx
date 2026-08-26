@@ -161,7 +161,7 @@ const PromptStudio: React.FC<PromptStudioProps> = ({
   ]);
 
   return (
-    <div className="w-full max-w-[1760px] mx-auto px-2 sm:px-4 lg:px-6 pb-20 pt-4 sm:pt-6">
+    <div className="w-full max-w-full w-full mx-auto px-2 sm:px-4 lg:px-6 pb-20 pt-4 sm:pt-6">
       <div className="text-center space-y-1.5 mb-6">
         <p className="text-[11px] uppercase tracking-[0.25em] font-mono text-[var(--editorial-muted)]">
           AI Prompt Studio &amp; Engineering Workstation

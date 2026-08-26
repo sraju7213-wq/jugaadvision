@@ -22,6 +22,7 @@ import {
   SparklesIcon,
   RefreshIcon,
 } from "./icons";
+import QuickImageGenerators from "./QuickImageGenerators";
 
 interface BatchGeneratorProps {
   onSendToBuilder: (prompt: string) => void;
@@ -172,14 +173,17 @@ const ResultCard = React.memo(
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={() => onSendToBuilder(prompt)}
-            className="editorial-button editorial-button--sm editorial-button--primary min-h-[36px]"
-          >
-            <SparklesIcon className="w-3 h-3" />
-            <span>To Builder</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <QuickImageGenerators prompt={prompt} variant="dropdown" />
+            <button
+              type="button"
+              onClick={() => onSendToBuilder(prompt)}
+              className="editorial-button editorial-button--sm editorial-button--primary min-h-[36px]"
+            >
+              <SparklesIcon className="w-3 h-3" />
+              <span>To Builder</span>
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -450,7 +454,7 @@ const BatchGenerator: React.FC<BatchGeneratorProps> = ({
   const hasFailedItems = items.some((i) => i.status === "error");
 
   return (
-    <div className="w-full max-w-7xl mx-auto flex flex-col lg:flex-row gap-6 animate-fade-in items-start">
+    <div className="w-full max-w-full w-full mx-auto flex flex-col lg:flex-row gap-6 animate-fade-in items-start">
       {/* Left Panel: Advanced Controls */}
       <div className="w-full lg:w-[380px] xl:w-[420px] flex-shrink-0 editorial-panel">
         <div className="editorial-panel__header">

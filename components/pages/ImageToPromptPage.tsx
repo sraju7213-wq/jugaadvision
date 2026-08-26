@@ -12,7 +12,7 @@ const ImageToPromptPage: React.FC<ImageToPromptPageProps> = ({
   onSaveToLibrary,
 }) => {
   return (
-    <div className="feature-theme-image w-full max-w-6xl mx-auto pb-16 pt-2">
+    <div className="feature-theme-image w-full max-w-full w-full mx-auto pb-16 pt-2">
       <FeatureHeader
         currentId="image-to-prompt"
         title="Image to Prompt"
