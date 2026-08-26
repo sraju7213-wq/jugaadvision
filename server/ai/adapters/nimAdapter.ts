@@ -1,37 +1,13 @@
 import type { AIModel, AIRequest, AIResponse, ChatMessage, FreeEligibility, ModelModality } from '../types';
 import { AdapterError, fetchWithTimeout, type IProviderAdapter } from './baseAdapter';
 
+// Kept deliberately small and periodically verified.  NIM's catalog exposes
+// availability but not reliable price metadata, so this list is the only group
+// eligible for the app's free-first routing policy.
 const KNOWN_FREE_NIM_MODEL_IDS = new Set([
-  'nvidia/llama-3.1-nemotron-nano-vl-8b-v1',
-  'nvidia/nemotron-nano-12b-v2-vl',
-  'meta/llama-3.1-8b-instruct',
-  'meta/llama-3.1-70b-instruct',
-  'meta/llama-3.1-405b-instruct',
-  'openai/gpt-oss-120b',
-  'openai/gpt-oss-20b',
-  'stepfun-ai/step-3.7-flash',
-  'z-ai/glm-5.2',
-  'meta/muse-glimmer-30b',
-  'google/diffusiongemma-26b-a4b-it',
-  'minimaxai/minimax-m3',
-  'nvidia/llama-3.3-nemotron-super-49b-v1',
-  'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-  'nvidia/nemotron-mini-4b-instruct',
-  'nvidia/nvidia-nemotron-nano-9b-v2',
-  'nvidia/nemotron-3-nano-30b-a3b',
-  'nvidia/nemotron-3-super-120b-a12b',
-  'nvidia/nemotron-3-ultra-550b-a55b',
   'meta/llama-3.2-11b-vision-instruct',
-  'meta/llama-3.2-90b-vision-instruct',
-  'mistralai/mistral-7b-instruct-v0.3',
-  'mistralai/mixtral-8x7b-instruct-v0.1',
-  'mistralai/mixtral-8x22b-instruct-v0.1',
-  'nvidia/nemotron-4-340b-instruct',
-  'nvidia/llama-3.1-nemotron-70b-instruct',
-  'google/gemma-2-9b-it',
-  'google/gemma-2-27b-it',
-  'microsoft/phi-3-mini-128k-instruct',
-  'microsoft/phi-3-medium-128k-instruct',
+  'nvidia/nemotron-3-nano-30b-a3b',
+  'openai/gpt-oss-20b',
 ]);
 
 export class NvidiaNimAdapter implements IProviderAdapter {

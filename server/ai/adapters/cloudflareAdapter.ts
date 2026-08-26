@@ -48,10 +48,16 @@ export class CloudflareAdapter implements IProviderAdapter {
   private verifyUrl = 'https://api.cloudflare.com/client/v4/user/tokens/verify';
 
   public isConfigured(): boolean {
+    // A token alone can verify successfully but cannot invoke Workers AI.
+    // Treat the adapter as unavailable until its account scope is configured
+    // so the router does not spend a fallback attempt on a guaranteed failure.
     return !!(
-      process.env.CLOUDFLARE_API_TOKEN ||
-      process.env.CLOUDFLARE_API_KEY ||
-      process.env.CLOUDFLARE_TOKEN
+      process.env.CLOUDFLARE_ACCOUNT_ID &&
+      (
+        process.env.CLOUDFLARE_API_TOKEN ||
+        process.env.CLOUDFLARE_API_KEY ||
+        process.env.CLOUDFLARE_TOKEN
+      )
     );
   }
 

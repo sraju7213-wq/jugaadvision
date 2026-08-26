@@ -202,7 +202,10 @@ export class AIRouter {
       }
 
       const adapter = modelDiscoveryService.getAdapter(candidate.provider);
-      if (!adapter) continue;
+      if (!adapter || !adapter.isConfigured()) {
+        unavailableProviders.add(candidate.provider);
+        continue;
+      }
 
       if (!keyPoolManager.isProviderAvailable(candidate.provider)) {
         unavailableProviders.add(candidate.provider);
@@ -272,7 +275,9 @@ export class AIRouter {
             errMsg.toLowerCase().includes('monthly included credits') ||
             errMsg.toLowerCase().includes('insufficient_quota') ||
             errMsg.toLowerCase().includes('payment required');
-          const isModelGone = statusCode === 404;
+          const isModelGone = statusCode === 404 || statusCode === 410 ||
+            errMsg.toLowerCase().includes('end of life') ||
+            errMsg.toLowerCase().includes('no longer available');
           const isTimeout = errMsg.toLowerCase().includes('timeout') || errMsg.toLowerCase().includes('timed out');
 
           if (isAuthFailure) {
@@ -283,8 +288,9 @@ export class AIRouter {
           }
 
           if (isModelGone) {
-            // Model doesn't exist — don't retry with different keys, move to next model
-            console.warn(`[AIRouter] Model ${candidate.providerModelId} not found (404) — skipping model.`);
+            // Retired and missing models are global failures, not key failures.
+            // Do not exhaust the remaining provider keys on an identical request.
+            console.warn(`[AIRouter] Model ${candidate.providerModelId} is unavailable (${statusCode ?? 'unknown'}) — skipping model.`);
             break;
           }
 
@@ -353,7 +359,7 @@ export class AIRouter {
 
     for (const p of providers) {
       const adapter = modelDiscoveryService.getAdapter(p);
-      if (!adapter) continue;
+      if (!adapter || !adapter.isConfigured()) continue;
 
       const apiKey = keyPoolManager.getAvailableKey(p);
       if (!apiKey) continue;

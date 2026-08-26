@@ -13,8 +13,10 @@ export class ModelDiscoveryService {
   private cacheTtlMs = parseInt(process.env.AI_CACHE_TTL_MS || '3600000', 10); // 1 hour
 
   constructor() {
-    this.registerAdapter(new OpenRouterAdapter());
+    // NIM has live, account-verified cold-start fallbacks. Register it first so
+    // equally scored free models do not prefer stale third-party bootstraps.
     this.registerAdapter(new NvidiaNimAdapter());
+    this.registerAdapter(new OpenRouterAdapter());
     this.registerAdapter(new HuggingFaceAdapter());
     this.registerAdapter(new CloudflareAdapter());
     this.registerAdapter(new CustomEndpointAdapter());
@@ -157,48 +159,19 @@ export class ModelDiscoveryService {
         ];
 
       case 'nim':
+        // These are live, account-verified models used while an instance
+        // refreshes its provider catalog. Retired models must never be used on
+        // a cold serverless request because they consume the retry budget.
         return [
           {
-            id: 'nvidia/llama-3.1-nemotron-nano-vl-8b-v1',
-            name: 'NVIDIA Nemotron Nano VL 8B (Vision)',
+            id: 'meta/llama-3.2-11b-vision-instruct',
+            name: 'Meta Llama 3.2 11B Vision Instruct',
             provider: 'nim',
             inputCost: 0,
             outputCost: 0,
             contextLength: 131072,
             capabilities: ['text', 'vision', 'json'],
             modalities: ['text', 'vision', 'json'],
-            isFree: true,
-            freeEligibility: 'free',
-            discoveredTimestamp: timestamp,
-            pricing: { prompt: 0, completion: 0, isZeroCost: true },
-            supportsStructuredJson: true,
-            tier: 'balanced',
-          },
-          {
-            id: 'nvidia/nemotron-nano-12b-v2-vl',
-            name: 'NVIDIA Nemotron Nano 12B VL (Vision)',
-            provider: 'nim',
-            inputCost: 0,
-            outputCost: 0,
-            contextLength: 131072,
-            capabilities: ['text', 'vision', 'json'],
-            modalities: ['text', 'vision', 'json'],
-            isFree: true,
-            freeEligibility: 'free',
-            discoveredTimestamp: timestamp,
-            pricing: { prompt: 0, completion: 0, isZeroCost: true },
-            supportsStructuredJson: true,
-            tier: 'balanced',
-          },
-          {
-            id: 'meta/llama-3.1-8b-instruct',
-            name: 'Meta Llama 3.1 8B Instruct',
-            provider: 'nim',
-            inputCost: 0,
-            outputCost: 0,
-            contextLength: 131072,
-            capabilities: ['text', 'json'],
-            modalities: ['text', 'json'],
             isFree: true,
             freeEligibility: 'free',
             discoveredTimestamp: timestamp,
@@ -207,8 +180,24 @@ export class ModelDiscoveryService {
             tier: 'fast',
           },
           {
-            id: 'meta/llama-3.1-70b-instruct',
-            name: 'Meta Llama 3.1 70B Instruct',
+            id: 'nvidia/nemotron-3-nano-30b-a3b',
+            name: 'NVIDIA Nemotron 3 Nano 30B',
+            provider: 'nim',
+            inputCost: 0,
+            outputCost: 0,
+            contextLength: 32768,
+            capabilities: ['text', 'json'],
+            modalities: ['text', 'json'],
+            isFree: true,
+            freeEligibility: 'free',
+            discoveredTimestamp: timestamp,
+            pricing: { prompt: 0, completion: 0, isZeroCost: true },
+            supportsStructuredJson: true,
+            tier: 'balanced',
+          },
+          {
+            id: 'openai/gpt-oss-20b',
+            name: 'GPT-OSS 20B Instruct',
             provider: 'nim',
             inputCost: 0,
             outputCost: 0,
@@ -221,54 +210,6 @@ export class ModelDiscoveryService {
             pricing: { prompt: 0, completion: 0, isZeroCost: true },
             supportsStructuredJson: true,
             tier: 'quality',
-          },
-          {
-            id: 'openai/gpt-oss-120b',
-            name: 'GPT-OSS 120B Instruct',
-            provider: 'nim',
-            inputCost: 0,
-            outputCost: 0,
-            contextLength: 131072,
-            capabilities: ['text', 'json', 'reasoning'],
-            modalities: ['text', 'json'],
-            isFree: true,
-            freeEligibility: 'free',
-            discoveredTimestamp: timestamp,
-            pricing: { prompt: 0, completion: 0, isZeroCost: true },
-            supportsStructuredJson: true,
-            tier: 'quality',
-          },
-          {
-            id: 'stepfun-ai/step-3.7-flash',
-            name: 'Step 3.7 Flash',
-            provider: 'nim',
-            inputCost: 0,
-            outputCost: 0,
-            contextLength: 65536,
-            capabilities: ['text', 'json'],
-            modalities: ['text', 'json'],
-            isFree: true,
-            freeEligibility: 'free',
-            discoveredTimestamp: timestamp,
-            pricing: { prompt: 0, completion: 0, isZeroCost: true },
-            supportsStructuredJson: true,
-            tier: 'fast',
-          },
-          {
-            id: 'meta/muse-glimmer-30b',
-            name: 'Meta Muse Glimmer 30B (Creative)',
-            provider: 'nim',
-            inputCost: 0,
-            outputCost: 0,
-            contextLength: 65536,
-            capabilities: ['text', 'json'],
-            modalities: ['text', 'json'],
-            isFree: true,
-            freeEligibility: 'free',
-            discoveredTimestamp: timestamp,
-            pricing: { prompt: 0, completion: 0, isZeroCost: true },
-            supportsStructuredJson: true,
-            tier: 'balanced',
           },
         ];
 

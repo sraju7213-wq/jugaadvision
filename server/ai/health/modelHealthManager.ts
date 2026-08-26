@@ -118,8 +118,8 @@ export class ModelHealthManager {
       data.cooldownUntil = now + cooldownMs;
       data.state = 'rate_limited';
       console.warn(`[ModelHealthManager] Model ${data.modelId} (${provider}) state: rate_limited for ${Math.round(cooldownMs / 1000)}s.`);
-    } else if (statusCode === 404) {
-      data.cooldownUntil = now + 300000; // 5 min cooldown for 404
+    } else if (statusCode === 404 || statusCode === 410) {
+      data.cooldownUntil = now + 300000; // 5 min cooldown for missing or retired models
       data.state = 'temporarily_unavailable';
     } else {
       const cooldownMs = Math.min(300000, 15000 * Math.pow(1.5, data.consecutiveFailures - 1));
