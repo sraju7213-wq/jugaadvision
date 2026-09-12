@@ -2,7 +2,7 @@
 module.exports = {
   darkMode: 'class',
   safelist: ['bg-indigo-600', 'bg-emerald-600', 'text-indigo-600', 'text-indigo-400', 'text-emerald-600', 'text-emerald-400', 'dark:text-indigo-400', 'dark:text-emerald-400'],
-  content: ['./index.html', './App.tsx', './components/**/*.{ts,tsx}', './hooks/**/*.{ts,tsx}'],
+  content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {

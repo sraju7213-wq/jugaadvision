@@ -5,6 +5,8 @@ export interface RawModelMetadata {
   name?: string;
   description?: string;
   provider: ProviderName;
+  modalities?: string[];
+  capabilities?: string[];
   architecture?: {
     modality?: string;
     instruct_type?: string | null;
@@ -255,8 +257,12 @@ return {
 
   private classifyGeneric(raw: RawModelMetadata): ModelCapabilities {
     const id = raw.id.toLowerCase();
-    const isChat = id.includes('chat') || id.includes('instruct');
-    const isVision = id.includes('vision') || id.includes('vlm');
+    // Explicit provider-declared capabilities (e.g. custom OpenAI-compatible
+    // endpoints) take precedence over id keyword guessing.
+    const declared = [...(raw.modalities || []), ...(raw.capabilities || [])].map((s) => String(s).toLowerCase());
+    const declares = (c: string) => declared.includes(c);
+    const isChat = id.includes('chat') || id.includes('instruct') || declares('text') || declares('chat');
+    const isVision = id.includes('vision') || id.includes('vlm') || declares('vision');
     const isCoding = id.includes('code') || id.includes('coder');
     const isReasoning = id.includes('r1') || id.includes('reason');
 
@@ -266,7 +272,7 @@ return {
       coding: isCoding ? 'supported' : 'unknown',
       vision: isVision ? 'supported' : 'unknown',
       tool_calling: 'unknown',
-      structured_output: isChat ? 'supported' : 'unknown',
+      structured_output: isChat || declares('json') ? 'supported' : 'unknown',
     };
   }
 }

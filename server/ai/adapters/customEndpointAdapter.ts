@@ -41,7 +41,9 @@ export class CustomEndpointAdapter implements IProviderAdapter {
   }
   private headers(apiKey: string): Record<string, string> { return apiKey && apiKey !== '__custom_endpoint__' ? { Authorization: `Bearer ${apiKey}` } : {}; }
   private model(id: string, name: string): AIModel {
-    const modalities: ModelModality[] = ['text', 'json'];
-    return { id, name, provider: this.name, inputCost: 0, outputCost: 0, contextLength: 32768, capabilities: ['text', 'json'], modalities, isFree: false, freeEligibility: 'eligible_unknown', discoveredTimestamp: new Date().toISOString(), tier: 'balanced', pricing: { prompt: 0, completion: 0, isZeroCost: false }, supportsStructuredJson: true };
+    // OpenAI-compatible chat-completions endpoints carry text, JSON mode and
+    // base64 image_url vision parts, so advertise all three explicitly.
+    const modalities: ModelModality[] = ['text', 'json', 'vision'];
+    return { id, name, provider: this.name, inputCost: 0, outputCost: 0, contextLength: 32768, capabilities: ['text', 'json', 'vision'], modalities, isFree: false, freeEligibility: 'eligible_unknown', discoveredTimestamp: new Date().toISOString(), tier: 'balanced', pricing: { prompt: 0, completion: 0, isZeroCost: false }, supportsStructuredJson: true };
   }
 }

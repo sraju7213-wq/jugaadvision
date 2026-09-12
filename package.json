@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "predev": "tailwindcss -i ./index.css -o ./public/styles.css --minify",
-    "prebuild": "tailwindcss -i ./index.css -o ./public/styles.css --minify && node scripts/bundle-api.mjs",
+    "predev": "tailwindcss -i ./src/index.css -o ./public/styles.css --minify",
+    "prebuild": "tailwindcss -i ./src/index.css -o ./public/styles.css --minify && node scripts/bundle-api.mjs",
     "bundle:api": "node scripts/bundle-api.mjs",
     "dev": "vite",
     "build": "vite build",

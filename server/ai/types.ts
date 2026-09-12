@@ -325,7 +325,7 @@ export interface UnifiedGenerateRequest {
   mode?: string;
   baseConcept?: string;
   constraints?: Record<string, any>;
-  references?: Array<{ url?: string; base64?: string; mimeType?: string; name?: string }>;
+  references?: Array<{ url?: string; base64?: string; mimeType?: string; name?: string; role?: string }>;
   requestedOutput?: 'text' | 'json' | 'vision' | 'mix';
   schema?: Record<string, any>;
   prompt?: string;

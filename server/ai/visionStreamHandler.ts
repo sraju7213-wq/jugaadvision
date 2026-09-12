@@ -11,8 +11,39 @@ import type { AIRequest } from './types';
 export async function handleVisionStreamRequest(body: any, clientIp = '127.0.0.1'): Promise<Response> {
   const encoder = new TextEncoder();
 
-  // Build AIRequest same as serverHandler vision path
-  const messages = body.messages || [
+  // Build AIRequest same as serverHandler vision path (multi-image aware)
+  const multiImages: Array<{ base64?: string; mimeType?: string; role?: string; url?: string }> =
+    Array.isArray(body.images) ? body.images : [];
+  const validMulti = multiImages.filter((im: any) => im && (im.base64 || im.url));
+  const toDataUrl = (im: { base64?: string; mimeType?: string; url?: string }) =>
+    im.base64
+      ? (im.base64.startsWith('data:') ? im.base64 : `data:${im.mimeType || 'image/jpeg'};base64,${im.base64}`)
+      : (im.url || '');
+  const roleLabels: Record<string, string> = {
+    layout: 'Layout & Pose reference',
+    style: 'Art Style reference',
+    palette: 'Color Palette reference',
+  };
+  const messages = body.messages || (validMulti.length > 0
+    ? [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `${body.prompt || 'Describe these images in rich visual detail for an image generation prompt.'} ${validMulti
+                .slice(0, 5)
+                .map((im: any, i: number) => `[Image ${i + 1}: ${(im.role && roleLabels[String(im.role).toLowerCase()]) || `Reference ${i + 1}`}]`)
+                .join(' ')} Fuse ALL images.`,
+            },
+            ...validMulti.slice(0, 5).map((im: any) => ({
+              type: 'image_url',
+              image_url: { url: toDataUrl(im) },
+            })),
+          ],
+        },
+      ]
+    : [
     {
       role: 'user',
       content: [
@@ -27,7 +58,7 @@ export async function handleVisionStreamRequest(body: any, clientIp = '127.0.0.1
         },
       ],
     },
-  ];
+  ]);
 
   const aiRequest: AIRequest = {
     taskType: 'advanced_image_analysis',

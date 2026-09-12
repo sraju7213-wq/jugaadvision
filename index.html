@@ -24,134 +24,6 @@
     <!-- Use the system font stack for stable metrics and zero font-request render delay. -->
 
     <!-- Tailwind utilities are compiled at build time into /styles.css. -->
-    <script type="application/json" id="legacy-tailwind-config">
-        tailwind.config = {
-            darkMode: "class",
-            theme: {
-                extend: {
-                    colors: {
-                        primary: "#7c3aed", // Electric Violet
-                        "background-light": "#f0f2f5",
-                        "background-dark": "#050505", // Deepest Black (Aurora Base)
-
-                        // Mapping old semantic names to new palette for compatibility
-                        "md-primary": "#7c3aed",
-                        "md-on-primary": "#ffffff",
-                        "md-surface": "var(--bg-color)",
-                        "md-on-surface": "var(--text-main)",
-                        "md-on-surface-variant": "var(--text-muted)",
-
-                        // Glassmorphism utilities
-                        glass: "rgba(255, 255, 255, 0.05)",
-                        "glass-hover": "rgba(255, 255, 255, 0.1)",
-                        "glass-border": "rgba(255, 255, 255, 0.1)",
-                    },
-                    fontFamily: {
-                        sans: ["Inter", "sans-serif"],
-                        display: ["Inter", "sans-serif"],
-                    },
-                    backgroundImage: {
-                        "gradient-cta":
-                            "linear-gradient(to right, #3b82f6, #8b5cf6)",
-                        "text-gradient":
-                            "linear-gradient(to right, #3b82f6, #8b5cf6)",
-                    },
-                    animation: {
-                        "slide-up-fade":
-                            "slideUpFade 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards",
-                        shimmer: "shimmer 2s linear infinite",
-                        breathing: "breathing 3s ease-in-out infinite",
-                        "pop-in": "popIn 0.3s ease-out forwards",
-
-                        // Aurora Animations
-                        "aurora-blob-1":
-                            "auroraBlob1 25s infinite alternate cubic-bezier(0.4, 0, 0.2, 1)",
-                        "aurora-blob-2":
-                            "auroraBlob2 30s infinite alternate-reverse cubic-bezier(0.4, 0, 0.2, 1)",
-                        "aurora-blob-3":
-                            "auroraBlob3 35s infinite alternate cubic-bezier(0.4, 0, 0.2, 1)",
-                    },
-                    keyframes: {
-                        slideUpFade: {
-                            "0%": {
-                                transform: "translateY(20px)",
-                                opacity: "0",
-                            },
-                            "100%": {
-                                transform: "translateY(0)",
-                                opacity: "1",
-                            },
-                        },
-                        shimmer: {
-                            "0%": { backgroundPosition: "200% 0" },
-                            "100%": { backgroundPosition: "-200% 0" },
-                        },
-                        breathing: {
-                            "0%, 100%": {
-                                opacity: "1",
-                                transform: "scale(1)",
-                            },
-                            "50%": {
-                                opacity: "0.85",
-                                transform: "scale(0.98)",
-                            },
-                        },
-                        popIn: {
-                            "0%": { transform: "scale(0.5)", opacity: "0" },
-                            "70%": {
-                                transform: "scale(1.1)",
-                                opacity: "1",
-                            },
-                            "100%": { transform: "scale(1)", opacity: "1" },
-                        },
-                        // Complex 3D Floating Motion - Optimized
-                        auroraBlob1: {
-                            "0%": {
-                                transform: "translate3d(0, 0, 0) scale(1)",
-                            },
-                            "33%": {
-                                transform:
-                                    "translate3d(10%, 10%, 0) scale(1.1)",
-                            },
-                            "66%": {
-                                transform:
-                                    "translate3d(-5%, 20%, 0) scale(0.9)",
-                            },
-                            "100%": {
-                                transform: "translate3d(0, 0, 0) scale(1)",
-                            },
-                        },
-                        auroraBlob2: {
-                            "0%": {
-                                transform:
-                                    "translate3d(0, 0, 0) rotate(0deg)",
-                            },
-                            "50%": {
-                                transform:
-                                    "translate3d(-10%, -10%, 0) rotate(10deg)",
-                            },
-                            "100%": {
-                                transform:
-                                    "translate3d(0, 0, 0) rotate(0deg)",
-                            },
-                        },
-                        auroraBlob3: {
-                            "0%": {
-                                transform: "translate3d(0, 0, 0) scale(1)",
-                            },
-                            "50%": {
-                                transform:
-                                    "translate3d(15%, -15%, 0) scale(1.2)",
-                            },
-                            "100%": {
-                                transform: "translate3d(0, 0, 0) scale(1)",
-                            },
-                        },
-                    },
-                },
-            },
-        };
-    </script>
     <style>
         :root {
             --bg-color: #f4f1ec;
@@ -330,19 +202,6 @@
             top: 0;
         }
     </style>
-    <!-- Vite bundles dependencies; keep this legacy map inert for standalone previews. -->
-    <script type="application/json" id="legacy-import-map">
-            {
-                "imports": {
-                    "react": "https://aistudiocdn.com/react@^19.2.0/index.js",
-                    "react-dom": "https://aistudiocdn.com/react-dom@^19.2.0/index.js",
-                    "react-dom/client": "https://aistudiocdn.com/react-dom@^19.2.0/client.js",
-                    "react-router-dom": "https://esm.sh/react-router-dom@6.22.3?external=react,react-dom",
-                    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-                    "react/": "https://aistudiocdn.com/react@^19.2.0/"
-                }
-            }
-        </script>
     <link rel="stylesheet" href="/styles.css" />
     <script>
       // Early theme hydration — ensures light default and remembers user choice before React mounts
@@ -370,7 +229,7 @@
     <a href="#main-content" class="skip-to-content">Skip to main content</a>
 
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
+    <script type="module" src="/src/index.tsx"></script>
 </body>
 
 </html>

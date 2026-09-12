@@ -434,12 +434,15 @@ export class FreeModelRegistry {
     const contextWindow = rawModel.contextWindow || rawModel.contextLength || 8192;
     const tier = rawModel.tier || 'balanced';
 
-    // Automatic Capability Classification
+    // Automatic Capability Classification (pass through provider-declared
+    // modalities/capabilities so generic adapters are trusted explicitly)
     const capabilityMap = capabilityClassifier.classify({
       id: providerModelId,
       name: rawModel.name,
       description: rawModel.description,
       provider,
+      modalities: rawModel.modalities,
+      capabilities: rawModel.capabilities,
       architecture: rawModel.architecture,
       supported_parameters: rawModel.supported_parameters,
       supportedGenerationMethods: rawModel.supportedGenerationMethods,

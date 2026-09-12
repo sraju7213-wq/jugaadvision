@@ -57,7 +57,7 @@ import {
   loadModelPolicySettings,
   saveModelPolicySettings,
   resetModelPolicySettings,
-} from '../../../services/settingsStorage';
+} from '../../../src/services/settingsStorage';
 import type { AIModel, AIRequest } from '../types';
 
 let passedTests = 0;

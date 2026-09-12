@@ -553,23 +553,41 @@ async function internalHandleAIRequest(
       let userInput = sanitizeInput(req.prompt || req.baseConcept || '');
 
       const isStructured = req.requestedOutput === 'json' || !!req.schema;
-      const isVision = req.requestedOutput === 'vision' || (req.references && req.references.length > 0 && req.references[0]?.base64);
+      const validRefs = Array.isArray(req.references)
+        ? req.references.filter((r: any) => r && (r.base64 || r.url))
+        : [];
+      const isVision = req.requestedOutput === 'vision' || validRefs.length > 0;
 
       let messages = req.messages;
       if (!messages) {
-        if (isVision && req.references && req.references[0]?.base64) {
-          const ref = req.references[0];
-          const imgUrl = ref.base64?.startsWith('data:')
-            ? ref.base64
-            : `data:${ref.mimeType || 'image/jpeg'};base64,${ref.base64}`;
+        if (isVision && validRefs.length > 0) {
+          const roleLabels: Record<string, string> = {
+            layout: 'Layout & Pose reference',
+            style: 'Art Style reference',
+            palette: 'Color Palette reference',
+          };
+          const imageParts = validRefs.slice(0, 5).map((ref: any, i: number) => {
+            const url = ref.base64
+              ? (ref.base64.startsWith('data:') ? ref.base64 : `data:${ref.mimeType || 'image/jpeg'};base64,${ref.base64}`)
+              : ref.url;
+            return { type: 'image_url' as const, image_url: { url } };
+          });
+          const roleHint = validRefs
+            .slice(0, 5)
+            .map((ref: any, i: number) => {
+              const label = (ref.role && roleLabels[String(ref.role).toLowerCase()]) || `Reference ${i + 1}${ref.name ? ` (${ref.name})` : ''}`;
+              return `[Image ${i + 1}: ${label}]`;
+            })
+            .join(' ');
+          const visionText = `${userInput || 'Analyze and describe these visual references.'}${roleHint ? ` ${roleHint} Fuse ALL images: use Image 1 for layout/pose, Image 2 for art style, Image 3 for color palette when roles are given.` : ''}`;
 
           messages = [
             ...(systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : []),
             {
               role: 'user' as const,
               content: [
-                { type: 'text' as const, text: userInput || 'Analyze and describe this visual scene.' },
-                { type: 'image_url' as const, image_url: { url: imgUrl } },
+                { type: 'text' as const, text: visionText },
+                ...imageParts,
               ],
             },
           ];
@@ -791,7 +809,38 @@ Output valid JSON adhering strictly to:
 
     // POST /api/ai/vision
     if (normalizedPath === 'vision') {
-      const messages = body.messages || [
+      const multiImages: Array<{ base64?: string; mimeType?: string; role?: string; url?: string }> =
+        Array.isArray(body.images) ? body.images : [];
+      const validMulti = multiImages.filter((im: any) => im && (im.base64 || im.url));
+      const toDataUrl = (im: { base64?: string; mimeType?: string; url?: string }) =>
+        im.base64
+          ? (im.base64.startsWith('data:') ? im.base64 : `data:${im.mimeType || 'image/jpeg'};base64,${im.base64}`)
+          : (im.url || '');
+      const roleLabels: Record<string, string> = {
+        layout: 'Layout & Pose reference',
+        style: 'Art Style reference',
+        palette: 'Color Palette reference',
+      };
+      const messages = body.messages || (validMulti.length > 0
+        ? [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: `${body.prompt || 'Describe these images in rich visual detail for an image generation prompt.'} ${validMulti
+                    .slice(0, 5)
+                    .map((im: any, i: number) => `[Image ${i + 1}: ${(im.role && roleLabels[String(im.role).toLowerCase()]) || `Reference ${i + 1}`}]`)
+                    .join(' ')} Fuse ALL images: Image 1 = layout/pose, Image 2 = art style, Image 3 = color palette when roles are given.`,
+                },
+                ...validMulti.slice(0, 5).map((im: any) => ({
+                  type: 'image_url',
+                  image_url: { url: toDataUrl(im) },
+                })),
+              ],
+            },
+          ]
+        : [
         {
           role: 'user',
           content: [
@@ -806,7 +855,7 @@ Output valid JSON adhering strictly to:
             },
           ],
         },
-      ];
+      ]);
 
       const aiRequest: AIRequest = {
         // Image-to-prompt requires detailed visual reasoning, so route it as
