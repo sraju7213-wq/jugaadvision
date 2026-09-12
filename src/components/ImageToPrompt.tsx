@@ -7,7 +7,7 @@ import {
   VisionPromptCustomization,
 } from "../services/geminiService";
 import { convertToStructuredPrompt } from "../services/cinematicPromptService";
-import { aiFetchModels } from "../services/aiGatewayClient";
+import { aiFetchModels, aiFetchHealth } from "../services/aiGatewayClient";
 import { DESCRIPTION_TYPES } from "../constants";
 import {
   compressImage,
@@ -137,7 +137,10 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
   const refreshModelCatalog = useCallback(async () => {
     setIsUpdatingModels(true);
     try {
-      const models = await aiFetchModels({ freeOnly: true, taskType: "advanced_image_analysis" });
+      const [models, health] = await Promise.all([
+        aiFetchModels({ freeOnly: true, taskType: "advanced_image_analysis" }),
+        aiFetchHealth().catch(() => null),
+      ]);
       const visionCapable = models.filter((model: any) => {
         const isEligible = (model?.verifiedFree === true && model?.eligibilityStatus === "free") || model?.eligibilityStatus === "eligible_unknown";
         const supportsVision = model?.capabilityMap?.vision === "supported" ||
@@ -145,7 +148,25 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
           model?.modalities?.includes?.("vision");
         return isEligible && supportsVision;
       });
-      setVisionModels(visionCapable);
+      // Only offer models from providers that actually have working keys.
+      // Otherwise users can select models (e.g. NIM, HuggingFace) that can
+      // never succeed, producing "No healthy providers" errors.
+      let usable = visionCapable;
+      try {
+        const providers = (health as any)?.report?.providers || {};
+        const activeProviders = new Set(
+          Object.entries(providers)
+            .filter(([, p]: any) => (p?.activeKeys || 0) > 0)
+            .map(([name]) => name)
+        );
+        if (activeProviders.size > 0) {
+          const filtered = visionCapable.filter((model: any) => activeProviders.has(model?.provider));
+          if (filtered.length > 0) usable = filtered;
+        }
+      } catch {
+        // Keep unfiltered list if health shape is unexpected
+      }
+      setVisionModels(usable);
       setModelsUpdatedAt(new Date());
     } catch (err) {
       console.warn("AI model catalog refresh failed:", err);
@@ -272,7 +293,16 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
         setError("");
         return;
       }
-      setError(e.message || "An unknown error occurred during vision analysis.");
+      const rawMsg = e.message || "An unknown error occurred during vision analysis.";
+      // Translate router-level failures into something actionable: they mean
+      // no configured provider could serve the request (missing keys or a
+      // rate-limited single key), not a problem with the image.
+      const needsKeyHint = /no healthy providers|no verified free|all ai fallback candidates failed/i.test(rawMsg);
+      setError(
+        needsKeyHint
+          ? "No working AI provider right now. Only providers with API keys configured can analyze images — keep AUTO selected, wait a few seconds and retry, or add more provider keys (Settings → Providers, or .env)."
+          : rawMsg
+      );
     } finally {
       if (!signal.aborted) {
         setIsLoading(false);
