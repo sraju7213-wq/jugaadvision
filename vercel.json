@@ -7,10 +7,19 @@
   ],
   "functions": {
     "api/ai/vision/stream.js": { "maxDuration": 60 },
-    "api/ai/generate.js": { "maxDuration": 30 },
+    "api/ai/generate.js": { "maxDuration": 60 },
+    "api/ai/validate.js": { "maxDuration": 30 },
+    "api/ai/health.js": { "maxDuration": 30 },
+    "api/ai/models.js": { "maxDuration": 30 },
+    "api/ai/provider/test.js": { "maxDuration": 30 },
+    "api/ai/providers/test.js": { "maxDuration": 30 },
     "api/ai/[...slug].js": { "maxDuration": 60 },
-    "api/creative-mix.js": { "maxDuration": 30 },
-    "api/remove-bg.js": { "maxDuration": 30 }
+    "api/creative-mix.js": { "maxDuration": 60 },
+    "api/remove-bg.js": { "maxDuration": 60 },
+    "api/settings/appearance.js": { "maxDuration": 30 },
+    "api/settings/custom-endpoint.js": { "maxDuration": 30 },
+    "api/settings/providers.js": { "maxDuration": 60 },
+    "api/settings/[...slug].js": { "maxDuration": 60 }
   },
   "headers": [
     {

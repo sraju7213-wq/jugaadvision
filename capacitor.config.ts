@@ -6,7 +6,13 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   backgroundColor: '#050505',
   android: {
-    allowMixedContent: false,
+    allowMixedContent: true,
+    backgroundColor: '#050505',
+  },
+  server: {
+    androidScheme: 'https',
+    hostname: 'jugaadvision.vercel.app',
+    cleartext: true,
   },
   plugins: {
     SplashScreen: {

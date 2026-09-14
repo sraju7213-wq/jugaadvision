@@ -28,6 +28,11 @@ export async function forwardToHandler(defaultPath: string, req: any, res: any) 
 
     const result = await handleAIRequest(url, method, body, clientIp);
 
+    // Always set CORS so Capacitor WebView (Origin: capacitor://localhost) works
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+
     if (result.headers) {
       for (const [k, v] of Object.entries(result.headers)) {
         res.setHeader(k, v);
@@ -37,6 +42,7 @@ export async function forwardToHandler(defaultPath: string, req: any, res: any) 
     res.status(result.status).json(result.data);
   } catch (err: any) {
     console.error('[API Error]:', err);
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.status(500).json({
       success: false,
       error: err?.message || 'Serverless Execution Error',
