@@ -1437,10 +1437,8 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                                   } else {
                                     setNegativePrompt(
                                       negativePrompt
-                                        .split(",")
-                                        .map((s) => s.trim())
-                                        .filter((s) => s.toLowerCase() !== neg.toLowerCase())
-                                        .join(", ")
+                                        ? `${negativePrompt}, ${neg}`
+                                        : neg
                                     );
                                   }
                                 }}
