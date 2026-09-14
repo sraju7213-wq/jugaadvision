@@ -2,6 +2,14 @@ import { handleAIRequest } from '../server/ai/serverHandler';
 
 export async function forwardToHandler(defaultPath: string, req: any, res: any) {
   try {
+    if ((req.method || 'GET').toUpperCase() === 'OPTIONS') {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+      res.status(204).end();
+      return;
+    }
+
     let url = req.url || defaultPath;
     if (!url.startsWith('/api/') && !url.startsWith('http')) {
       url = defaultPath + (url.startsWith('?') ? url : (url ? `/${url}` : ''));
