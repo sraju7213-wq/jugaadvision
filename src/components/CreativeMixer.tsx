@@ -12,11 +12,9 @@ import {
 } from "../services/neuralBackendService";
 import {
   CinematicPrompt,
-  CinematicPromptSchema,
   constructPrompt,
   LIGHTING_LABELS,
   CAMERA_LABELS,
-  ASPECT_RATIO_LABELS
 } from "../lib/schemas/cinematicPrompt";
 import { detectCreativeConflicts } from "../../server/ai/qualityGates";
 import {

@@ -1,12 +1,10 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import { ProcessingAnimation } from "./ProcessingAnimation";
 import {
-  generatePromptFromImage,
   generateStructuredVisionPrompt,
   StructuredVisionPrompt,
   VisionPromptCustomization,
 } from "../services/geminiService";
-import { convertToStructuredPrompt } from "../services/cinematicPromptService";
 import { aiFetchModels, aiFetchHealth } from "../services/aiGatewayClient";
 import { DESCRIPTION_TYPES } from "../constants";
 import {

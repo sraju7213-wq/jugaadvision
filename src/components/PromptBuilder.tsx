@@ -646,6 +646,9 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
     }
   };
 
+  const addTokenRef = useRef(addToken);
+  addTokenRef.current = addToken;
+
   const handleWordClick = useCallback((word: string) => {
     if (builderMode === "formula") {
       setFormulaSlots((prev) => ({
@@ -653,9 +656,9 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
         style: prev.style ? `${prev.style}, ${word}` : word,
       }));
     } else {
-      addToken(word);
+      addTokenRef.current(word);
     }
-  }, [builderMode, maxChars, finalPrompt.length]);
+  }, [builderMode]);
 
   const handleFormulaSlotChange = (slot: keyof FormulaSlots, value: string) => {
     setFormulaSlots((prev) => ({ ...prev, [slot]: value }));
@@ -865,8 +868,11 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
         setNegativePrompt(smartNeg);
         setActiveLeftTab("negative");
       }
-    } catch (err) {
-      // fallback
+    } catch (err: any) {
+      if (isMounted.current) {
+        setError(`Smart negative generation failed: ${err?.message || 'Unknown error'}`);
+        setTimeout(() => setError(null), 3000);
+      }
     } finally {
       if (isMounted.current) setIsGeneratingSmartNeg(false);
     }

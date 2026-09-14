@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { ProcessingAnimation } from "./ProcessingAnimation";
-import { generateBatchPrompts, BatchGenerationOptions } from "../services/geminiService";
+import { generateBatchPrompts } from "../services/geminiService";
 import { aiGenerateBatch } from "../services/aiGatewayClient";
 import {
   LIGHTING_LABELS,
@@ -400,8 +400,9 @@ const BatchGenerator: React.FC<BatchGeneratorProps> = ({
           return next;
         });
       }
-    } catch (err) {
-      // ignore
+    } catch (err: any) {
+      setErrorMessage(`Retry failed for variation ${index + 1}: ${err?.message || 'Unknown error'}`);
+      setTimeout(() => setErrorMessage(''), 3000);
     }
   };
 
