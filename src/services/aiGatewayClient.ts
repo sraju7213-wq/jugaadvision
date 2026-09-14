@@ -12,6 +12,8 @@ import type {
   QualityGateDiagnostic,
 } from '../../server/ai/types';
 
+import { apiUrl } from '../lib/apiBase';
+
 export interface AIGenerateOptions {
   prompt?: string;
   systemPrompt?: string;
@@ -127,7 +129,7 @@ export async function aiGenerateUnified(
   options: UnifiedGenerateRequest & { signal?: AbortSignal }
 ): Promise<UnifiedGenerateResponse> {
   return postJsonWithRetry<UnifiedGenerateResponse>(
-    '/api/ai/generate',
+    apiUrl('/api/ai/generate'),
     options,
     60000,
     1,
@@ -142,7 +144,7 @@ export async function aiGenerateBatch(
   options: BatchGenerateRequest & { signal?: AbortSignal }
 ): Promise<BatchGenerateResponse> {
   return postJsonWithRetry<BatchGenerateResponse>(
-    '/api/ai/batch',
+    apiUrl('/api/ai/batch'),
     options,
     90000,
     1,
@@ -158,7 +160,7 @@ export async function aiValidateStructured(
   schema?: Record<string, any>
 ): Promise<{ success: boolean; parsed?: any; diagnostics: QualityGateDiagnostic[] }> {
   return postJsonWithRetry(
-    '/api/ai/validate',
+    apiUrl('/api/ai/validate'),
     { raw, schema },
     15000,
     0
@@ -168,19 +170,19 @@ export async function aiValidateStructured(
 export async function aiGenerateText(
   options: AIGenerateOptions
 ): Promise<{ result: string; model: string; provider: string; durationMs: number }> {
-  return postJsonWithRetry('/api/ai/chat', options, 45000, 1, options.signal);
+  return postJsonWithRetry(apiUrl('/api/ai/chat'), options, 45000, 1, options.signal);
 }
 
 export async function aiGenerateStructured<T = any>(
   options: AIStructuredOptions
 ): Promise<{ result: T; raw: string; model: string; provider: string; durationMs: number }> {
-  return postJsonWithRetry('/api/ai/structured', options, 60000, 1, options.signal);
+  return postJsonWithRetry(apiUrl('/api/ai/structured'), options, 60000, 1, options.signal);
 }
 
 export async function aiAnalyzeVision(
   options: AIVisionOptions
 ): Promise<{ result: string; model: string; provider: string; durationMs: number }> {
-  return postJsonWithRetry('/api/ai/vision', { ...options, taskType: 'vision' }, 65000, 1, options.signal);
+  return postJsonWithRetry(apiUrl('/api/ai/vision'), { ...options, taskType: 'vision' }, 65000, 1, options.signal);
 }
 
 const VISION_ROLE_LABELS: Record<string, string> = {
@@ -220,7 +222,7 @@ export async function aiAnalyzeVisionMulti(
   // Preferred: single fused request carrying every image + roles
   try {
     const fused = await postJsonWithRetry<{ result: string; model: string; provider: string; durationMs: number }>(
-      '/api/ai/vision',
+      apiUrl('/api/ai/vision'),
       {
       prompt: options.prompt,
       images: images.map((im) => ({ base64: im.base64, mimeType: im.mimeType, role: im.role })),
@@ -290,7 +292,7 @@ export async function aiAnalyzeVisionStream(
 
   let timeoutId: any;
   try {
-    const res = await fetch('/api/ai/vision/stream', {
+    const res = await fetch(apiUrl('/api/ai/vision/stream'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
       body: JSON.stringify(options),
@@ -396,7 +398,7 @@ export async function aiFetchModelCatalog(options: { freeOnly?: boolean; taskTyp
     if (options.freeOnly !== undefined) params.set('freeOnly', String(options.freeOnly));
     if (options.taskType) params.set('taskType', options.taskType);
     const query = params.toString();
-    const res = await fetch(`/api/ai/models${query ? `?${query}` : ''}`);
+    const res = await fetch(apiUrl(`/api/ai/models${query ? `?${query}` : ''}`));
     const data = await res.json();
     return data;
   } catch (err: any) {
@@ -420,12 +422,12 @@ export async function aiFetchModels(options: { freeOnly?: boolean; taskType?: st
 }
 
 export async function aiRefreshModels(options: { freeOnly?: boolean; intervalMs?: number } = {}): Promise<ModelCatalogResponse> {
-  return postJsonWithRetry<ModelCatalogResponse>('/api/ai/models/refresh', options, 30000, 0);
+  return postJsonWithRetry<ModelCatalogResponse>(apiUrl('/api/ai/models/refresh'), options, 30000, 0);
 }
 
 export async function aiFetchHealth(): Promise<HealthResponse | null> {
   try {
-    const res = await fetch('/api/ai/health');
+    const res = await fetch(apiUrl('/api/ai/health'));
     const data = await res.json();
     return data;
   } catch (err) {
@@ -443,7 +445,7 @@ export async function aiTestProvider(provider: string, key?: string): Promise<{
   testedModel?: string;
   error?: string;
 }> {
-  return postJsonWithRetry('/api/ai/provider/test', { provider, key }, 20000, 0);
+  return postJsonWithRetry(apiUrl('/api/ai/provider/test'), { provider, key }, 20000, 0);
 }
 
 export async function aiSaveProviderKeys(provider: string, keys: string[] | string): Promise<{
@@ -454,22 +456,22 @@ export async function aiSaveProviderKeys(provider: string, keys: string[] | stri
   maskedKeys: string[];
   message: string;
 }> {
-  return postJsonWithRetry('/api/settings/providers', { provider, keys }, 15000, 0);
+  return postJsonWithRetry(apiUrl('/api/settings/providers'), { provider, keys }, 15000, 0);
 }
 
 export async function aiSaveCustomEndpoint(options: { endpoint: string; model: string; key?: string }): Promise<{ success: boolean; endpoint: string; model: string; message: string }> {
-  return postJsonWithRetry('/api/settings/custom-endpoint', options, 15000, 0);
+  return postJsonWithRetry(apiUrl('/api/settings/custom-endpoint'), options, 15000, 0);
 }
 
 export async function aiFetchCustomEndpoint(): Promise<{ endpoint: string; model: string }> {
-  const res = await fetch('/api/settings/custom-endpoint');
+  const res = await fetch(apiUrl('/api/settings/custom-endpoint'));
   const data = await res.json();
   return { endpoint: data.endpoint || '', model: data.model || '' };
 }
 
 export async function aiFetchAppearanceSettings(): Promise<any> {
   try {
-    const res = await fetch('/api/settings/appearance');
+    const res = await fetch(apiUrl('/api/settings/appearance'));
     const data = await res.json();
     return data.settings || null;
   } catch (err) {
@@ -479,9 +481,9 @@ export async function aiFetchAppearanceSettings(): Promise<any> {
 }
 
 export async function aiSaveAppearanceSettings(settings: any): Promise<any> {
-  return postJsonWithRetry('/api/settings/appearance', settings, 10000, 0);
+  return postJsonWithRetry(apiUrl('/api/settings/appearance'), settings, 10000, 0);
 }
 
 export async function aiClearTelemetry(): Promise<{ success: boolean; message: string }> {
-  return postJsonWithRetry('/api/ai/telemetry/clear', {}, 10000, 0);
+  return postJsonWithRetry(apiUrl('/api/ai/telemetry/clear'), {}, 10000, 0);
 }
