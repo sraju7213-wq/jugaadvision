@@ -1,0 +1,5790 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+
+// server/ai/pools/keyPool.ts
+function maskApiKey(key) {
+  if (!key) return "***";
+  if (key.length <= 8) return "****";
+  const prefixLength = Math.min(12, Math.max(4, key.length > 12 ? 11 : Math.floor(key.length / 2)));
+  const prefix = key.slice(0, prefixLength);
+  const suffix = key.slice(-Math.min(4, Math.max(2, Math.floor(key.length / 4))));
+  return `${prefix}...${suffix}`;
+}
+function redactSecrets(text) {
+  if (!text || typeof text !== "string") return "";
+  return text.replace(/AIza[0-9A-Za-z\-_]{35}/g, "AIza[REDACTED]").replace(/Bearer\s+[a-zA-Z0-9_\-\.]{8,}/gi, "Bearer [REDACTED]").replace(/sk-[a-zA-Z0-9_\-]{8,}/gi, "sk-[REDACTED]").replace(/nvapi-[a-zA-Z0-9_\-]{16,}/gi, "nvapi-[REDACTED]").replace(/hf_[a-zA-Z0-9_\-]{16,}/gi, "hf_[REDACTED]").replace(/cfut_[a-zA-Z0-9_\-]{16,}/gi, "cfut_[REDACTED]").replace(/((?:key|apikey|api_key|token|auth)\s*[:=]\s*)[a-zA-Z0-9_\-\.]{8,}/gi, "$1[REDACTED]").replace(/(with\s+key\s+)[a-zA-Z0-9_\-\.]{8,}/gi, "$1[REDACTED]");
+}
+var KeyPoolManager, keyPoolManager;
+var init_keyPool = __esm({
+  "server/ai/pools/keyPool.ts"() {
+    "use strict";
+    KeyPoolManager = class {
+      constructor() {
+        this.pools = /* @__PURE__ */ new Map();
+        this.baseRateLimitCooldownMs = 2e4;
+        // 20s initial cooldown for 429
+        this.maxCooldownMs = 3e5;
+        // 5 minutes max cooldown
+        this.serverErrorCooldownMs = 15e3;
+        // 15s initial for 5xx
+        this.initialized = false;
+        this.reloadFromEnv();
+      }
+      reloadFromEnv() {
+        const providers = ["openrouter", "nim", "huggingface", "cloudflare", "custom"];
+        for (const p of providers) {
+          if (!this.pools.has(p)) this.pools.set(p, []);
+        }
+        this.loadProviderKeys("openrouter", [
+          "OPENROUTER_API_KEY",
+          "OPENROUTER_API_KEYS",
+          "OPENROUTER_KEY"
+        ], "OPENROUTER_API_KEY_");
+        this.loadProviderKeys("nim", [
+          "NVIDIA_NIM_API_KEY",
+          "NVIDIA_NIM_API_KEYS",
+          "NVIDIA_API_KEY",
+          "NVIDIA_API_KEYS"
+        ], "NVIDIA_NIM_API_KEY_", "NVIDIA_API_KEY_");
+        this.loadProviderKeys("huggingface", [
+          "HUGGINGFACE_API_KEY",
+          "HUGGINGFACE_API_KEYS",
+          "HF_TOKEN",
+          "HF_API_KEY"
+        ], "HUGGINGFACE_API_KEY_");
+        this.loadProviderKeys("cloudflare", [
+          "CLOUDFLARE_API_TOKEN",
+          "CLOUDFLARE_API_TOKENS",
+          "CLOUDFLARE_API_KEY",
+          "CLOUDFLARE_TOKEN"
+        ], "CLOUDFLARE_API_KEY_", "CLOUDFLARE_API_TOKEN_");
+        this.loadProviderKeys("custom", [
+          "CUSTOM_API_KEY",
+          "CUSTOM_KEY"
+        ]);
+        if (process.env.CUSTOM_ENDPOINT_URL || process.env.CUSTOM_ENDPOINT || process.env.OLLAMA_BASE_URL) {
+          this.setProviderKeys("custom", process.env.CUSTOM_API_KEY || "__custom_endpoint__");
+        }
+        this.initialized = true;
+      }
+      loadProviderKeys(provider, bulkEnvVars, ...indexedPrefixes) {
+        const gatheredKeys = [];
+        for (const prefix of indexedPrefixes) {
+          for (let i = 1; i <= 50; i++) {
+            const val = process.env[`${prefix}${i}`];
+            if (val && val.trim().length > 0) {
+              gatheredKeys.push(val.trim());
+            }
+          }
+        }
+        for (const envVar of bulkEnvVars) {
+          const val = process.env[envVar];
+          if (val && val.trim().length > 0) {
+            const parts = val.split(/[,\n]/).map((k) => k.trim()).filter((k) => k.length > 0);
+            gatheredKeys.push(...parts);
+          }
+        }
+        const uniqueKeys = Array.from(new Set(gatheredKeys));
+        const currentStates = this.pools.get(provider) || [];
+        const stateMap = new Map(currentStates.map((s) => [s.key, s]));
+        const newStates = uniqueKeys.map((key) => {
+          const existing = stateMap.get(key);
+          if (existing) return existing;
+          return {
+            key,
+            provider,
+            consecutiveFailures: 0,
+            failureCount: 0,
+            successCount: 0,
+            requestCount: 0,
+            lastRequestTime: 0,
+            lastErrorTime: 0,
+            lastSuccessTime: 0,
+            backoffUntil: 0,
+            consecutiveRateLimits: 0,
+            isExhausted: false
+          };
+        });
+        this.pools.set(provider, newStates);
+        if (newStates.length > 0) {
+          const maskedSample = newStates.map((s) => maskApiKey(s.key)).join(", ");
+          console.log(`[KeyPool] Loaded ${newStates.length} keys for provider [${provider}]: [${maskedSample}]`);
+        }
+      }
+      /**
+       * Intelligently selects the best available API key from the provider pool.
+       * Selection priority:
+       * 1. Not in cooldown (and not exhausted)
+       * 2. Lowest recent failure count (consecutive failures)
+       * 3. Best recent success rate
+       * 4. Lowest recent usage (request count)
+       * 5. Oldest last request time (LRU tie-breaker)
+       */
+      getAvailableKey(provider, excludeKeys = []) {
+        let pool = this.pools.get(provider);
+        if (!pool || pool.length === 0) {
+          this.reloadFromEnv();
+          pool = this.pools.get(provider);
+        }
+        if (!pool || pool.length === 0) return null;
+        const now = Date.now();
+        for (const state of pool) {
+          if (state.backoffUntil > 0 && now >= state.backoffUntil) {
+            state.backoffUntil = 0;
+            state.backoffReason = void 0;
+            state.consecutiveRateLimits = Math.max(0, state.consecutiveRateLimits - 1);
+            console.log(`[KeyPool] Key ${maskApiKey(state.key)} (${provider}) completed cooldown and is restored to active pool.`);
+          }
+        }
+        const eligible = pool.filter(
+          (k) => !k.isExhausted && k.backoffUntil <= now && !excludeKeys.includes(k.key)
+        );
+        if (eligible.length === 0) {
+          return null;
+        }
+        eligible.sort((a, b) => {
+          if (a.consecutiveFailures !== b.consecutiveFailures) {
+            return a.consecutiveFailures - b.consecutiveFailures;
+          }
+          const totalA = a.successCount + a.failureCount;
+          const totalB = b.successCount + b.failureCount;
+          const rateA = totalA > 0 ? a.successCount / totalA : 1;
+          const rateB = totalB > 0 ? b.successCount / totalB : 1;
+          if (rateA !== rateB) {
+            return rateB - rateA;
+          }
+          if (a.requestCount !== b.requestCount) {
+            return a.requestCount - b.requestCount;
+          }
+          return a.lastRequestTime - b.lastRequestTime;
+        });
+        const chosen = eligible[0];
+        chosen.requestCount++;
+        chosen.lastRequestTime = now;
+        return chosen.key;
+      }
+      /**
+       * Reports successful request execution for a key.
+       */
+      reportSuccess(provider, key, _durationMs) {
+        const pool = this.pools.get(provider);
+        if (!pool) return;
+        const state = pool.find((k) => k.key === key);
+        if (state) {
+          state.successCount++;
+          state.consecutiveFailures = 0;
+          state.consecutiveRateLimits = 0;
+          state.backoffUntil = 0;
+          state.backoffReason = void 0;
+          state.lastSuccessTime = Date.now();
+        }
+      }
+      /**
+       * Reports error or rate-limit on a specific key.
+       * Applies exponential cooldown on 429 without permanently disabling it.
+       */
+      reportError(provider, key, statusCode, errorMessage) {
+        const pool = this.pools.get(provider);
+        if (!pool) return;
+        const state = pool.find((k) => k.key === key);
+        if (!state) return;
+        const now = Date.now();
+        state.lastErrorTime = now;
+        state.failureCount++;
+        state.consecutiveFailures++;
+        const masked = maskApiKey(key);
+        if (statusCode === 429) {
+          state.consecutiveRateLimits++;
+          const cooldownMs = Math.min(
+            this.maxCooldownMs,
+            this.baseRateLimitCooldownMs * Math.pow(2, state.consecutiveRateLimits - 1)
+          );
+          state.backoffUntil = now + cooldownMs;
+          state.backoffReason = "rate_limit_429";
+          console.warn(`[KeyPool] Rate limit (429) on ${provider} key ${masked}. Temporary cooldown for ${Math.round(cooldownMs / 1e3)}s (Level: ${state.consecutiveRateLimits}).`);
+        } else if (statusCode === 401 || statusCode === 403) {
+          const isQuotaExhausted = errorMessage && (errorMessage.toLowerCase().includes("quota") || errorMessage.toLowerCase().includes("credit") || errorMessage.toLowerCase().includes("balance") || errorMessage.toLowerCase().includes("exhausted"));
+          if (isQuotaExhausted && state.consecutiveFailures >= 3) {
+            state.isExhausted = true;
+            state.backoffReason = "quota_exhausted";
+            console.warn(`[KeyPool] Quota exhausted on ${provider} key ${masked}. Key marked exhausted.`);
+          } else {
+            const cooldownMs = Math.min(this.maxCooldownMs, 6e4 * state.consecutiveFailures);
+            state.backoffUntil = now + cooldownMs;
+            state.backoffReason = "auth_permission_error";
+            console.warn(`[KeyPool] Auth/permission issue (${statusCode}) on ${provider} key ${masked}. Cooldown for ${Math.round(cooldownMs / 1e3)}s.`);
+          }
+        } else if (statusCode === 404 || statusCode === 410 || statusCode === 422 || statusCode === 400 && !errorMessage?.includes("API key") && !errorMessage?.includes("auth") && !errorMessage?.includes("credit") && !errorMessage?.includes("quota")) {
+          state.consecutiveFailures = 0;
+          console.log(`[KeyPool] Model error (${statusCode}) on ${provider} key ${masked} \u2014 key remains active for other models.`);
+        } else {
+          const cooldownMs = Math.min(
+            this.maxCooldownMs,
+            this.serverErrorCooldownMs * Math.pow(1.5, state.consecutiveFailures - 1)
+          );
+          state.backoffUntil = now + cooldownMs;
+          state.backoffReason = `server_error_${statusCode || "network"}`;
+          console.warn(`[KeyPool] Error (${statusCode || "network"}) on ${provider} key ${masked}. Cooldown for ${Math.round(cooldownMs / 1e3)}s.`);
+        }
+      }
+      hasConfiguredKeys(provider) {
+        if (!this.initialized) this.reloadFromEnv();
+        const pool = this.pools.get(provider);
+        return !!(pool && pool.length > 0);
+      }
+      isProviderAvailable(provider) {
+        if (!this.initialized) this.reloadFromEnv();
+        const pool = this.pools.get(provider);
+        if (!pool || pool.length === 0) return false;
+        const now = Date.now();
+        return pool.some((k) => !k.isExhausted && k.backoffUntil <= now);
+      }
+      getPoolStats(provider) {
+        let pool = this.pools.get(provider);
+        if (!pool || pool.length === 0) {
+          this.reloadFromEnv();
+          pool = this.pools.get(provider);
+        }
+        pool = pool || [];
+        const now = Date.now();
+        const keys = pool.map((k) => {
+          const inCooldown2 = !k.isExhausted && k.backoffUntil > now;
+          const remainingSec = inCooldown2 ? Math.ceil((k.backoffUntil - now) / 1e3) : 0;
+          const status = k.isExhausted ? "exhausted" : inCooldown2 ? "in_cooldown" : "active";
+          const total = k.successCount + k.failureCount;
+          const successRate = total > 0 ? Math.round(k.successCount / total * 100) / 100 : 1;
+          return {
+            maskedKey: maskApiKey(k.key),
+            provider,
+            status,
+            requestCount: k.requestCount,
+            failureCount: k.failureCount,
+            consecutiveFailures: k.consecutiveFailures,
+            successRate,
+            backoffRemainingSec: remainingSec,
+            backoffReason: k.backoffReason,
+            lastUsedTime: k.lastRequestTime
+          };
+        });
+        const active = keys.filter((k) => k.status === "active").length;
+        const inCooldown = keys.filter((k) => k.status === "in_cooldown").length;
+        const exhausted = keys.filter((k) => k.status === "exhausted").length;
+        return {
+          total: pool.length,
+          active,
+          inCooldown,
+          exhausted,
+          keys
+        };
+      }
+      /**
+       * Securely sets keys for a provider at runtime (e.g. from Settings endpoint).
+       * Overwrites or merges keys in memory.
+       */
+      setProviderKeys(provider, keysInput) {
+        let keyList = [];
+        if (Array.isArray(keysInput)) {
+          keyList = keysInput;
+        } else if (typeof keysInput === "string") {
+          keyList = keysInput.split(/[,\n]/).map((k) => k.trim()).filter((k) => k.length > 0);
+        }
+        const uniqueKeys = Array.from(new Set(keyList.map((k) => k.trim()).filter((k) => k.length > 0)));
+        const currentStates = this.pools.get(provider) || [];
+        const stateMap = new Map(currentStates.map((s) => [s.key, s]));
+        const newStates = uniqueKeys.map((key) => {
+          const existing = stateMap.get(key);
+          if (existing) {
+            return { ...existing, isExhausted: false, backoffUntil: 0 };
+          }
+          return {
+            key,
+            provider,
+            consecutiveFailures: 0,
+            failureCount: 0,
+            successCount: 0,
+            requestCount: 0,
+            lastRequestTime: 0,
+            lastErrorTime: 0,
+            lastSuccessTime: 0,
+            backoffUntil: 0,
+            consecutiveRateLimits: 0,
+            isExhausted: false
+          };
+        });
+        this.pools.set(provider, newStates);
+        const masked = newStates.map((s) => maskApiKey(s.key));
+        console.log(`[KeyPool] Updated keys for provider [${provider}]: count=${newStates.length}`);
+        return {
+          active: newStates.filter((s) => !s.isExhausted && s.backoffUntil <= Date.now()).length,
+          total: newStates.length,
+          maskedKeys: masked
+        };
+      }
+      clearProviderKeys(provider) {
+        this.pools.set(provider, []);
+      }
+      getAllProviders() {
+        return Array.from(this.pools.keys()).filter((p) => (this.pools.get(p)?.length || 0) > 0);
+      }
+    };
+    keyPoolManager = new KeyPoolManager();
+  }
+});
+
+// server/ai/adapters/baseAdapter.ts
+async function fetchWithTimeout(url, options, timeoutMs = 25e3) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    return response;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`Request timeout after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(id);
+  }
+}
+var AdapterError;
+var init_baseAdapter = __esm({
+  "server/ai/adapters/baseAdapter.ts"() {
+    "use strict";
+    AdapterError = class extends Error {
+      constructor(message, provider, statusCode) {
+        super(message);
+        this.name = "AdapterError";
+        this.provider = provider;
+        this.statusCode = statusCode;
+        this.isRateLimit = statusCode === 429;
+      }
+    };
+  }
+});
+
+// server/ai/adapters/cloudflareAdapter.ts
+var CLOUDFLARE_BOOTSTRAP_MODELS, CloudflareAdapter;
+var init_cloudflareAdapter = __esm({
+  "server/ai/adapters/cloudflareAdapter.ts"() {
+    "use strict";
+    init_baseAdapter();
+    CLOUDFLARE_BOOTSTRAP_MODELS = [
+      {
+        id: "@cf/meta/llama-3.2-11b-vision-instruct",
+        name: "Cloudflare Llama 3.2 11B Vision Instruct",
+        contextLength: 131072,
+        capabilities: ["text", "vision", "json"],
+        modalities: ["text", "vision", "json"],
+        tier: "balanced"
+      },
+      {
+        id: "@cf/meta/llama-3.1-8b-instruct",
+        name: "Cloudflare Llama 3.1 8B Instruct",
+        contextLength: 131072,
+        capabilities: ["text", "json"],
+        modalities: ["text", "json"],
+        tier: "fast"
+      },
+      {
+        id: "@cf/meta/llama-3.1-70b-instruct",
+        name: "Cloudflare Llama 3.1 70B Instruct",
+        contextLength: 131072,
+        capabilities: ["text", "json", "reasoning"],
+        modalities: ["text", "json"],
+        tier: "quality"
+      },
+      {
+        id: "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
+        name: "Cloudflare DeepSeek R1 Distill Qwen 32B",
+        contextLength: 32768,
+        capabilities: ["text", "json", "reasoning"],
+        modalities: ["text", "json"],
+        tier: "quality"
+      }
+    ];
+    CloudflareAdapter = class {
+      constructor() {
+        this.name = "cloudflare";
+        this.verifyUrl = "https://api.cloudflare.com/client/v4/user/tokens/verify";
+      }
+      isConfigured() {
+        return !!(process.env.CLOUDFLARE_ACCOUNT_ID && (process.env.CLOUDFLARE_API_TOKEN || process.env.CLOUDFLARE_API_KEY || process.env.CLOUDFLARE_TOKEN));
+      }
+      async discoverModels(apiKey) {
+        try {
+          const res = await fetchWithTimeout(this.verifyUrl, {
+            headers: {
+              Authorization: `Bearer ${apiKey}`
+            }
+          }, 1e4);
+          if (!res.ok) {
+            throw new AdapterError(`Cloudflare token verification failed: ${res.statusText}`, this.name, res.status);
+          }
+          const json = await res.json();
+          if (!json.success) {
+            const msg = json.errors?.[0]?.message || "Invalid Cloudflare token";
+            throw new AdapterError(msg, this.name, 401);
+          }
+          const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+          return CLOUDFLARE_BOOTSTRAP_MODELS.map((m) => ({
+            id: m.id,
+            name: m.name,
+            provider: this.name,
+            inputCost: 0,
+            outputCost: 0,
+            contextLength: m.contextLength,
+            capabilities: m.capabilities,
+            isFree: true,
+            freeEligibility: "free",
+            discoveredTimestamp: timestamp,
+            description: `Cloudflare Workers AI: ${m.name}`,
+            tier: m.tier,
+            pricing: { prompt: 0, completion: 0, isZeroCost: true },
+            modalities: m.modalities,
+            supportsStructuredJson: true
+          }));
+        } catch (err) {
+          if (err instanceof AdapterError) throw err;
+          throw new AdapterError(err.message || "Cloudflare discovery failed", this.name);
+        }
+      }
+      async generate(request, apiKey, modelId) {
+        const startTime = Date.now();
+        const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+        if (!accountId) {
+          const res = await fetchWithTimeout(this.verifyUrl, {
+            headers: { Authorization: `Bearer ${apiKey}` }
+          }, 5e3).catch(() => null);
+          if (!res || !res.ok) {
+            throw new AdapterError("Invalid Cloudflare API token", this.name, 401);
+          }
+          throw new AdapterError(
+            "Cloudflare Workers AI requires CLOUDFLARE_ACCOUNT_ID in environment variables.",
+            this.name,
+            400
+          );
+        }
+        const runUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${modelId}`;
+        const formattedMessages = this.formatMessages(request.messages);
+        const body = {
+          messages: formattedMessages,
+          max_tokens: request.maxTokens ?? 2048
+        };
+        try {
+          const res = await fetchWithTimeout(runUrl, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(body)
+          }, 6e4);
+          if (!res.ok) {
+            const errorText = await res.text().catch(() => "");
+            throw new AdapterError(
+              `Cloudflare Workers AI error (${res.status}): ${errorText || res.statusText}`,
+              this.name,
+              res.status
+            );
+          }
+          const json = await res.json();
+          const rawContent = json.result?.response || json.result?.description || JSON.stringify(json.result || "");
+          const durationMs = Date.now() - startTime;
+          let parsedJson = void 0;
+          if (request.responseFormat === "json_object" || request.taskType === "structured_json") {
+            try {
+              parsedJson = JSON.parse(rawContent);
+            } catch {
+            }
+          }
+          return {
+            content: rawContent,
+            parsedJson,
+            model: modelId,
+            provider: this.name,
+            durationMs
+          };
+        } catch (err) {
+          if (err instanceof AdapterError) throw err;
+          throw new AdapterError(err.message || "Cloudflare generation failed", this.name);
+        }
+      }
+      formatMessages(messages) {
+        return messages.map((m) => {
+          if (typeof m.content === "string") {
+            return { role: m.role, content: m.content };
+          }
+          const textParts = m.content.filter((p) => p.type === "text").map((p) => p.text || "").join("\n");
+          return { role: m.role, content: textParts };
+        });
+      }
+    };
+  }
+});
+
+// server/ai/customEndpoint.ts
+function initFromEnv() {
+  const endpoint = process.env.CUSTOM_ENDPOINT_URL || process.env.CUSTOM_ENDPOINT || process.env.OLLAMA_BASE_URL;
+  if (endpoint) {
+    const cleanEndpoint = endpoint.endsWith("/chat/completions") ? endpoint : endpoint.replace(/\/+$/, "") + (endpoint.includes("/v1") ? "/chat/completions" : "/v1/chat/completions");
+    return {
+      endpoint: cleanEndpoint,
+      model: process.env.CUSTOM_MODEL || "qwen2.5-coder:7b"
+    };
+  }
+  return null;
+}
+function getCustomEndpoint() {
+  if (!config) {
+    config = initFromEnv();
+  }
+  return config;
+}
+function setCustomEndpoint(next) {
+  config = next;
+  return config;
+}
+var config;
+var init_customEndpoint = __esm({
+  "server/ai/customEndpoint.ts"() {
+    "use strict";
+    config = null;
+  }
+});
+
+// server/ai/adapters/customEndpointAdapter.ts
+var CustomEndpointAdapter;
+var init_customEndpointAdapter = __esm({
+  "server/ai/adapters/customEndpointAdapter.ts"() {
+    "use strict";
+    init_customEndpoint();
+    init_baseAdapter();
+    CustomEndpointAdapter = class {
+      constructor() {
+        this.name = "custom";
+      }
+      isConfigured() {
+        return !!getCustomEndpoint()?.endpoint;
+      }
+      async discoverModels(apiKey) {
+        const current = getCustomEndpoint();
+        if (!current) return [];
+        const modelsUrl = current.endpoint.replace(/\/chat\/completions\/?$/, "/models");
+        try {
+          const res = await fetchWithTimeout(modelsUrl, { headers: this.headers(apiKey) }, 15e3);
+          if (res.ok) {
+            const json = await res.json();
+            const models = (json.data || []).map((model) => this.model(model.id, model.name || model.id));
+            if (models.length) return models;
+          }
+        } catch {
+        }
+        return current.model ? [this.model(current.model, current.model)] : [];
+      }
+      async generate(request, apiKey, modelId) {
+        const current = getCustomEndpoint();
+        if (!current) throw new AdapterError("Custom endpoint is not configured", this.name, 400);
+        const startTime = Date.now();
+        const cleanModelId = modelId?.replace(/^custom:/, "");
+        const effectiveModel = cleanModelId && cleanModelId !== "custom" ? cleanModelId : current.model || "qwen2.5-coder:7b";
+        const maxTokens = request.maxTokens ? Math.min(request.maxTokens, 1024) : request.taskType === "structured_json" ? 800 : 400;
+        const body = {
+          model: effectiveModel,
+          messages: request.messages,
+          temperature: request.temperature ?? 0.7,
+          max_tokens: maxTokens
+        };
+        if (request.responseFormat === "json_object" || request.taskType === "structured_json") body.response_format = { type: "json_object" };
+        try {
+          const res = await fetchWithTimeout(current.endpoint, { method: "POST", headers: { ...this.headers(apiKey), "Content-Type": "application/json" }, body: JSON.stringify(body) }, 12e4);
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) throw new AdapterError(`Custom endpoint error (${res.status}): ${json.error?.message || res.statusText}`, this.name, res.status);
+          let content = json.choices?.[0]?.message?.content || json.choices?.[0]?.text || json.output_text || "";
+          content = content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+          let parsedJson;
+          if (request.responseFormat === "json_object" || request.taskType === "structured_json") {
+            try {
+              parsedJson = JSON.parse(content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim());
+            } catch {
+              const match = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+              if (match) {
+                try {
+                  parsedJson = JSON.parse(match[1].trim());
+                } catch {
+                }
+              }
+            }
+          }
+          return { content, parsedJson, model: body.model, provider: this.name, durationMs: Date.now() - startTime };
+        } catch (err) {
+          if (err instanceof AdapterError) throw err;
+          throw new AdapterError(err.message || "Custom endpoint request failed", this.name);
+        }
+      }
+      headers(apiKey) {
+        return apiKey && apiKey !== "__custom_endpoint__" ? { Authorization: `Bearer ${apiKey}` } : {};
+      }
+      model(id, name) {
+        const modalities = ["text", "json", "vision"];
+        return { id, name, provider: this.name, inputCost: 0, outputCost: 0, contextLength: 32768, capabilities: ["text", "json", "vision"], modalities, isFree: true, freeEligibility: "free", discoveredTimestamp: (/* @__PURE__ */ new Date()).toISOString(), tier: "balanced", pricing: { prompt: 0, completion: 0, isZeroCost: true }, supportsStructuredJson: true };
+      }
+    };
+  }
+});
+
+// server/ai/adapters/huggingfaceAdapter.ts
+var KNOWN_VISION_MODEL_PATTERNS, HuggingFaceAdapter;
+var init_huggingfaceAdapter = __esm({
+  "server/ai/adapters/huggingfaceAdapter.ts"() {
+    "use strict";
+    init_baseAdapter();
+    init_keyPool();
+    KNOWN_VISION_MODEL_PATTERNS = [
+      "vl",
+      "vision",
+      "glm-4.5v",
+      "glm-4.6v",
+      "aya-vision",
+      "command-a-vision",
+      "florence",
+      "paligemma",
+      "multimodal",
+      "internvl",
+      "idefics",
+      "llava",
+      "cogvlm"
+    ];
+    HuggingFaceAdapter = class {
+      constructor() {
+        this.name = "huggingface";
+        this.baseUrl = "https://router.huggingface.co/v1";
+      }
+      isConfigured() {
+        return !!(process.env.HUGGINGFACE_API_KEY_1 || process.env.HUGGINGFACE_API_KEYS || process.env.HUGGINGFACE_API_KEY || process.env.HF_TOKEN || process.env.HF_API_KEY || keyPoolManager.hasConfiguredKeys(this.name));
+      }
+      /**
+       * Discovers models available on the Hugging Face Inference Router.
+       * Hugging Face Serverless Inference is free for authenticated users.
+       */
+      async discoverModels(apiKey) {
+        try {
+          const res = await fetchWithTimeout(`${this.baseUrl}/models`, {
+            headers: {
+              Authorization: `Bearer ${apiKey}`
+            }
+          }, 15e3);
+          if (!res.ok) {
+            throw new AdapterError(`Failed to fetch Hugging Face models: ${res.statusText}`, this.name, res.status);
+          }
+          const json = await res.json();
+          const rawModels = json.data || [];
+          const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+          return rawModels.map((m) => {
+            const id = m.id;
+            const lowerId = id.toLowerCase();
+            const capabilities = ["text", "json"];
+            const modalities = ["text", "json"];
+            const hasVision = KNOWN_VISION_MODEL_PATTERNS.some((pat) => lowerId.includes(pat));
+            if (hasVision) {
+              capabilities.push("vision");
+              modalities.push("vision");
+            }
+            if (lowerId.includes("r1") || lowerId.includes("reason") || lowerId.includes("thinking") || lowerId.includes("qwq")) {
+              capabilities.push("reasoning");
+            }
+            if (lowerId.includes("code") || lowerId.includes("coder")) {
+              capabilities.push("coding");
+            }
+            let tier = "balanced";
+            if (lowerId.includes("flash") || lowerId.includes("tiny") || lowerId.includes("small") || lowerId.includes("3b") || lowerId.includes("4b") || lowerId.includes("7b") || lowerId.includes("8b") || lowerId.includes("9b") || lowerId.includes("11b") || lowerId.includes("12b")) {
+              tier = "fast";
+            } else if (lowerId.includes("70b") || lowerId.includes("72b") || lowerId.includes("120b") || lowerId.includes("235b") || lowerId.includes("405b") || lowerId.includes("pro") || lowerId.includes("r1") || lowerId.includes("ultra")) {
+              tier = "quality";
+            }
+            return {
+              id,
+              name: id.split("/").pop() || id,
+              provider: this.name,
+              inputCost: 0,
+              outputCost: 0,
+              contextLength: 32768,
+              capabilities,
+              isFree: true,
+              freeEligibility: "free",
+              discoveredTimestamp: timestamp,
+              description: `Hugging Face Serverless: ${id}`,
+              tier,
+              pricing: {
+                prompt: 0,
+                completion: 0,
+                isZeroCost: true
+              },
+              modalities,
+              supportsStructuredJson: true
+            };
+          });
+        } catch (err) {
+          if (err instanceof AdapterError) throw err;
+          throw new AdapterError(err.message || "Hugging Face model discovery failed", this.name);
+        }
+      }
+      async generate(request, apiKey, modelId) {
+        const startTime = Date.now();
+        const formattedMessages = this.formatMessages(request.messages, request);
+        const body = {
+          model: modelId,
+          messages: formattedMessages,
+          temperature: request.temperature ?? 0.7,
+          max_tokens: request.maxTokens ?? 2048
+        };
+        if (request.responseFormat === "json_object" || request.taskType === "structured_json") {
+          body.response_format = { type: "json_object" };
+        }
+        try {
+          const res = await fetchWithTimeout(`${this.baseUrl}/chat/completions`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(body)
+          }, 28e3);
+          if (!res.ok) {
+            const errorText = await res.text().catch(() => "");
+            throw new AdapterError(
+              `Hugging Face API error (${res.status}): ${errorText || res.statusText}`,
+              this.name,
+              res.status
+            );
+          }
+          const json = await res.json();
+          const choice = json.choices?.[0];
+          const rawContent = choice?.message?.content || "";
+          const durationMs = Date.now() - startTime;
+          let parsedJson = void 0;
+          if (request.responseFormat === "json_object" || request.taskType === "structured_json") {
+            try {
+              parsedJson = JSON.parse(this.cleanJsonString(rawContent));
+            } catch {
+              const jsonMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+              if (jsonMatch) {
+                try {
+                  parsedJson = JSON.parse(jsonMatch[1]);
+                } catch {
+                }
+              }
+            }
+          }
+          return {
+            content: rawContent,
+            parsedJson,
+            model: modelId,
+            provider: this.name,
+            usage: {
+              promptTokens: json.usage?.prompt_tokens,
+              completionTokens: json.usage?.completion_tokens,
+              totalTokens: json.usage?.total_tokens
+            },
+            durationMs
+          };
+        } catch (err) {
+          if (err instanceof AdapterError) throw err;
+          throw new AdapterError(err.message || "Hugging Face generation failed", this.name);
+        }
+      }
+      formatMessages(messages, request) {
+        const formatted = messages.map((m) => {
+          if (typeof m.content === "string") {
+            return { role: m.role, content: m.content };
+          }
+          const contentParts = m.content.map((part) => {
+            if (part.type === "text") {
+              return { type: "text", text: part.text || "" };
+            }
+            if (part.type === "image_url") {
+              return {
+                type: "image_url",
+                image_url: { url: part.image_url?.url || "" }
+              };
+            }
+            return part;
+          });
+          return { role: m.role, content: contentParts };
+        });
+        if (request.taskType === "structured_json" && request.jsonSchema) {
+          const schemaInstruction = `
+You MUST output your response strictly as valid JSON adhering to this schema:
+${JSON.stringify(request.jsonSchema, null, 2)}`;
+          const sysIndex = formatted.findIndex((m) => m.role === "system");
+          if (sysIndex >= 0) {
+            formatted[sysIndex].content = `${formatted[sysIndex].content}
+${schemaInstruction}`;
+          } else {
+            formatted.unshift({ role: "system", content: schemaInstruction });
+          }
+        }
+        return formatted;
+      }
+      cleanJsonString(str) {
+        return str.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
+      }
+    };
+  }
+});
+
+// server/ai/adapters/nimAdapter.ts
+var KNOWN_FREE_NIM_MODEL_IDS, NvidiaNimAdapter;
+var init_nimAdapter = __esm({
+  "server/ai/adapters/nimAdapter.ts"() {
+    "use strict";
+    init_baseAdapter();
+    init_keyPool();
+    KNOWN_FREE_NIM_MODEL_IDS = /* @__PURE__ */ new Set([
+      "meta/llama-3.2-11b-vision-instruct",
+      "nvidia/nemotron-3-nano-30b-a3b",
+      "openai/gpt-oss-20b"
+    ]);
+    NvidiaNimAdapter = class {
+      constructor() {
+        this.name = "nim";
+        this.baseUrl = "https://integrate.api.nvidia.com/v1";
+      }
+      isConfigured() {
+        return !!(process.env.NVIDIA_NIM_API_KEY_1 || process.env.NVIDIA_NIM_API_KEYS || process.env.NVIDIA_API_KEY || keyPoolManager.hasConfiguredKeys(this.name));
+      }
+      /**
+       * Automatic model discovery for NVIDIA NIM.
+       * If pricing metadata cannot be determined programmatically from the API,
+       * models are marked as 'eligible_unknown' (isFree: false) to prevent assuming all NIM models are free.
+       */
+      async discoverModels(apiKey) {
+        try {
+          const res = await fetchWithTimeout(`${this.baseUrl}/models`, {
+            headers: {
+              Authorization: `Bearer ${apiKey}`
+            }
+          }, 15e3);
+          if (!res.ok) {
+            throw new AdapterError(`Failed to fetch NVIDIA NIM models: ${res.statusText}`, this.name, res.status);
+          }
+          const json = await res.json();
+          const rawModels = json.data || [];
+          const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+          return rawModels.map((m) => {
+            const id = m.id;
+            const lowerId = id.toLowerCase();
+            let inputCost = -1;
+            let outputCost = -1;
+            let isFree = false;
+            let freeEligibility = "eligible_unknown";
+            if (m.pricing) {
+              inputCost = parseFloat(m.pricing.prompt ?? "-1");
+              outputCost = parseFloat(m.pricing.completion ?? "-1");
+              if (inputCost === 0 && outputCost === 0) {
+                isFree = true;
+                freeEligibility = "free";
+              } else if (inputCost > 0 || outputCost > 0) {
+                isFree = false;
+                freeEligibility = "paid";
+              }
+            } else if (KNOWN_FREE_NIM_MODEL_IDS.has(id)) {
+              inputCost = 0;
+              outputCost = 0;
+              isFree = true;
+              freeEligibility = "free";
+            } else {
+              inputCost = -1;
+              outputCost = -1;
+              isFree = false;
+              freeEligibility = "eligible_unknown";
+            }
+            const capabilities = ["text", "json"];
+            const modalities = ["text", "json"];
+            if (lowerId.includes("vision") || lowerId.includes("-vl") || lowerId.includes("vl-") || lowerId.includes("vlm") || lowerId.includes("multimodal") || lowerId.includes("neva") || lowerId.includes("florence") || lowerId.includes("kosmos")) {
+              capabilities.push("vision");
+              modalities.push("vision");
+            }
+            if (lowerId.includes("r1") || lowerId.includes("reason") || lowerId.includes("instruct")) {
+              capabilities.push("reasoning");
+            }
+            let tier = "balanced";
+            if (lowerId.includes("8b") || lowerId.includes("7b") || lowerId.includes("mini") || lowerId.includes("flash") || lowerId.includes("small") || lowerId.includes("lite") || lowerId.includes("11b") || lowerId.includes("12b")) {
+              tier = "fast";
+            } else if (lowerId.includes("70b") || lowerId.includes("90b") || lowerId.includes("405b") || lowerId.includes("large") || lowerId.includes("deepseek-r1") || lowerId.includes("llama-3.3-70b")) {
+              tier = "quality";
+            }
+            return {
+              id,
+              name: id.split("/").pop() || id,
+              provider: this.name,
+              inputCost,
+              outputCost,
+              contextLength: 16384,
+              capabilities,
+              isFree,
+              freeEligibility,
+              discoveredTimestamp: timestamp,
+              description: `NVIDIA NIM Hosted Model: ${id}`,
+              tier,
+              pricing: {
+                prompt: Math.max(0, inputCost),
+                completion: Math.max(0, outputCost),
+                isZeroCost: isFree
+              },
+              modalities,
+              supportsStructuredJson: true
+            };
+          });
+        } catch (err) {
+          if (err instanceof AdapterError) throw err;
+          throw new AdapterError(err.message || "NVIDIA NIM model discovery failed", this.name);
+        }
+      }
+      async generate(request, apiKey, modelId) {
+        const startTime = Date.now();
+        const formattedMessages = this.formatMessages(request.messages, request);
+        const body = {
+          model: modelId,
+          messages: formattedMessages,
+          temperature: request.temperature ?? 0.7,
+          max_tokens: request.maxTokens ?? 2048
+        };
+        if (request.responseFormat === "json_object" || request.taskType === "structured_json") {
+          body.response_format = { type: "json_object" };
+        }
+        try {
+          const res = await fetchWithTimeout(`${this.baseUrl}/chat/completions`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(body)
+          }, 28e3);
+          if (!res.ok) {
+            const errorText = await res.text().catch(() => "");
+            throw new AdapterError(
+              `NVIDIA NIM API error (${res.status}): ${errorText || res.statusText}`,
+              this.name,
+              res.status
+            );
+          }
+          const json = await res.json();
+          const choice = json.choices?.[0];
+          const rawContent = choice?.message?.content || "";
+          const durationMs = Date.now() - startTime;
+          let parsedJson = void 0;
+          if (request.responseFormat === "json_object" || request.taskType === "structured_json") {
+            try {
+              parsedJson = JSON.parse(this.cleanJsonString(rawContent));
+            } catch {
+              const jsonMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+              if (jsonMatch) {
+                try {
+                  parsedJson = JSON.parse(jsonMatch[1]);
+                } catch {
+                }
+              }
+            }
+          }
+          return {
+            content: rawContent,
+            parsedJson,
+            model: modelId,
+            provider: this.name,
+            usage: {
+              promptTokens: json.usage?.prompt_tokens,
+              completionTokens: json.usage?.completion_tokens,
+              totalTokens: json.usage?.total_tokens
+            },
+            durationMs
+          };
+        } catch (err) {
+          if (err instanceof AdapterError) throw err;
+          throw new AdapterError(err.message || "NVIDIA NIM generation failed", this.name);
+        }
+      }
+      formatMessages(messages, request) {
+        const formatted = messages.map((m) => {
+          if (typeof m.content === "string") {
+            return { role: m.role, content: m.content };
+          }
+          const contentParts = m.content.map((part) => {
+            if (part.type === "text") {
+              return { type: "text", text: part.text || "" };
+            }
+            if (part.type === "image_url") {
+              return {
+                type: "image_url",
+                image_url: { url: part.image_url?.url || "" }
+              };
+            }
+            return part;
+          });
+          return { role: m.role, content: contentParts };
+        });
+        if (request.taskType === "structured_json" && request.jsonSchema) {
+          const schemaInstruction = `
+You MUST output your response strictly as valid JSON adhering to this schema:
+${JSON.stringify(request.jsonSchema, null, 2)}`;
+          const sysIndex = formatted.findIndex((m) => m.role === "system");
+          if (sysIndex >= 0) {
+            formatted[sysIndex].content = `${formatted[sysIndex].content}
+${schemaInstruction}`;
+          } else {
+            formatted.unshift({ role: "system", content: schemaInstruction });
+          }
+        }
+        return formatted;
+      }
+      cleanJsonString(str) {
+        return str.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
+      }
+    };
+  }
+});
+
+// server/ai/adapters/openrouterAdapter.ts
+var OpenRouterAdapter;
+var init_openrouterAdapter = __esm({
+  "server/ai/adapters/openrouterAdapter.ts"() {
+    "use strict";
+    init_baseAdapter();
+    init_keyPool();
+    OpenRouterAdapter = class {
+      constructor() {
+        this.name = "openrouter";
+        this.baseUrl = "https://openrouter.ai/api/v1";
+      }
+      isConfigured() {
+        return !!(process.env.OPENROUTER_API_KEY_1 || process.env.OPENROUTER_API_KEYS || process.env.OPENROUTER_API_KEY || keyPoolManager.hasConfiguredKeys(this.name));
+      }
+      /**
+       * Fetch live models dynamically from official OpenRouter models API.
+       * Free models are determined purely by checking if both input and output pricing are 0.
+       */
+      async discoverModels(apiKey) {
+        try {
+          const res = await fetchWithTimeout(`${this.baseUrl}/models`, {
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "HTTP-Referer": "https://jugaadvisuals.app",
+              "X-Title": "JugaadVision AI Toolkit"
+            }
+          }, 15e3);
+          if (!res.ok) {
+            throw new AdapterError(`Failed to fetch OpenRouter models: ${res.statusText}`, this.name, res.status);
+          }
+          const json = await res.json();
+          const rawModels = json.data || [];
+          const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+          return rawModels.map((m) => {
+            const inputCost = parseFloat(m.pricing?.prompt ?? "0") || 0;
+            const outputCost = parseFloat(m.pricing?.completion ?? "0") || 0;
+            const isFree = inputCost === 0 && outputCost === 0;
+            const freeEligibility = isFree ? "free" : "paid";
+            const capabilities = ["text"];
+            const modalities = ["text"];
+            const modStr = (m.architecture?.modality || "").toLowerCase();
+            const desc = (m.description || "").toLowerCase();
+            const lowerId = m.id.toLowerCase();
+            const isExplicitNonVision = modStr === "text->text" || modStr === "text->image";
+            if (!isExplicitNonVision && (modStr.includes("multimodal") || modStr.includes("image->") || modStr.includes("text+image") || modStr.includes("vision") || lowerId.includes("-vl") || lowerId.includes("vl-") || lowerId.includes("vision") || lowerId.includes("gemini") || lowerId.includes("pixtral") || lowerId.includes("llava") || lowerId.includes("moondream") || lowerId.includes("paligemma") || lowerId.includes("internvl") || lowerId.includes("qwen-2-vl") || lowerId.includes("qwen2-vl") || lowerId.includes("qwen2.5-vl") || lowerId.includes("glm-4v") || lowerId.includes("glm-4.6v") || lowerId.includes("smolvlm") || lowerId.includes("florence") || desc.includes("vision model") || desc.includes("visual reasoning") || desc.includes("multimodal"))) {
+              capabilities.push("vision");
+              modalities.push("vision");
+            }
+            capabilities.push("json");
+            modalities.push("json");
+            if (m.supported_parameters?.includes("tools") || m.supported_parameters?.includes("function_calling") || desc.includes("function call")) {
+              capabilities.push("tools");
+            }
+            if (desc.includes("reasoning") || desc.includes("chain-of-thought") || m.id.includes("r1") || m.id.includes("reason")) {
+              capabilities.push("reasoning");
+            }
+            let tier = "balanced";
+            if (lowerId.includes("flash") || lowerId.includes("mini") || lowerId.includes("haiku") || lowerId.includes("lite") || lowerId.includes("7b") || lowerId.includes("8b") || lowerId.includes("tiny")) {
+              tier = "fast";
+            } else if (lowerId.includes("pro") || lowerId.includes("opus") || lowerId.includes("70b") || lowerId.includes("large") || lowerId.includes("r1") || lowerId.includes("405b")) {
+              tier = "quality";
+            }
+            return {
+              id: m.id,
+              name: m.name || m.id,
+              provider: this.name,
+              inputCost,
+              outputCost,
+              contextLength: m.context_length || 8192,
+              capabilities,
+              isFree,
+              freeEligibility,
+              discoveredTimestamp: timestamp,
+              description: m.description || "",
+              tier,
+              pricing: {
+                prompt: inputCost,
+                completion: outputCost,
+                isZeroCost: isFree
+              },
+              modalities,
+              supportsStructuredJson: true
+            };
+          });
+        } catch (err) {
+          if (err instanceof AdapterError) throw err;
+          throw new AdapterError(err.message || "OpenRouter model discovery failed", this.name);
+        }
+      }
+      async generate(request, apiKey, modelId) {
+        const startTime = Date.now();
+        const formattedMessages = this.formatMessages(request.messages, request);
+        const body = {
+          model: modelId,
+          messages: formattedMessages,
+          temperature: request.temperature ?? 0.7,
+          max_tokens: request.maxTokens ?? 2048,
+          provider: {
+            data_collection: "allow",
+            allow_fallbacks: true
+          }
+        };
+        if (request.responseFormat === "json_object" || request.taskType === "structured_json") {
+          body.response_format = { type: "json_object" };
+        }
+        try {
+          const res = await fetchWithTimeout(`${this.baseUrl}/chat/completions`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "HTTP-Referer": "https://jugaadvisuals.app",
+              "X-Title": "JugaadVision AI Toolkit",
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(body)
+          }, 28e3);
+          if (!res.ok) {
+            const errorText = await res.text().catch(() => "");
+            throw new AdapterError(
+              `OpenRouter API error (${res.status}): ${errorText || res.statusText}`,
+              this.name,
+              res.status
+            );
+          }
+          const json = await res.json();
+          if (json.error) {
+            throw new AdapterError(
+              `OpenRouter API error: ${json.error.message || JSON.stringify(json.error)}`,
+              this.name,
+              json.error.code || 500
+            );
+          }
+          const choice = json.choices?.[0];
+          let rawContent = choice?.message?.content || "";
+          rawContent = rawContent.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+          const durationMs = Date.now() - startTime;
+          let parsedJson = void 0;
+          if (request.responseFormat === "json_object" || request.taskType === "structured_json") {
+            try {
+              parsedJson = JSON.parse(this.cleanJsonString(rawContent));
+            } catch {
+              const jsonMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+              if (jsonMatch) {
+                try {
+                  parsedJson = JSON.parse(this.cleanJsonString(jsonMatch[1]));
+                } catch {
+                }
+              }
+            }
+          }
+          return {
+            content: rawContent,
+            parsedJson,
+            model: modelId,
+            provider: this.name,
+            usage: {
+              promptTokens: json.usage?.prompt_tokens,
+              completionTokens: json.usage?.completion_tokens,
+              totalTokens: json.usage?.total_tokens
+            },
+            durationMs
+          };
+        } catch (err) {
+          if (err instanceof AdapterError) throw err;
+          throw new AdapterError(err.message || "OpenRouter generation failed", this.name);
+        }
+      }
+      formatMessages(messages, request) {
+        const formatted = messages.map((m) => {
+          if (typeof m.content === "string") {
+            return { role: m.role, content: m.content };
+          }
+          const contentParts = m.content.map((part) => {
+            if (part.type === "text") {
+              return { type: "text", text: part.text || "" };
+            }
+            if (part.type === "image_url") {
+              return {
+                type: "image_url",
+                image_url: { url: part.image_url?.url || "" }
+              };
+            }
+            return part;
+          });
+          return { role: m.role, content: contentParts };
+        });
+        if (request.taskType === "structured_json" && request.jsonSchema) {
+          const schemaInstruction = `
+You MUST output your response strictly as valid JSON adhering to this schema:
+${JSON.stringify(request.jsonSchema, null, 2)}`;
+          const sysIndex = formatted.findIndex((m) => m.role === "system");
+          if (sysIndex >= 0) {
+            formatted[sysIndex].content = `${formatted[sysIndex].content}
+${schemaInstruction}`;
+          } else {
+            formatted.unshift({ role: "system", content: schemaInstruction });
+          }
+        }
+        return formatted;
+      }
+      cleanJsonString(str) {
+        return str.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+      }
+    };
+  }
+});
+
+// server/ai/local/localStore.ts
+import fs2 from "node:fs";
+import os from "node:os";
+import path2 from "node:path";
+import crypto from "node:crypto";
+function manifestPath(dir) {
+  return path2.join(dir, "manifest.json");
+}
+function readManifest(dir) {
+  const p = manifestPath(dir);
+  if (!fs2.existsSync(p)) return {};
+  try {
+    const raw = fs2.readFileSync(p, "utf-8");
+    const m = JSON.parse(raw);
+    if (m && typeof m.models === "object") return m.models;
+  } catch {
+  }
+  return {};
+}
+function writeManifest(dir, models) {
+  const p = manifestPath(dir);
+  const tmp = p + ".tmp";
+  const m = {
+    version: 1,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    models
+  };
+  try {
+    const dirName = path2.dirname(p);
+    if (!fs2.existsSync(dirName)) fs2.mkdirSync(dirName, { recursive: true });
+    fs2.writeFileSync(tmp, JSON.stringify(m, null, 2), "utf-8");
+    fs2.renameSync(tmp, p);
+  } catch (err) {
+    console.error(`[LocalModelStore] Failed to write manifest: ${err.message}`);
+  }
+}
+function sanitiseId(name, sourceRepo) {
+  const cleaned = name.toLowerCase().replace(/[^a-z0-9\-_.]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
+  const digest = crypto.createHash("sha1").update(sourceRepo).digest("hex").slice(0, 8);
+  return `${cleaned}-${digest}`.slice(0, 120) || `model-${digest}`;
+}
+function humanSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+function diskSpaceAvailable(dir) {
+  try {
+    const stat = fs2.statSync(dir);
+    if (process.platform === "win32") {
+      return 50 * 1024 * 1024 * 1024;
+    }
+    return 50 * 1024 * 1024 * 1024;
+  } catch {
+    return 0;
+  }
+}
+function getLocalModelStore() {
+  if (!_store) {
+    _store = new LocalModelStore();
+  }
+  return _store;
+}
+var DEFAULT_MODEL_DIR, LocalModelStore, _store;
+var init_localStore = __esm({
+  "server/ai/local/localStore.ts"() {
+    "use strict";
+    DEFAULT_MODEL_DIR = process.env.LOCAL_MODEL_DIR || (process.env.VERCEL ? path2.join(os.tmpdir(), "jugaad-local-models") : path2.resolve(process.cwd(), ".local-models"));
+    LocalModelStore = class {
+      constructor(modelDir) {
+        this.models = {};
+        this.dir = modelDir || DEFAULT_MODEL_DIR;
+        this.models = readManifest(this.dir);
+        if (!fs2.existsSync(this.dir)) {
+          try {
+            fs2.mkdirSync(this.dir, { recursive: true });
+          } catch (err) {
+            console.warn(
+              `[LocalModelStore] ${this.dir} is not writable (${err?.code || err?.message}); using in-memory manifest only.`
+            );
+          }
+        }
+      }
+      directory() {
+        return this.dir;
+      }
+      /** Full records for all registered models (including invalid ones). */
+      listAll() {
+        return Object.values(this.models);
+      }
+      /** Registered model ids */
+      listIds() {
+        return Object.keys(this.models);
+      }
+      /** Full record for a model id (supports prefix, case-insensitive, and filename matches) */
+      get(id) {
+        if (this.models[id]) return this.models[id];
+        const cleanId = id.replace(/^local:/i, "").toLowerCase().trim();
+        if (this.models[cleanId]) return this.models[cleanId];
+        return Object.values(this.models).find(
+          (m) => m.id.toLowerCase() === cleanId || m.fileName.toLowerCase() === cleanId || m.name.toLowerCase() === cleanId || m.sourceRepo.toLowerCase() === cleanId
+        );
+      }
+      /**
+       * Register a model file that exists on disk.
+       * Returns the stable id. Does NOT download — caller must ensure filePath exists.
+       */
+      register(file) {
+        const id = sanitiseId(file.name, file.sourceRepo);
+        const now = (/* @__PURE__ */ new Date()).toISOString();
+        const entry = {
+          ...file,
+          id,
+          isValid: fs2.existsSync(file.filePath) && fs2.statSync(file.filePath).size > 0,
+          downloadedAt: now,
+          loadCount: 0
+        };
+        this.models[id] = entry;
+        writeManifest(this.dir, this.models);
+        return id;
+      }
+      /** Mark a model as loaded (called after successful inference init). */
+      markLoaded(id, latencyMs) {
+        const m = this.models[id];
+        if (!m) return;
+        m.lastLoadedAt = (/* @__PURE__ */ new Date()).toISOString();
+        m.loadCount += 1;
+        if (latencyMs !== void 0) m.lastInferenceMs = latencyMs;
+        m.isValid = fs2.existsSync(m.filePath) && fs2.statSync(m.filePath).size > 0;
+        writeManifest(this.dir, this.models);
+      }
+      /** Remove a model from the store and delete its file. */
+      remove(id) {
+        const m = this.models[id];
+        if (!m) return false;
+        try {
+          if (fs2.existsSync(m.filePath)) fs2.unlinkSync(m.filePath);
+        } catch {
+        }
+        delete this.models[id];
+        writeManifest(this.dir, this.models);
+        return true;
+      }
+      /** Re-validate all entries (used after server restart). */
+      refreshIntegrity() {
+        for (const [, m] of Object.entries(this.models)) {
+          m.isValid = fs2.existsSync(m.filePath) && fs2.statSync(m.filePath).size > 0;
+        }
+        writeManifest(this.dir, this.models);
+      }
+      /** Disk usage summary. */
+      stats() {
+        let totalSize = 0;
+        const byModality = {};
+        const entries = fs2.readdirSync(this.dir, { withFileTypes: true });
+        for (const e of entries) {
+          if (e.name === "manifest.json") continue;
+          const full = path2.join(this.dir, e.name);
+          if (!e.isFile()) continue;
+          try {
+            const stat = fs2.statSync(full);
+            totalSize += stat.size;
+            const mod = "unknown";
+            if (!byModality[mod]) byModality[mod] = { count: 0, sizeBytes: 0 };
+            byModality[mod].count += 1;
+            byModality[mod].sizeBytes += stat.size;
+          } catch {
+          }
+        }
+        const avail = diskSpaceAvailable(this.dir);
+        return {
+          modelDir: this.dir,
+          totalFiles: entries.filter((e) => e.isFile() && e.name !== "manifest.json").length,
+          totalSizeBytes: totalSize,
+          totalSizeHuman: humanSize(totalSize),
+          byModality,
+          spaceAvailableBytes: avail,
+          spaceAvailableHuman: humanSize(avail)
+        };
+      }
+    };
+    _store = null;
+  }
+});
+
+// server/ai/local/localDiscovery.ts
+function guessModality(repoId, description) {
+  const haystack = `${repoId} ${description || ""}`.toLowerCase();
+  if (KNOWN_VISION_KW.some((k) => haystack.includes(k))) return "vision";
+  return "text";
+}
+function extractQuant(fileName) {
+  const m = fileName.toLowerCase().match(/q\d[_a-z0-9]*/);
+  return m ? m[0] : "unknown";
+}
+async function hfFetch(url, timeoutMs = 15e3) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { "User-Agent": "JugaadVision-LocalModelSearch/1.0" }
+    });
+    if (!res.ok) throw new Error(`HuggingFace API ${res.status}: ${res.statusText}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+async function searchGGUFModels(query, limit = 25) {
+  const cleanQuery = query.trim();
+  if (!cleanQuery) return [];
+  const searchUrl = `${HF_API}/models?search=${encodeURIComponent(cleanQuery)}&filter=gguf&sort=downloads&direction=-1&limit=${Math.min(limit * 2, 40)}`;
+  const repos = await hfFetch(searchUrl).catch(() => []);
+  const results = [];
+  const queue = repos.filter((r) => r.id);
+  const batchSize = 4;
+  for (let i = 0; i < queue.length && results.length < limit; i += batchSize) {
+    const batch = queue.slice(i, i + batchSize);
+    const settled = await Promise.allSettled(
+      batch.map((repo) => listRepoGgufFiles(repo.id).then((files) => ({ repo, files })))
+    );
+    for (const s of settled) {
+      if (results.length >= limit) break;
+      if (s.status !== "fulfilled" || !s.value.files.length) continue;
+      const { repo, files } = s.value;
+      const smallest = files[0];
+      results.push({
+        repoId: repo.id,
+        modelId: repo.id.split("/").pop() || repo.id,
+        fileName: smallest.rfilename.split("/").pop() || smallest.rfilename,
+        fileSize: smallest.size || 0,
+        quantization: extractQuant(smallest.rfilename),
+        modality: guessModality(repo.id),
+        description: (repo.pipeline_tag || "") + (repo.downloads ? ` \xB7 ${repo.downloads.toLocaleString()} downloads` : ""),
+        lastModified: (/* @__PURE__ */ new Date()).toISOString(),
+        downloadUrl: `https://huggingface.co/${repo.id}/resolve/main/${smallest.rfilename}`,
+        license: repo.cardData?.license || "unknown"
+      });
+    }
+  }
+  return results;
+}
+async function listRepoGgufFiles(repoId) {
+  const info = await hfFetch(`${HF_API}/models/${repoId}?blobs=true`);
+  const files = (info.siblings || []).filter((s) => s.rfilename.toLowerCase().endsWith(".gguf"));
+  return files.filter((f) => !f.size || f.size <= MAX_FILE_SIZE).sort((a, b) => (a.size || 0) - (b.size || 0));
+}
+async function resolveModelFile(repoId, fileName) {
+  try {
+    const info = await hfFetch(`${HF_API}/models/${repoId}?blobs=true`);
+    const match = (info.siblings || []).find(
+      (s) => s.rfilename === fileName || s.rfilename.endsWith("/" + fileName)
+    );
+    if (!match) return null;
+    return {
+      repoId,
+      modelId: repoId.split("/").pop() || repoId,
+      fileName: match.rfilename.split("/").pop() || match.rfilename,
+      fileSize: match.size || 0,
+      quantization: extractQuant(match.rfilename),
+      modality: guessModality(repoId),
+      description: info.pipeline_tag || "",
+      lastModified: (/* @__PURE__ */ new Date()).toISOString(),
+      downloadUrl: `https://huggingface.co/${repoId}/resolve/main/${match.rfilename}`,
+      license: info.cardData?.license || "unknown"
+    };
+  } catch {
+    return null;
+  }
+}
+var HF_API, MAX_FILE_SIZE, KNOWN_VISION_KW;
+var init_localDiscovery = __esm({
+  "server/ai/local/localDiscovery.ts"() {
+    "use strict";
+    HF_API = "https://huggingface.co/api";
+    MAX_FILE_SIZE = 20 * 1024 * 1024 * 1024;
+    KNOWN_VISION_KW = [
+      "vl",
+      "vision",
+      "glm-4.5v",
+      "glm-4.6v",
+      "aya-vision",
+      "command-a-vision",
+      "florence",
+      "paligemma",
+      "multimodal",
+      "internvl",
+      "idefics",
+      "llava",
+      "cogvlm",
+      "minicpm-v",
+      "moondream"
+    ];
+  }
+});
+
+// server/ai/local/localDownloader.ts
+import fs3 from "node:fs";
+import path3 from "node:path";
+function getActiveDownloadTasks() {
+  return Array.from(activeDownloads.values());
+}
+function cancelDownloadTask(id) {
+  const ctrl = downloadAbortControllers.get(id);
+  const task = activeDownloads.get(id);
+  if (ctrl) {
+    try {
+      ctrl.abort();
+    } catch {
+    }
+    downloadAbortControllers.delete(id);
+    if (task) {
+      task.status = "cancelled";
+      task.message = "Download cancelled by user";
+      task.updatedAt = Date.now();
+    }
+    return true;
+  }
+  return false;
+}
+async function downloadModelFile(opts) {
+  const targetDir = opts.targetDir || getLocalModelStore().directory();
+  const destPath = path3.join(targetDir, opts.fileName);
+  const taskId = `${opts.repoId}/${opts.fileName}`;
+  const existing = activeDownloads.get(taskId);
+  if (existing && existing.status === "downloading") {
+    throw new Error(`Download for ${opts.fileName} is already in progress (${existing.progress}%).`);
+  }
+  const task = {
+    id: taskId,
+    repoId: opts.repoId,
+    fileName: opts.fileName,
+    status: "pending",
+    progress: 0,
+    loadedBytes: 0,
+    totalBytes: opts.expectedSize || 0,
+    speedBps: 0,
+    etaSeconds: 0,
+    message: `Resolving ${opts.fileName}...`,
+    startedAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  activeDownloads.set(taskId, task);
+  opts.onProgress?.({ event: "start", message: `Downloading ${opts.fileName}...` });
+  let downloadUrl = opts.downloadUrl;
+  let expectedSize = opts.expectedSize;
+  if (!downloadUrl && opts.repoId) {
+    const info = await resolveModelFile(opts.repoId, opts.fileName).catch(() => null);
+    if (!info) {
+      task.status = "error";
+      task.error = `File not found in ${opts.repoId}`;
+      task.updatedAt = Date.now();
+      opts.onProgress?.({ event: "error", message: `File not found in ${opts.repoId}` });
+      throw new Error(`File ${opts.fileName} not found in ${opts.repoId}`);
+    }
+    downloadUrl = info.downloadUrl;
+    expectedSize = info.fileSize;
+    task.totalBytes = expectedSize;
+  }
+  if (!downloadUrl) {
+    task.status = "error";
+    task.error = "No download URL available";
+    task.updatedAt = Date.now();
+    opts.onProgress?.({ event: "error", message: "No download URL" });
+    throw new Error("No download URL available");
+  }
+  if (fs3.existsSync(destPath)) {
+    try {
+      fs3.unlinkSync(destPath);
+    } catch {
+    }
+  }
+  const internalCtrl = new AbortController();
+  downloadAbortControllers.set(taskId, internalCtrl);
+  const onExternalAbort = () => {
+    internalCtrl.abort();
+    task.status = "cancelled";
+    task.message = "Cancelled";
+    task.updatedAt = Date.now();
+    opts.onProgress?.({ event: "cancel", message: "Cancelled" });
+  };
+  if (opts.signal) {
+    if (opts.signal.aborted) {
+      onExternalAbort();
+      downloadAbortControllers.delete(taskId);
+      throw new DOMException("Aborted", "AbortError");
+    }
+    opts.signal.addEventListener("abort", onExternalAbort, { once: true });
+  }
+  let lastError = null;
+  task.status = "downloading";
+  task.message = `Starting download for ${opts.fileName}...`;
+  task.updatedAt = Date.now();
+  try {
+    for (let attempt = 1; attempt <= MAX_DOWNLOAD_RETRIES; attempt++) {
+      if (internalCtrl.signal.aborted) {
+        throw new DOMException("Aborted", "AbortError");
+      }
+      try {
+        const totalBytes = await downloadWithProgress(
+          downloadUrl,
+          destPath,
+          expectedSize || 0,
+          (loaded, total, speed, eta) => {
+            const pct = total > 0 ? Math.min(100, Math.round(loaded / total * 100)) : 0;
+            task.status = "downloading";
+            task.progress = pct;
+            task.loadedBytes = loaded;
+            task.totalBytes = total;
+            task.speedBps = speed;
+            task.etaSeconds = eta;
+            task.updatedAt = Date.now();
+            task.message = total > 0 ? `${pct}% \u2014 ${formatBytes(loaded)} / ${formatBytes(total)} (${formatBytes(speed)}/s)` : `${formatBytes(loaded)} (${formatBytes(speed)}/s)`;
+            opts.onProgress?.({
+              event: "progress",
+              progress: pct,
+              message: task.message
+            });
+          },
+          internalCtrl.signal
+        );
+        task.status = "verifying";
+        task.message = `Verifying integrity (${formatBytes(totalBytes)})...`;
+        task.updatedAt = Date.now();
+        if (expectedSize && totalBytes !== expectedSize) {
+          try {
+            fs3.unlinkSync(destPath);
+          } catch {
+          }
+          throw new Error(`Size mismatch: got ${formatBytes(totalBytes)}, expected ${formatBytes(expectedSize)}`);
+        }
+        task.status = "completed";
+        task.progress = 100;
+        task.loadedBytes = totalBytes;
+        task.totalBytes = totalBytes;
+        task.message = `Downloaded ${formatBytes(totalBytes)}`;
+        task.updatedAt = Date.now();
+        opts.onProgress?.({ event: "complete", message: task.message });
+        setTimeout(() => {
+          if (activeDownloads.get(taskId)?.status === "completed") {
+            activeDownloads.delete(taskId);
+          }
+        }, 18e4);
+        return destPath;
+      } catch (err) {
+        lastError = err;
+        if (internalCtrl.signal.aborted || err.name === "AbortError") {
+          task.status = "cancelled";
+          task.message = "Download cancelled";
+          task.updatedAt = Date.now();
+          throw err;
+        }
+        if (attempt < MAX_DOWNLOAD_RETRIES) {
+          task.message = `Retry ${attempt}/${MAX_DOWNLOAD_RETRIES}: ${err.message}`;
+          task.updatedAt = Date.now();
+          opts.onProgress?.({ event: "progress", progress: 0, message: task.message });
+          try {
+            if (fs3.existsSync(destPath)) fs3.unlinkSync(destPath);
+          } catch {
+          }
+          await sleep(Math.pow(2, attempt) * 1e3);
+        }
+      }
+    }
+    task.status = "error";
+    task.error = lastError?.message || "Download failed after retries";
+    task.updatedAt = Date.now();
+    opts.onProgress?.({ event: "error", message: task.error });
+    throw lastError || new Error("Download failed after retries");
+  } finally {
+    downloadAbortControllers.delete(taskId);
+    if (opts.signal) {
+      opts.signal.removeEventListener("abort", onExternalAbort);
+    }
+  }
+}
+async function downloadWithProgress(url, destPath, expectedSize, onProgress, signal) {
+  const res = await fetch(url, {
+    signal,
+    headers: {
+      "User-Agent": "JugaadVision-LocalModelDownloader/1.0"
+    }
+  });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  }
+  const contentLength = Number(res.headers.get("content-length")) || expectedSize;
+  const body = res.body;
+  if (!body) throw new Error("Empty response body");
+  const reader = body.getReader();
+  const fileStream = fs3.createWriteStream(destPath, { flags: "w" });
+  let loaded = 0;
+  const startTime = Date.now();
+  let lastSpeedSampleTime = startTime;
+  let lastSampleLoaded = 0;
+  let currentSpeed = 0;
+  try {
+    while (true) {
+      if (signal.aborted) {
+        fileStream.destroy();
+        try {
+          fs3.unlinkSync(destPath);
+        } catch {
+        }
+        throw new DOMException("Aborted", "AbortError");
+      }
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        fileStream.write(Buffer.from(value));
+        loaded += value.length;
+        const now = Date.now();
+        const elapsedSinceSample = (now - lastSpeedSampleTime) / 1e3;
+        if (elapsedSinceSample >= 0.5) {
+          currentSpeed = Math.round((loaded - lastSampleLoaded) / elapsedSinceSample);
+          lastSpeedSampleTime = now;
+          lastSampleLoaded = loaded;
+        }
+        const remainingBytes = Math.max(0, contentLength - loaded);
+        const eta = currentSpeed > 0 ? Math.round(remainingBytes / currentSpeed) : 0;
+        onProgress(loaded, contentLength, currentSpeed, eta);
+      }
+      await sleep(0);
+    }
+    await new Promise((resolve, reject) => {
+      fileStream.end((err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+    const stat = fs3.statSync(destPath);
+    return stat.size;
+  } catch (err) {
+    fileStream.destroy();
+    try {
+      if (fs3.existsSync(destPath)) fs3.unlinkSync(destPath);
+    } catch {
+    }
+    throw err;
+  }
+}
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+function registerDownloadedModel(repoId, fileName, filePath, note) {
+  const stats = fs3.statSync(filePath);
+  const quant = fileName.toLowerCase().match(/(q(?:\d+|_?k?_?m?)(?:\.nn)?)/)?.[1] || "unknown";
+  const clean = fileName.toLowerCase();
+  let modality = "unknown";
+  if (clean.includes("vision") || clean.includes("-vl") || clean.includes("_vl")) {
+    modality = "vision";
+  } else if (clean.includes("llm") || clean.includes("-lm") || clean.includes("text")) {
+    modality = "text";
+  }
+  return getLocalModelStore().register({
+    name: fileName.replace(/\.gguf$/i, "").replace(/_/g, " ").slice(0, 100),
+    sourceRepo: repoId,
+    filePath,
+    fileName,
+    fileSizeBytes: stats.size,
+    quantization: quant,
+    modality,
+    note: note || void 0
+  });
+}
+var MAX_DOWNLOAD_RETRIES, activeDownloads, downloadAbortControllers;
+var init_localDownloader = __esm({
+  "server/ai/local/localDownloader.ts"() {
+    "use strict";
+    init_localDiscovery();
+    init_localStore();
+    MAX_DOWNLOAD_RETRIES = 3;
+    activeDownloads = /* @__PURE__ */ new Map();
+    downloadAbortControllers = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/ai/local/localRunner.ts
+import fs4 from "node:fs";
+import path4 from "node:path";
+async function getLlamaRuntime() {
+  if (!_llamaPromise) {
+    _llamaPromise = (async () => {
+      const llm = await import("node-llama-cpp");
+      let llama;
+      try {
+        llama = await llm.getLlama();
+        const vram = llama.getVramState?.();
+        const hasEnoughVram = vram && vram.total > 4 * 1024 * 1024 * 1024;
+        if (llama.gpu && !hasEnoughVram) {
+          console.log(`[LocalRunner] GPU "${llama.gpu}" has only ${vram ? (vram.total / 1024 ** 3).toFixed(1) : "?"}GB VRAM \u2014 switching to CPU-only.`);
+          llama.dispose();
+          llama = await llm.getLlama({ gpu: false });
+        }
+      } catch (err) {
+        console.warn("[LocalRunner] getLlama() failed, retrying CPU-only:", err?.message || err);
+        llama = await llm.getLlama({ gpu: false });
+      }
+      return llama;
+    })().catch((err) => {
+      _llamaPromise = null;
+      throw err;
+    });
+  }
+  return _llamaPromise;
+}
+async function loadModel(modelFile) {
+  const absPath = path4.resolve(modelFile.filePath);
+  const cached = loadedCache.get(modelFile.id);
+  if (cached && Date.now() - cached.loadedAt < CACHE_TTL_MS && fs4.existsSync(absPath)) {
+    cached.loadedAt = Date.now();
+    return { session: cached.session, loadDurationMs: cached.loadDurationMs };
+  }
+  if (cached) unloadModel(modelFile.id);
+  if (!fs4.existsSync(absPath)) {
+    throw new Error(`Model file not found: ${absPath}`);
+  }
+  const stat = fs4.statSync(absPath);
+  if (stat.size < 10 * 1024 * 1024) {
+    throw new Error(`Model file too small (${stat.size} bytes) \u2014 not a valid GGUF: ${absPath}`);
+  }
+  if (loadedCache.size >= MAX_CACHE_SIZE) {
+    evictOldest();
+  }
+  const t0 = Date.now();
+  const llm = await import("node-llama-cpp");
+  const llama = await getLlamaRuntime();
+  const model = await llama.loadModel({ modelPath: absPath });
+  const context = await model.createContext({});
+  const session = new llm.LlamaChatSession({ contextSequence: context.getSequence() });
+  const loadDurationMs = Date.now() - t0;
+  loadedCache.set(modelFile.id, {
+    id: modelFile.id,
+    llama,
+    model,
+    context,
+    session,
+    loadedAt: Date.now(),
+    loadDurationMs
+  });
+  getLocalModelStore().markLoaded(modelFile.id, loadDurationMs);
+  return { session, loadDurationMs };
+}
+function unloadModel(id) {
+  const entry = loadedCache.get(id);
+  if (!entry) return false;
+  try {
+    entry.session?.dispose?.();
+  } catch {
+  }
+  try {
+    entry.context?.dispose?.();
+  } catch {
+  }
+  try {
+    entry.model?.dispose?.();
+  } catch {
+  }
+  loadedCache.delete(id);
+  return true;
+}
+function unloadAll() {
+  for (const id of Array.from(loadedCache.keys())) {
+    unloadModel(id);
+  }
+}
+function isModelLoaded(id) {
+  return loadedCache.has(id);
+}
+function getLoadedMemoryInfo() {
+  return {
+    loadedCount: loadedCache.size,
+    maxCacheSize: MAX_CACHE_SIZE,
+    loadedModelIds: Array.from(loadedCache.keys())
+  };
+}
+async function generateText(modelFile, request) {
+  const tTotal = Date.now();
+  const { session, loadDurationMs } = await loadModel(modelFile);
+  const tGen = Date.now();
+  const isQwen3 = /qwen\s*3/i.test(modelFile.name) || /qwen3/i.test(modelFile.fileName);
+  const promptText = isQwen3 && !request.prompt.includes("/no_think") ? `${request.prompt} /no_think` : request.prompt;
+  const content = await session.prompt(promptText, {
+    maxTokens: request.maxTokens ?? 512,
+    temperature: request.temperature ?? 0.7,
+    ...request.stop && request.stop.length > 0 ? { stop: request.stop } : {}
+  });
+  const generateDurationMs = Date.now() - tGen;
+  const totalDurationMs = Date.now() - tTotal;
+  return {
+    content: String(content || ""),
+    tokensGenerated: Math.ceil(String(content || "").length / 4),
+    // ~4 chars/token estimate
+    loadDurationMs,
+    generateDurationMs,
+    totalDurationMs
+  };
+}
+function evictOldest() {
+  let oldestKey = null;
+  let oldestAt = Infinity;
+  for (const [key, entry] of loadedCache.entries()) {
+    if (entry.loadedAt < oldestAt) {
+      oldestAt = entry.loadedAt;
+      oldestKey = key;
+    }
+  }
+  if (oldestKey) unloadModel(oldestKey);
+}
+var loadedCache, MAX_CACHE_SIZE, CACHE_TTL_MS, _llamaPromise;
+var init_localRunner = __esm({
+  "server/ai/local/localRunner.ts"() {
+    "use strict";
+    init_localStore();
+    loadedCache = /* @__PURE__ */ new Map();
+    MAX_CACHE_SIZE = 2;
+    CACHE_TTL_MS = 5 * 6e4;
+    _llamaPromise = null;
+  }
+});
+
+// server/ai/local/localModelManager.ts
+async function searchLocalModels(query, limit = 25) {
+  return searchGGUFModels(query, limit);
+}
+function getActiveDownloads() {
+  return getActiveDownloadTasks();
+}
+function cancelDownload(id) {
+  return cancelDownloadTask(id);
+}
+async function downloadAndRegisterModel(repoId, fileName, onProgress, signal) {
+  const filePath = await downloadModelFile({
+    repoId,
+    fileName,
+    onProgress,
+    signal
+  });
+  const store = getLocalModelStore();
+  const id = registerDownloadedModel(repoId, fileName, filePath);
+  const model = store.get(id);
+  if (!model) throw new Error(`Failed to register downloaded model: ${id}`);
+  return model;
+}
+function getLocalModel(id) {
+  return getLocalModelStore().get(id);
+}
+function listLocalModels() {
+  return getLocalModelStore().listAll().filter((m) => m.isValid);
+}
+function removeLocalModel(id) {
+  unloadModel(id);
+  return getLocalModelStore().remove(id);
+}
+function isLocalModelLoaded(id) {
+  return isModelLoaded(id);
+}
+async function loadLocalModelIntoMemory(modelId) {
+  const store = getLocalModelStore();
+  const model = store.get(modelId);
+  if (!model) {
+    throw new Error(`Local model not found: ${modelId}`);
+  }
+  if (!model.isValid) {
+    throw new Error(`Local model file invalid: ${modelId}`);
+  }
+  const { loadDurationMs } = await loadModel(model);
+  return { success: true, loadDurationMs, model };
+}
+function unloadLocalModel(id) {
+  return unloadModel(id);
+}
+function unloadAllLocalModels() {
+  unloadAll();
+}
+function getLocalMemoryStatus() {
+  return getLoadedMemoryInfo();
+}
+async function runLocalInference(modelId, request) {
+  const store = getLocalModelStore();
+  const model = store.get(modelId);
+  if (!model) {
+    throw new Error(`Local model not found: ${modelId}`);
+  }
+  if (!model.isValid) {
+    throw new Error(`Local model file invalid (may have been deleted): ${modelId}`);
+  }
+  return generateText(model, request);
+}
+async function ensureLocalAdapterRegistered() {
+  if (_localAdapterRegistered) return;
+  try {
+    const { LocalAdapter: LocalAdapter2, initAdapter: initAdapter2 } = await Promise.resolve().then(() => (init_localAdapter(), localAdapter_exports));
+    const adapter = new LocalAdapter2();
+    const { modelDiscoveryService: modelDiscoveryService2 } = await Promise.resolve().then(() => (init_discoveryService(), discoveryService_exports));
+    modelDiscoveryService2.registerAdapter(adapter);
+    initAdapter2();
+    _localAdapterRegistered = true;
+    console.log("[LocalModelManager] LocalAdapter registered");
+  } catch (err) {
+    console.warn("[LocalModelManager] LocalAdapter unavailable:", err.message || err);
+  }
+}
+async function checkLocalInferenceReady() {
+  try {
+    await import("node-llama-cpp");
+  } catch (err) {
+    return { ok: false, reason: `node-llama-cpp unavailable: ${err.message || err}`, modelsAvailable: 0 };
+  }
+  const models = listLocalModels();
+  if (models.length === 0) {
+    return { ok: false, reason: "No local models downloaded yet", modelsAvailable: 0 };
+  }
+  return { ok: true, modelsAvailable: models.length };
+}
+var _localAdapterRegistered;
+var init_localModelManager = __esm({
+  "server/ai/local/localModelManager.ts"() {
+    "use strict";
+    init_localStore();
+    init_localDiscovery();
+    init_localDownloader();
+    init_localRunner();
+    _localAdapterRegistered = false;
+  }
+});
+
+// server/ai/local/localAdapter.ts
+var localAdapter_exports = {};
+__export(localAdapter_exports, {
+  LOCAL_PROVIDER: () => LOCAL_PROVIDER,
+  LocalAdapter: () => LocalAdapter,
+  initAdapter: () => initAdapter,
+  isLocalInferenceReady: () => isLocalInferenceReady
+});
+function extractText(msg) {
+  if (typeof msg.content === "string") return msg.content;
+  if (Array.isArray(msg.content)) {
+    return msg.content.filter((c) => c.type === "text").map((c) => c.text || "").join("\n");
+  }
+  return "";
+}
+function capabilityList(model) {
+  const caps = ["text", "json"];
+  if (model.modality === "vision") caps.push("vision");
+  return caps;
+}
+function initAdapter() {
+  getLocalModelStore().refreshIntegrity();
+}
+async function isLocalInferenceReady() {
+  const check = await checkLocalInferenceReady();
+  return {
+    ready: check.ok,
+    reason: check.reason,
+    modelCount: check.modelsAvailable
+  };
+}
+var LOCAL_PROVIDER, LocalAdapter;
+var init_localAdapter = __esm({
+  "server/ai/local/localAdapter.ts"() {
+    "use strict";
+    init_baseAdapter();
+    init_localStore();
+    init_localModelManager();
+    LOCAL_PROVIDER = "local";
+    LocalAdapter = class {
+      constructor() {
+        this.name = LOCAL_PROVIDER;
+      }
+      /**
+       * Local models are always "configured" if at least one valid model file
+       * exists on disk. Unlike cloud providers, no API key is needed.
+       */
+      isConfigured() {
+        const models = listLocalModels();
+        return models.length > 0;
+      }
+      /**
+       * "Discover" local models — returns models currently stored on disk.
+       * This is used by the FreeModelRegistry to surface local models in the
+       * model catalog alongside cloud models.
+       */
+      async discoverModels(_apiKey) {
+        const localModels = listLocalModels();
+        return localModels.map((m) => ({
+          id: `local:${m.id}`,
+          provider: LOCAL_PROVIDER,
+          providerModelId: m.id,
+          name: m.name,
+          verifiedFree: true,
+          eligibilityStatus: "free",
+          capabilities: capabilityList(m),
+          capabilityMap: {
+            chat: m.modality === "text" ? "supported" : "unsupported",
+            reasoning: "unknown",
+            coding: "unknown",
+            vision: m.modality === "vision" ? "supported" : "unsupported",
+            tool_calling: "unknown",
+            structured_output: "supported"
+          },
+          contextWindow: 2048,
+          // conservative default — model-specific could be stored in manifest
+          status: "available",
+          successRate: 1,
+          averageLatency: 0,
+          failureCount: 0,
+          lastChecked: m.lastLoadedAt || (/* @__PURE__ */ new Date()).toISOString(),
+          cooldownUntil: 0,
+          isFree: true,
+          contextLength: 2048,
+          freeEligibility: "free",
+          tier: "fast",
+          // local models are typically fast for their size
+          pricing: {
+            prompt: 0,
+            completion: 0,
+            isZeroCost: true
+          },
+          modalities: m.modality === "vision" ? ["text", "vision"] : ["text"],
+          supportsStructuredJson: true,
+          description: m.note || `Local GGUF: ${m.fileName}`,
+          inputCost: 0,
+          outputCost: 0,
+          discoveredTimestamp: m.downloadedAt
+        }));
+      }
+      /**
+       * Run inference on a locally stored model.
+       *
+       * @param request   AIRequest from the router
+       * @param _apiKey   Ignored — local models don't need keys
+       * @param modelId   The local model id (e.g. `local:qwen3-0-6b-q8_0-...`)
+       */
+      async generate(request, _apiKey, modelId) {
+        const t0 = Date.now();
+        const cleanId = modelId.startsWith("local:") ? modelId.slice(6) : modelId;
+        const model = getLocalModel(cleanId);
+        if (!model) {
+          throw new AdapterError(`Local model not found: ${modelId}`, this.name);
+        }
+        if (!model.isValid) {
+          throw new AdapterError(`Local model file invalid: ${modelId}`, this.name);
+        }
+        const prompt = this.buildPrompt(request.messages);
+        const isVisionTask = request.taskType === "vision" || request.taskType === "advanced_image_analysis" || request.requiredCapabilities?.includes("vision");
+        if (isVisionTask && model.modality !== "vision") {
+          throw new AdapterError(
+            `Local model "${model.name}" does not support vision. Use a vision-capable cloud provider or download a vision model.`,
+            this.name
+          );
+        }
+        if (isVisionTask) {
+          throw new AdapterError(
+            `Vision inference with local models is not yet supported. The model "${model.name}" is registered but vision processing requires additional infrastructure (image embedding + multimodal context). Please use a cloud vision provider for now.`,
+            this.name
+          );
+        }
+        const inferenceRequest = {
+          prompt,
+          maxTokens: request.maxTokens ?? 512,
+          temperature: request.temperature ?? 0.7,
+          stop: request.requiredCapabilities?.includes("structured_output") ? ["\n```json", "\n```"] : void 0
+        };
+        let inferenceResult;
+        try {
+          inferenceResult = await runLocalInference(cleanId, inferenceRequest);
+        } catch (err) {
+          const msg = err.message || String(err);
+          throw new AdapterError(msg, this.name);
+        }
+        return {
+          content: inferenceResult.content,
+          parsedJson: void 0,
+          model: `local:${cleanId}`,
+          provider: LOCAL_PROVIDER,
+          taskType: request.taskType,
+          usage: {
+            promptTokens: 0,
+            // node-llama-cpp doesn't expose prompt token count easily
+            completionTokens: inferenceResult.tokensGenerated,
+            totalTokens: inferenceResult.tokensGenerated
+          },
+          durationMs: inferenceResult.totalDurationMs
+        };
+      }
+      // ── prompt building ────────────────────────────────────────────────────────
+      // LlamaChatSession applies the model's native chat template automatically.
+      // We only need to flatten the message history into a readable transcript;
+      // the session wrapper handles ChatML / Llama-3 / etc. formatting.
+      buildPrompt(messages) {
+        const parts = [];
+        const system = messages.find((m) => m.role === "system");
+        if (system) {
+          const sysText = extractText(system);
+          if (sysText) parts.push(sysText);
+        }
+        for (const m of messages) {
+          if (m.role === "system") continue;
+          const text = extractText(m);
+          if (!text) continue;
+          if (m.role === "assistant") {
+            parts.push(`[Previous assistant response]: ${text}`);
+          } else {
+            parts.push(text);
+          }
+        }
+        if (parts.length === 0) {
+          const all = messages.map((m) => extractText(m)).filter(Boolean);
+          return all.length > 0 ? all.join("\n\n") : "Hello";
+        }
+        return parts.join("\n\n");
+      }
+    };
+  }
+});
+
+// server/ai/discovery/discoveryService.ts
+var discoveryService_exports = {};
+__export(discoveryService_exports, {
+  ModelDiscoveryService: () => ModelDiscoveryService,
+  ensureLocalAdapterRegistered: () => ensureLocalAdapterRegistered3,
+  modelDiscoveryService: () => modelDiscoveryService
+});
+async function ensureLocalAdapterRegistered3() {
+  if (localAdapterRegistered) return;
+  try {
+    const { LocalAdapter: LocalAdapter2, initAdapter: initAdapter2 } = await Promise.resolve().then(() => (init_localAdapter(), localAdapter_exports));
+    const localAdapter = new LocalAdapter2();
+    modelDiscoveryService.registerAdapter(localAdapter);
+    initAdapter2();
+    localAdapterRegistered = true;
+    console.log("[Discovery] LocalAdapter registered successfully");
+  } catch (err) {
+    console.warn("[Discovery] LocalAdapter unavailable:", err.message || err);
+  }
+}
+var ModelDiscoveryService, modelDiscoveryService, localAdapterRegistered;
+var init_discoveryService = __esm({
+  "server/ai/discovery/discoveryService.ts"() {
+    "use strict";
+    init_cloudflareAdapter();
+    init_customEndpointAdapter();
+    init_huggingfaceAdapter();
+    init_nimAdapter();
+    init_openrouterAdapter();
+    init_keyPool();
+    ModelDiscoveryService = class {
+      // 1 hour
+      constructor() {
+        this.adapters = /* @__PURE__ */ new Map();
+        this.modelCache = /* @__PURE__ */ new Map();
+        this.cacheTtlMs = parseInt(process.env.AI_CACHE_TTL_MS || "3600000", 10);
+        this.registerAdapter(new NvidiaNimAdapter());
+        this.registerAdapter(new OpenRouterAdapter());
+        this.registerAdapter(new HuggingFaceAdapter());
+        this.registerAdapter(new CloudflareAdapter());
+        this.registerAdapter(new CustomEndpointAdapter());
+      }
+      registerAdapter(adapter) {
+        this.adapters.set(adapter.name, adapter);
+      }
+      getAdapter(provider) {
+        return this.adapters.get(provider);
+      }
+      getAllAdapters() {
+        return Array.from(this.adapters.values());
+      }
+      /**
+       * Get models for a provider or all providers.
+       * Leverages in-memory caching.
+       * If a refresh fails, gracefully falls back to the last valid cached model list.
+       */
+      async getDiscoveredModels(provider, forceRefresh = false) {
+        const providersToQuery = provider ? [provider] : Array.from(this.adapters.keys());
+        if (!forceRefresh) {
+          const now = Date.now();
+          const allFresh = providersToQuery.every((p) => {
+            const cached = this.modelCache.get(p);
+            return cached && now - cached.lastUpdated < this.cacheTtlMs && cached.models.length > 0;
+          });
+          if (allFresh) {
+            return providersToQuery.flatMap((p) => this.modelCache.get(p).models);
+          }
+        }
+        const results = await Promise.allSettled(
+          providersToQuery.map(async (p) => {
+            const adapter = this.adapters.get(p);
+            if (!adapter) return [];
+            const cached = this.modelCache.get(p);
+            const now = Date.now();
+            if (!forceRefresh && cached && now - cached.lastUpdated < this.cacheTtlMs && cached.models.length > 0) {
+              return cached.models;
+            }
+            const apiKey = keyPoolManager.getAvailableKey(p);
+            if (!apiKey) {
+              if (cached && cached.models.length > 0) return cached.models;
+              return this.getBootstrapModels(p);
+            }
+            try {
+              const discovered = await Promise.race([
+                adapter.discoverModels(apiKey),
+                new Promise((_, reject) => setTimeout(() => reject(new Error("discovery timeout 8s")), 8e3))
+              ]);
+              if (discovered && discovered.length > 0) {
+                this.modelCache.set(p, { models: discovered, lastUpdated: now });
+                console.log(`[ModelDiscovery] Refreshed ${discovered.length} models for ${p}.`);
+                return discovered;
+              }
+              if (cached && cached.models.length > 0) return cached.models;
+              return this.getBootstrapModels(p);
+            } catch (err) {
+              console.warn(`[ModelDiscovery] Refresh failed for ${p}: ${err.message}. Retaining existing cache.`);
+              if (cached && cached.models.length > 0) return cached.models;
+              const bootstrap = this.getBootstrapModels(p);
+              this.modelCache.set(p, { models: bootstrap, lastUpdated: now });
+              return bootstrap;
+            }
+          })
+        );
+        const allModels = [];
+        for (const r of results) {
+          if (r.status === "fulfilled") allModels.push(...r.value);
+        }
+        return allModels;
+      }
+      getBootstrapModels(provider) {
+        const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+        switch (provider) {
+          case "openrouter":
+            return [
+              {
+                id: "openrouter/free",
+                name: "Free Models Router",
+                provider: "openrouter",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 2e5,
+                capabilities: ["text", "json"],
+                modalities: ["text", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "balanced"
+              },
+              {
+                id: "google/gemini-2.0-flash-exp:free",
+                name: "Gemini 2.0 Flash Exp (Free)",
+                provider: "openrouter",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 1048576,
+                capabilities: ["text", "vision", "json", "reasoning"],
+                modalities: ["text", "vision", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "quality"
+              },
+              {
+                id: "google/gemini-2.0-flash-thinking-exp:free",
+                name: "Gemini 2.0 Flash Thinking (Free)",
+                provider: "openrouter",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 1048576,
+                capabilities: ["text", "vision", "json", "reasoning"],
+                modalities: ["text", "vision", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "quality"
+              },
+              {
+                id: "meta-llama/llama-3.2-11b-vision-instruct:free",
+                name: "Meta Llama 3.2 11B Vision Instruct (Free)",
+                provider: "openrouter",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 131072,
+                capabilities: ["text", "vision", "json"],
+                modalities: ["text", "vision", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "fast"
+              },
+              {
+                id: "meta-llama/llama-3.2-90b-vision-instruct:free",
+                name: "Meta Llama 3.2 90B Vision Instruct (Free)",
+                provider: "openrouter",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 131072,
+                capabilities: ["text", "vision", "json", "reasoning"],
+                modalities: ["text", "vision", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "quality"
+              },
+              {
+                id: "qwen/qwen-2-vl-72b-instruct:free",
+                name: "Qwen 2 VL 72B Instruct (Free)",
+                provider: "openrouter",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 32768,
+                capabilities: ["text", "vision", "json"],
+                modalities: ["text", "vision", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "balanced"
+              },
+              {
+                id: "mistralai/pixtral-12b:free",
+                name: "Mistral Pixtral 12B (Free)",
+                provider: "openrouter",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 131072,
+                capabilities: ["text", "vision", "json"],
+                modalities: ["text", "vision", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "balanced"
+              },
+              {
+                id: "inclusionai/ling-3.0-flash-vl:free",
+                name: "Ling 3.0 Flash VL (Free)",
+                provider: "openrouter",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 262144,
+                capabilities: ["text", "vision", "json"],
+                modalities: ["text", "vision", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "fast"
+              },
+              {
+                id: "nex-agi/nex-n2.5-mini:free",
+                name: "Nex-N2.5-Mini (Free)",
+                provider: "openrouter",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 262144,
+                capabilities: ["text", "json"],
+                modalities: ["text", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "fast"
+              },
+              {
+                id: "liquid/lfm-2.5-2.6b:free",
+                name: "LiquidAI LFM 2.5 2.6B (Free)",
+                provider: "openrouter",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 65536,
+                capabilities: ["text", "json"],
+                modalities: ["text", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "fast"
+              },
+              {
+                id: "nvidia/nemotron-3.5-lightning:free",
+                name: "Nemotron 3.5 Lightning (Free)",
+                provider: "openrouter",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 1e6,
+                capabilities: ["text", "json", "reasoning"],
+                modalities: ["text", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "balanced"
+              },
+              {
+                id: "nex-agi/nex-n2.5-pro:free",
+                name: "Nex-N2.5-Pro (Free)",
+                provider: "openrouter",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 262144,
+                capabilities: ["text", "json", "reasoning"],
+                modalities: ["text", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "quality"
+              }
+            ];
+          case "nim":
+            return [
+              {
+                id: "meta/llama-3.2-11b-vision-instruct",
+                name: "Meta Llama 3.2 11B Vision Instruct",
+                provider: "nim",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 131072,
+                capabilities: ["text", "vision", "json"],
+                modalities: ["text", "vision", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "fast"
+              },
+              {
+                id: "meta/llama-3.2-90b-vision-instruct",
+                name: "Meta Llama 3.2 90B Vision Instruct",
+                provider: "nim",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 131072,
+                capabilities: ["text", "vision", "json", "reasoning"],
+                modalities: ["text", "vision", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "quality"
+              },
+              {
+                id: "nvidia/nemotron-3-nano-30b-a3b",
+                name: "NVIDIA Nemotron 3 Nano 30B",
+                provider: "nim",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 32768,
+                capabilities: ["text", "json"],
+                modalities: ["text", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "balanced"
+              },
+              {
+                id: "openai/gpt-oss-20b",
+                name: "GPT-OSS 20B Instruct",
+                provider: "nim",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 131072,
+                capabilities: ["text", "json", "reasoning"],
+                modalities: ["text", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "quality"
+              }
+            ];
+          case "huggingface":
+            return [
+              {
+                id: "Qwen/Qwen2.5-VL-72B-Instruct",
+                name: "Qwen 2.5 VL 72B Instruct (Hugging Face)",
+                provider: "huggingface",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 32768,
+                capabilities: ["text", "vision", "json"],
+                modalities: ["text", "vision", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "quality"
+              },
+              {
+                id: "zai-org/GLM-4.6V-Flash",
+                name: "GLM 4.6V Flash (Hugging Face)",
+                provider: "huggingface",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 32768,
+                capabilities: ["text", "vision", "json"],
+                modalities: ["text", "vision", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "fast"
+              },
+              {
+                id: "CohereLabs/aya-vision-32b",
+                name: "Aya Vision 32B (Hugging Face)",
+                provider: "huggingface",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 32768,
+                capabilities: ["text", "vision", "json"],
+                modalities: ["text", "vision", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "balanced"
+              },
+              {
+                id: "OpenGVLab/InternVL2_5-78B",
+                name: "InternVL 2.5 78B (Hugging Face)",
+                provider: "huggingface",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 32768,
+                capabilities: ["text", "vision", "json"],
+                modalities: ["text", "vision", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "quality"
+              },
+              {
+                id: "meta-llama/Llama-3.3-70B-Instruct",
+                name: "Meta Llama 3.3 70B Instruct (Hugging Face)",
+                provider: "huggingface",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 131072,
+                capabilities: ["text", "json", "reasoning"],
+                modalities: ["text", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "quality"
+              }
+            ];
+          case "cloudflare":
+            return [
+              {
+                id: "@cf/meta/llama-3.2-11b-vision-instruct",
+                name: "Meta Llama 3.2 11B Vision (Cloudflare)",
+                provider: "cloudflare",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 131072,
+                capabilities: ["text", "vision", "json"],
+                modalities: ["text", "vision", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "balanced"
+              },
+              {
+                id: "@cf/meta/llama-3.2-90b-vision-instruct",
+                name: "Meta Llama 3.2 90B Vision (Cloudflare)",
+                provider: "cloudflare",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 131072,
+                capabilities: ["text", "vision", "json", "reasoning"],
+                modalities: ["text", "vision", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "quality"
+              },
+              {
+                id: "@cf/llava-hf/llava-1.5-7b-hf",
+                name: "LLaVA 1.5 7B (Cloudflare)",
+                provider: "cloudflare",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 4096,
+                capabilities: ["text", "vision", "json"],
+                modalities: ["text", "vision", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "fast"
+              },
+              {
+                id: "@cf/meta/llama-3.1-8b-instruct",
+                name: "Llama 3.1 8B Instruct (Cloudflare)",
+                provider: "cloudflare",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 131072,
+                capabilities: ["text", "json"],
+                modalities: ["text", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "fast"
+              }
+            ];
+          case "custom":
+            const customModelName = process.env.CUSTOM_MODEL || "qwen2.5-coder:7b";
+            return [
+              {
+                id: customModelName,
+                name: `Custom Endpoint (${customModelName})`,
+                provider: "custom",
+                inputCost: 0,
+                outputCost: 0,
+                contextLength: 1048576,
+                capabilities: ["text", "vision", "json"],
+                modalities: ["text", "vision", "json"],
+                isFree: true,
+                freeEligibility: "free",
+                discoveredTimestamp: timestamp,
+                pricing: { prompt: 0, completion: 0, isZeroCost: true },
+                supportsStructuredJson: true,
+                tier: "fast"
+              }
+            ];
+          default:
+            return [];
+        }
+      }
+    };
+    modelDiscoveryService = new ModelDiscoveryService();
+    localAdapterRegistered = false;
+  }
+});
+
+// server/ai/security.ts
+var InMemoryRateLimiter = class {
+  constructor(windowMs = 6e4, maxRequests = 60) {
+    this.records = /* @__PURE__ */ new Map();
+    this.lastCleanup = Date.now();
+    this.windowMs = windowMs;
+    this.maxRequests = maxRequests;
+  }
+  check(clientIp, customLimit) {
+    const now = Date.now();
+    this.periodicCleanup(now);
+    const limit = customLimit ?? this.maxRequests;
+    const ip = clientIp || "127.0.0.1";
+    let record = this.records.get(ip);
+    if (!record) {
+      record = { timestamps: [] };
+      this.records.set(ip, record);
+    }
+    const windowStart = now - this.windowMs;
+    record.timestamps = record.timestamps.filter((ts) => ts > windowStart);
+    const remaining = Math.max(0, limit - record.timestamps.length);
+    const resetSeconds = Math.ceil(this.windowMs / 1e3);
+    if (record.timestamps.length >= limit) {
+      const oldest = record.timestamps[0] || now;
+      const retryAfter = Math.max(1, Math.ceil((oldest + this.windowMs - now) / 1e3));
+      return {
+        allowed: false,
+        limit,
+        remaining: 0,
+        resetSeconds,
+        retryAfter
+      };
+    }
+    record.timestamps.push(now);
+    return {
+      allowed: true,
+      limit,
+      remaining: remaining - 1,
+      resetSeconds
+    };
+  }
+  periodicCleanup(now) {
+    if (now - this.lastCleanup > 12e4) {
+      this.lastCleanup = now;
+      const windowStart = now - this.windowMs;
+      for (const [ip, rec] of this.records.entries()) {
+        rec.timestamps = rec.timestamps.filter((ts) => ts > windowStart);
+        if (rec.timestamps.length === 0) {
+          this.records.delete(ip);
+        }
+      }
+    }
+  }
+};
+var generalRateLimiter = new InMemoryRateLimiter(6e4, 120);
+var aiGenerationRateLimiter = new InMemoryRateLimiter(6e4, 30);
+function isSSRFSafeUrl(urlStr) {
+  if (!urlStr || typeof urlStr !== "string") {
+    return { safe: false, reason: "Empty or invalid URL string" };
+  }
+  let parsed;
+  try {
+    parsed = new URL(urlStr);
+  } catch {
+    return { safe: false, reason: "Malformed URL format" };
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return { safe: false, reason: `Forbidden protocol: ${parsed.protocol}. Only http and https are allowed.` };
+  }
+  const hostname = parsed.hostname.toLowerCase().trim();
+  if (hostname === "localhost" || hostname === "0.0.0.0" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "metadata.google.internal" || hostname.endsWith(".localhost") || hostname.endsWith(".internal") || hostname.endsWith(".local")) {
+    const isDev = process.env.NODE_ENV !== "production";
+    if (isDev && (hostname === "localhost" || hostname === "127.0.0.1")) {
+      return { safe: true };
+    }
+    return { safe: false, reason: "Restricted host: loopback or internal hostname." };
+  }
+  if (hostname.startsWith("169.254.")) {
+    return { safe: false, reason: "Cloud instance metadata endpoints (169.254.x.x) are strictly prohibited." };
+  }
+  const ipv4Regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+  const match = hostname.match(ipv4Regex);
+  if (match) {
+    const oct1 = parseInt(match[1], 10);
+    const oct2 = parseInt(match[2], 10);
+    if (oct1 === 10) {
+      return { safe: false, reason: "Private network addresses (10.0.0.0/8) are prohibited." };
+    }
+    if (oct1 === 172 && oct2 >= 16 && oct2 <= 31) {
+      return { safe: false, reason: "Private network addresses (172.16.0.0/12) are prohibited." };
+    }
+    if (oct1 === 192 && oct2 === 168) {
+      return { safe: false, reason: "Private network addresses (192.168.0.0/16) are prohibited." };
+    }
+    if (oct1 === 0) {
+      return { safe: false, reason: "Invalid address 0.0.0.0." };
+    }
+  }
+  return { safe: true };
+}
+function sanitizeInput(input, maxLength = 5e4) {
+  if (!input || typeof input !== "string") return "";
+  return input.slice(0, maxLength).replace(/\0/g, "").replace(/[\u202A-\u202E\u2066-\u2069]/g, "").trim();
+}
+function sanitizeAndRedactSecrets(text) {
+  if (!text || typeof text !== "string") return "";
+  return text.replace(/AIza[0-9A-Za-z\-_]{35}/g, "AIza[REDACTED]").replace(/sk-or-v1-[a-zA-Z0-9_\-]{16,}/gi, "sk-or-v1-[REDACTED]").replace(/sk-[a-zA-Z0-9_\-]{20,}/gi, "sk-[REDACTED]").replace(/nvapi-[a-zA-Z0-9_\-]{16,}/gi, "nvapi-[REDACTED]").replace(/hf_[a-zA-Z0-9_\-]{16,}/gi, "hf_[REDACTED]").replace(/cfut_[a-zA-Z0-9_\-]{16,}/gi, "cfut_[REDACTED]").replace(/PCH4k[a-zA-Z0-9]{15,}/gi, "[REDACTED_REMOVEBG_KEY]").replace(/Bearer\s+[a-zA-Z0-9_\-\.]{8,}/gi, "Bearer [REDACTED]").replace(/((?:api_?key|auth_?token|secret_?key|password|access_?token)\s*[:=]\s*)[a-zA-Z0-9_\-\.]{8,}/gi, "$1[REDACTED]").replace(/(?:key|token|auth)=([a-zA-Z0-9_-]{24,})/gi, "token=[REDACTED]");
+}
+var SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "SAMEORIGIN",
+  "X-XSS-Protection": "1; mode=block",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  // The production site is same-origin, but Capacitor and preview hosts need
+  // explicit CORS for server-backed AI calls. No credentials are used here.
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept"
+};
+
+// server/ai/qualityGates.ts
+function validateJsonSchema(raw, schema) {
+  const diagnostics = [];
+  if (!raw || typeof raw !== "string") {
+    diagnostics.push({
+      passed: false,
+      code: "INVALID_JSON",
+      message: "Empty or non-string response received from AI model.",
+      severity: "error"
+    });
+    return { valid: false, diagnostics };
+  }
+  let cleaned = raw.trim();
+  const jsonBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (jsonBlockMatch) {
+    cleaned = jsonBlockMatch[1].trim();
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (err) {
+    try {
+      const relaxed = cleaned.replace(/,\s*([}\]])/g, "$1");
+      parsed = JSON.parse(relaxed);
+    } catch {
+      diagnostics.push({
+        passed: false,
+        code: "INVALID_JSON",
+        message: `Failed to parse structured JSON: ${err.message}`,
+        severity: "error"
+      });
+      return { valid: false, diagnostics };
+    }
+  }
+  if (schema && typeof schema === "object") {
+    if (schema.required && Array.isArray(schema.required)) {
+      for (const requiredKey of schema.required) {
+        if (parsed[requiredKey] === void 0 || parsed[requiredKey] === null) {
+          diagnostics.push({
+            passed: false,
+            code: "MISSING_REQUIRED_FIELD",
+            message: `Missing required field: '${requiredKey}' in generated JSON.`,
+            details: { missingField: requiredKey },
+            severity: "error"
+          });
+        }
+      }
+    }
+  }
+  return {
+    valid: diagnostics.every((d) => d.severity !== "error"),
+    parsed,
+    diagnostics
+  };
+}
+function validateExactTextPreservation(originalText, generatedText) {
+  const diagnostics = [];
+  if (!originalText || !generatedText) return diagnostics;
+  const quotedTokens = originalText.match(/"([^"]+)"|'([^']+)'/g);
+  if (quotedTokens) {
+    for (const rawToken of quotedTokens) {
+      const token = rawToken.replace(/['"]/g, "").trim();
+      if (token.length > 2 && !generatedText.toLowerCase().includes(token.toLowerCase())) {
+        diagnostics.push({
+          passed: false,
+          code: "EXACT_TEXT_CHANGED",
+          message: `Protected exact text "${token}" was not found in the generated prompt.`,
+          details: { missingToken: token },
+          severity: "warning"
+        });
+      }
+    }
+  }
+  return diagnostics;
+}
+function calculateVariationDiversity(prompts) {
+  const diagnostics = [];
+  if (!prompts || prompts.length <= 1) {
+    return { diversityScore: 1, diagnostics };
+  }
+  const tokenSets = prompts.map((p) => new Set(p.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(Boolean)));
+  let totalJaccard = 0;
+  let comparisons = 0;
+  for (let i = 0; i < tokenSets.length; i++) {
+    for (let j = i + 1; j < tokenSets.length; j++) {
+      const setA = tokenSets[i];
+      const setB = tokenSets[j];
+      const intersection = new Set([...setA].filter((x) => setB.has(x)));
+      const union = /* @__PURE__ */ new Set([...setA, ...setB]);
+      const jaccard = union.size === 0 ? 1 : intersection.size / union.size;
+      totalJaccard += jaccard;
+      comparisons++;
+    }
+  }
+  const avgSimilarity = comparisons > 0 ? totalJaccard / comparisons : 0;
+  const diversityScore = Math.max(0, Math.min(1, 1 - avgSimilarity));
+  if (diversityScore < 0.25) {
+    diagnostics.push({
+      passed: false,
+      code: "LOW_VARIATION_DIVERSITY",
+      message: "Generated batch variations have high similarity and low creative diversity.",
+      details: { diversityScore },
+      severity: "warning"
+    });
+  }
+  return { diversityScore, diagnostics };
+}
+function detectCreativeConflicts(styles, moods) {
+  const diagnostics = [];
+  const allDescriptors = [...styles, ...moods].map((s) => s.toLowerCase());
+  const conflictPairs = [
+    { a: "minimalist", b: "baroque", message: "Minimalist and Baroque styles have contradictory density rules." },
+    { a: "minimalist", b: "maximalist", message: "Minimalist and Maximalist are polar opposite aesthetics." },
+    { a: "tranquil", b: "explosive", message: "Tranquil/Zen and Explosive/Action have conflicting energetic pacing." },
+    { a: "dark & gritty", b: "whimsical", message: "Dark & Gritty and Whimsical mood pairing may produce jarring tone." },
+    { a: "monochrome", b: "vibrant", message: "Monochrome and Vibrant have contradictory color saturation." },
+    { a: "photorealistic", b: "flat illustration", message: "Photorealistic and Flat Illustration are conflicting visual media." }
+  ];
+  for (const pair of conflictPairs) {
+    const hasA = allDescriptors.some((d) => d.includes(pair.a));
+    const hasB = allDescriptors.some((d) => d.includes(pair.b));
+    if (hasA && hasB) {
+      diagnostics.push({
+        passed: false,
+        code: "CONSTRAINT_CONFLICT",
+        message: pair.message,
+        details: { conflict: [pair.a, pair.b] },
+        severity: "info"
+      });
+    }
+  }
+  return diagnostics;
+}
+
+// server/ai/health/modelHealthManager.ts
+init_keyPool();
+import fs from "fs";
+import path from "path";
+var ModelHealthManager = class {
+  // 10s periodic recheck
+  constructor(storagePath) {
+    this.keyHealthMap = /* @__PURE__ */ new Map();
+    this.modelHealthMap = /* @__PURE__ */ new Map();
+    this.providerHealthMap = /* @__PURE__ */ new Map();
+    this.saveDebounceTimer = null;
+    this.checkTimer = null;
+    this.checkIntervalMs = 1e4;
+    this.storageFile = storagePath || path.resolve(".cache", "ai_health_state.json");
+    this.loadFromStorage();
+    this.startPeriodicRecheck();
+  }
+  // =========================================================================
+  // KEY HEALTH TRACKING
+  // =========================================================================
+  recordKeySuccess(provider, key, latencyMs) {
+    const keyId = this.getKeyId(provider, key);
+    const data = this.getOrCreateKeyHealth(provider, key);
+    const now = Date.now();
+    const totalSuccess = data.successCount + 1;
+    data.averageLatencyMs = Math.round((data.averageLatencyMs * data.successCount + latencyMs) / totalSuccess);
+    data.successCount = totalSuccess;
+    data.consecutiveFailures = 0;
+    data.lastSuccess = new Date(now).toISOString();
+    data.cooldownUntil = 0;
+    data.lastErrorReason = void 0;
+    data.state = "healthy";
+    this.updateProviderRollup(provider);
+    this.scheduleSave();
+  }
+  recordKeyFailure(provider, key, error, statusCode) {
+    const data = this.getOrCreateKeyHealth(provider, key);
+    const now = Date.now();
+    data.failureCount++;
+    data.consecutiveFailures++;
+    data.lastFailure = new Date(now).toISOString();
+    data.lastErrorReason = error;
+    if (statusCode === 429) {
+      const cooldownMs = Math.min(3e5, 2e4 * Math.pow(2, data.consecutiveFailures - 1));
+      data.cooldownUntil = now + cooldownMs;
+      data.state = "rate_limited";
+      console.warn(`[ModelHealthManager] Key ${data.maskedKey} (${provider}) state: rate_limited for ${Math.round(cooldownMs / 1e3)}s.`);
+    } else if (statusCode === 401 || statusCode === 403) {
+      if (error.toLowerCase().includes("quota") || error.toLowerCase().includes("balance") || error.toLowerCase().includes("credit")) {
+        data.state = "quota_exhausted";
+        data.cooldownUntil = now + 864e5;
+        console.warn(`[ModelHealthManager] Key ${data.maskedKey} (${provider}) state: quota_exhausted.`);
+      } else {
+        const cooldownMs = Math.min(3e5, 6e4 * data.consecutiveFailures);
+        data.cooldownUntil = now + cooldownMs;
+        data.state = "temporarily_unavailable";
+      }
+    } else if (statusCode === 404 || statusCode === 410 || statusCode === 422 || statusCode === 400 && !error.toLowerCase().includes("api key") && !error.toLowerCase().includes("auth") && !error.toLowerCase().includes("credit") && !error.toLowerCase().includes("quota")) {
+      data.consecutiveFailures = 0;
+      data.cooldownUntil = 0;
+      data.state = "healthy";
+    } else {
+      const cooldownMs = Math.min(3e5, 15e3 * Math.pow(1.5, data.consecutiveFailures - 1));
+      data.cooldownUntil = now + cooldownMs;
+      data.state = data.consecutiveFailures >= 3 ? "degraded" : "temporarily_unavailable";
+    }
+    this.updateProviderRollup(provider);
+    this.scheduleSave();
+  }
+  isKeyAvailable(provider, key) {
+    const keyId = this.getKeyId(provider, key);
+    const data = this.keyHealthMap.get(keyId);
+    if (!data) return true;
+    if (data.state === "disabled" || data.state === "quota_exhausted") return false;
+    return data.cooldownUntil <= Date.now();
+  }
+  // =========================================================================
+  // MODEL HEALTH TRACKING (ISOLATED - MODEL FAILURE DOES NOT BRING DOWN PROVIDER)
+  // =========================================================================
+  recordModelSuccess(provider, providerModelId, latencyMs) {
+    const data = this.getOrCreateModelHealth(provider, providerModelId);
+    const now = Date.now();
+    const totalSuccess = data.successCount + 1;
+    data.averageLatencyMs = Math.round((data.averageLatencyMs * data.successCount + latencyMs) / totalSuccess);
+    data.successCount = totalSuccess;
+    data.consecutiveFailures = 0;
+    data.lastSuccess = new Date(now).toISOString();
+    data.cooldownUntil = 0;
+    data.lastErrorReason = void 0;
+    data.state = "healthy";
+    this.updateProviderRollup(provider);
+    this.scheduleSave();
+  }
+  recordModelFailure(provider, providerModelId, error, statusCode) {
+    const data = this.getOrCreateModelHealth(provider, providerModelId);
+    const now = Date.now();
+    data.failureCount++;
+    data.consecutiveFailures++;
+    data.lastFailure = new Date(now).toISOString();
+    data.lastErrorReason = error;
+    if (statusCode === 429) {
+      const cooldownMs = Math.min(3e5, 3e4 * Math.pow(1.5, data.consecutiveFailures - 1));
+      data.cooldownUntil = now + cooldownMs;
+      data.state = "rate_limited";
+      console.warn(`[ModelHealthManager] Model ${data.modelId} (${provider}) state: rate_limited for ${Math.round(cooldownMs / 1e3)}s.`);
+    } else if (statusCode === 404 || statusCode === 410) {
+      data.cooldownUntil = now + 3e5;
+      data.state = "temporarily_unavailable";
+    } else {
+      const cooldownMs = Math.min(3e5, 15e3 * Math.pow(1.5, data.consecutiveFailures - 1));
+      data.cooldownUntil = now + cooldownMs;
+      data.state = data.consecutiveFailures >= 3 ? "degraded" : "temporarily_unavailable";
+    }
+    this.updateProviderRollup(provider);
+    this.scheduleSave();
+  }
+  isModelAvailable(provider, providerModelId) {
+    const modelId = `${provider}:${providerModelId}`;
+    const data = this.modelHealthMap.get(modelId);
+    if (!data) return true;
+    if (data.state === "disabled" || data.state === "quota_exhausted") return false;
+    return data.cooldownUntil <= Date.now();
+  }
+  getModelHealth(provider, providerModelId) {
+    return this.getOrCreateModelHealth(provider, providerModelId);
+  }
+  // =========================================================================
+  // PROVIDER HEALTH TRACKING & ROLLUP
+  // =========================================================================
+  getProviderHealth(provider) {
+    return this.getOrCreateProviderHealth(provider);
+  }
+  isProviderAvailable(provider) {
+    const data = this.providerHealthMap.get(provider);
+    if (!data) return true;
+    if (data.state === "disabled" || data.state === "quota_exhausted") return false;
+    return data.state !== "temporarily_unavailable" && data.cooldownUntil <= Date.now();
+  }
+  updateProviderRollup(provider) {
+    const data = this.getOrCreateProviderHealth(provider);
+    const now = Date.now();
+    const providerKeys = Array.from(this.keyHealthMap.values()).filter((k) => k.provider === provider);
+    const activeKeys = providerKeys.filter((k) => k.state !== "disabled" && k.state !== "quota_exhausted" && k.cooldownUntil <= now).length;
+    data.totalKeys = providerKeys.length;
+    data.activeKeys = activeKeys;
+    const providerModels = Array.from(this.modelHealthMap.values()).filter((m) => m.provider === provider);
+    const availableModels = providerModels.filter((m) => m.state !== "disabled" && m.cooldownUntil <= now).length;
+    data.totalModels = providerModels.length;
+    data.availableModels = availableModels;
+    if (data.totalKeys > 0 && activeKeys === 0) {
+      const allQuotaExhausted = providerKeys.every((k) => k.state === "quota_exhausted");
+      if (allQuotaExhausted) {
+        data.state = "quota_exhausted";
+      } else {
+        data.state = "temporarily_unavailable";
+        const soonestKeyCooldown = providerKeys.map((k) => k.cooldownUntil).sort((a, b) => a - b)[0] || now + 2e4;
+        data.cooldownUntil = soonestKeyCooldown;
+      }
+    } else if (data.totalModels > 0 && availableModels === 0) {
+      data.state = "temporarily_unavailable";
+      data.cooldownUntil = now + 3e4;
+    } else {
+      const hasErrors = providerKeys.some((k) => k.state === "degraded" || k.consecutiveFailures > 2);
+      data.state = hasErrors ? "degraded" : "healthy";
+      data.cooldownUntil = 0;
+    }
+  }
+  // =========================================================================
+  // PERIODIC RECHECK & PERSISTENCE
+  // =========================================================================
+  startPeriodicRecheck() {
+    if (process.env.VERCEL === "1") return;
+    this.stopPeriodicRecheck();
+    this.checkTimer = setInterval(() => {
+      this.recheckHealthStates();
+    }, this.checkIntervalMs);
+    if (this.checkTimer && typeof this.checkTimer.unref === "function") {
+      this.checkTimer.unref();
+    }
+  }
+  stopPeriodicRecheck() {
+    if (this.checkTimer) {
+      clearInterval(this.checkTimer);
+      this.checkTimer = null;
+    }
+  }
+  recheckHealthStates() {
+    const now = Date.now();
+    let stateChanged = false;
+    for (const [, kData] of this.keyHealthMap.entries()) {
+      if (kData.cooldownUntil > 0 && now >= kData.cooldownUntil) {
+        kData.cooldownUntil = 0;
+        kData.state = kData.consecutiveFailures >= 3 ? "degraded" : "healthy";
+        kData.lastErrorReason = void 0;
+        console.log(`[ModelHealthManager] Key ${kData.maskedKey} (${kData.provider}) cooldown expired -> state: ${kData.state}`);
+        stateChanged = true;
+      }
+    }
+    for (const [modelId, mData] of this.modelHealthMap.entries()) {
+      if (mData.cooldownUntil > 0 && now >= mData.cooldownUntil) {
+        mData.cooldownUntil = 0;
+        mData.state = mData.consecutiveFailures >= 3 ? "degraded" : "healthy";
+        mData.lastErrorReason = void 0;
+        console.log(`[ModelHealthManager] Model ${modelId} cooldown expired -> state: ${mData.state}`);
+        stateChanged = true;
+      }
+    }
+    const providers = ["openrouter", "nim", "custom"];
+    for (const p of providers) {
+      this.updateProviderRollup(p);
+    }
+    if (stateChanged) {
+      this.scheduleSave();
+    }
+  }
+  generateReport(keyCounts, modelCounts) {
+    this.recheckHealthStates();
+    const providersReport = {};
+    const providers = ["openrouter", "nim", "custom"];
+    for (const p of providers) {
+      const pData = this.getOrCreateProviderHealth(p);
+      if (keyCounts && keyCounts[p]) {
+        pData.activeKeys = keyCounts[p].active;
+        pData.totalKeys = keyCounts[p].total;
+      }
+      if (modelCounts && modelCounts[p]) {
+        pData.totalModels = modelCounts[p];
+      }
+      providersReport[p] = { ...pData };
+    }
+    const keysReport = {};
+    for (const [id, data] of this.keyHealthMap.entries()) {
+      keysReport[id] = { ...data };
+    }
+    const modelsReport = {};
+    for (const [id, data] of this.modelHealthMap.entries()) {
+      modelsReport[id] = { ...data };
+    }
+    let discoveredTotal = 0;
+    if (modelCounts) {
+      discoveredTotal = Object.values(modelCounts).reduce((acc, c) => acc + c, 0);
+    }
+    return {
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      providers: providersReport,
+      keys: keysReport,
+      models: modelsReport,
+      discoveredModelsTotal: discoveredTotal,
+      freeModelsTotal: discoveredTotal
+    };
+  }
+  // =========================================================================
+  // PERSISTENCE (DISK SNAPSHOT)
+  // =========================================================================
+  flushSync() {
+    if (this.saveDebounceTimer) {
+      clearTimeout(this.saveDebounceTimer);
+      this.saveDebounceTimer = null;
+    }
+    this.saveToStorage();
+  }
+  scheduleSave() {
+    if (this.saveDebounceTimer) {
+      clearTimeout(this.saveDebounceTimer);
+    }
+    this.saveDebounceTimer = setTimeout(() => {
+      this.saveToStorage();
+    }, 500);
+  }
+  saveToStorage() {
+    if (process.env.VERCEL === "1") return;
+    try {
+      const dir = path.dirname(this.storageFile);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const snapshot = {
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        keys: Array.from(this.keyHealthMap.entries()),
+        models: Array.from(this.modelHealthMap.entries()),
+        providers: Array.from(this.providerHealthMap.entries())
+      };
+      fs.writeFileSync(this.storageFile, JSON.stringify(snapshot, null, 2), "utf-8");
+    } catch (err) {
+      console.warn("[ModelHealthManager] Failed to persist health state:", err?.message || err);
+    }
+  }
+  loadFromStorage() {
+    if (process.env.VERCEL === "1") return;
+    try {
+      if (!fs.existsSync(this.storageFile)) return;
+      const content = fs.readFileSync(this.storageFile, "utf-8");
+      const snapshot = JSON.parse(content);
+      if (Array.isArray(snapshot.keys)) {
+        for (const [id, data] of snapshot.keys) {
+          this.keyHealthMap.set(id, data);
+        }
+      }
+      if (Array.isArray(snapshot.models)) {
+        for (const [id, data] of snapshot.models) {
+          this.modelHealthMap.set(id, data);
+        }
+      }
+      if (Array.isArray(snapshot.providers)) {
+        for (const [id, data] of snapshot.providers) {
+          this.providerHealthMap.set(id, data);
+        }
+      }
+      console.log(`[ModelHealthManager] Loaded persistent health cache (${this.keyHealthMap.size} keys, ${this.modelHealthMap.size} models).`);
+    } catch (err) {
+      console.warn("[ModelHealthManager] Could not read health cache file, starting fresh:", err?.message || err);
+    }
+  }
+  getKeyId(provider, key) {
+    return `${provider}:${maskApiKey(key)}`;
+  }
+  getOrCreateKeyHealth(provider, key) {
+    const keyId = this.getKeyId(provider, key);
+    let data = this.keyHealthMap.get(keyId);
+    if (!data) {
+      data = {
+        maskedKey: maskApiKey(key),
+        provider,
+        state: "unknown",
+        successCount: 0,
+        failureCount: 0,
+        consecutiveFailures: 0,
+        averageLatencyMs: 0,
+        cooldownUntil: 0
+      };
+      this.keyHealthMap.set(keyId, data);
+    }
+    return data;
+  }
+  getOrCreateModelHealth(provider, providerModelId) {
+    const modelId = `${provider}:${providerModelId}`;
+    let data = this.modelHealthMap.get(modelId);
+    if (!data) {
+      data = {
+        modelId,
+        provider,
+        providerModelId,
+        state: "unknown",
+        successCount: 0,
+        failureCount: 0,
+        consecutiveFailures: 0,
+        averageLatencyMs: 0,
+        cooldownUntil: 0
+      };
+      this.modelHealthMap.set(modelId, data);
+    }
+    return data;
+  }
+  getOrCreateProviderHealth(provider) {
+    let data = this.providerHealthMap.get(provider);
+    if (!data) {
+      data = {
+        provider,
+        state: "unknown",
+        successCount: 0,
+        failureCount: 0,
+        consecutiveFailures: 0,
+        averageLatencyMs: 0,
+        cooldownUntil: 0,
+        activeKeys: 0,
+        totalKeys: 0,
+        availableModels: 0,
+        totalModels: 0
+      };
+      this.providerHealthMap.set(provider, data);
+    }
+    return data;
+  }
+};
+var modelHealthManager = new ModelHealthManager();
+
+// server/ai/health/healthTracker.ts
+var HealthTracker = class {
+  recordSuccess(provider, modelId, durationMs) {
+    modelHealthManager.recordModelSuccess(provider, modelId, durationMs);
+  }
+  recordError(provider, modelId, statusCode, errorMessage) {
+    modelHealthManager.recordModelFailure(provider, modelId, errorMessage || "Model error", statusCode);
+  }
+  isHealthy(provider, modelId) {
+    return modelHealthManager.isModelAvailable(provider, modelId);
+  }
+  getHealthScore(provider, modelId) {
+    const health = modelHealthManager.getModelHealth(provider, modelId);
+    if (health.state === "disabled" || health.state === "quota_exhausted") return 0;
+    if (health.state === "rate_limited" || health.state === "temporarily_unavailable") return 10;
+    if (health.state === "degraded") return 50;
+    const total = health.successCount + health.failureCount;
+    const rate = total > 0 ? health.successCount / total : 1;
+    return Math.round(rate * 100);
+  }
+  getModelHealthState(provider, modelId) {
+    return modelHealthManager.getModelHealth(provider, modelId).state;
+  }
+  generateReport(keyStats, modelCounts) {
+    return modelHealthManager.generateReport(keyStats, modelCounts);
+  }
+};
+var healthTracker = new HealthTracker();
+
+// server/ai/serverHandler.ts
+init_keyPool();
+
+// server/ai/classification/capabilityClassifier.ts
+var CapabilityClassifier = class {
+  /**
+   * Automatically classifies model capabilities from official provider metadata.
+   * If capability is not verifiable from metadata, it is marked 'unknown' or 'unsupported' - never guessed.
+   */
+  classify(raw) {
+    switch (raw.provider) {
+      case "openrouter":
+        return this.classifyOpenRouter(raw);
+      case "nim":
+        return this.classifyNim(raw);
+      case "gemini":
+        return this.classifyGemini(raw);
+      case "huggingface":
+        return this.classifyHuggingFace(raw);
+      case "cloudflare":
+        return this.classifyCloudflare(raw);
+      default:
+        return this.classifyGeneric(raw);
+    }
+  }
+  /**
+   * Extracts an array of strictly verified supported capabilities.
+   */
+  getVerifiedSupportedList(caps) {
+    const list = [];
+    if (caps.chat === "supported") list.push("chat");
+    if (caps.reasoning === "supported") list.push("reasoning");
+    if (caps.coding === "supported") list.push("coding");
+    if (caps.vision === "supported") list.push("vision");
+    if (caps.tool_calling === "supported") list.push("tool_calling");
+    if (caps.structured_output === "supported") list.push("structured_output");
+    return list;
+  }
+  classifyOpenRouter(raw) {
+    const modality = (raw.architecture?.modality || "").toLowerCase();
+    const desc = (raw.description || "").toLowerCase();
+    const id = raw.id.toLowerCase();
+    const supportedParams = Array.isArray(raw.supported_parameters) ? raw.supported_parameters : [];
+    const isChat = modality.includes("text->text") || modality.includes("text+image->text") || raw.architecture?.instruct_type !== null || id.includes("instruct") || id.includes("chat");
+    const chat = isChat ? "supported" : modality ? "unsupported" : "unknown";
+    const isExplicitNonVision = modality === "text->text" || modality === "text->image";
+    const hasVisionModality = !isExplicitNonVision && (modality.includes("multimodal") || modality.includes("image->") || modality.includes("text+image") || id.includes("-vl") || id.includes("vl-") || id.includes("vision") || id.includes("multimodal") || id.includes("gemini") || id.includes("pixtral") || id.includes("llava") || id.includes("moondream") || id.includes("paligemma") || id.includes("internvl") || id.includes("qwen-2-vl") || id.includes("qwen2-vl") || id.includes("qwen2.5-vl") || id.includes("glm-4v") || id.includes("glm-4.6v") || id.includes("smolvlm") || id.includes("florence") || desc.includes("vision model") || desc.includes("visual reasoning") || desc.includes("multimodal"));
+    const vision = hasVisionModality ? "supported" : modality || isChat ? "unsupported" : "unknown";
+    let tool_calling = "unknown";
+    if (supportedParams.length > 0) {
+      const hasTools = supportedParams.includes("tools") || supportedParams.includes("function_calling");
+      tool_calling = hasTools ? "supported" : "unsupported";
+    } else if (desc.includes("tool calling") || desc.includes("function calling")) {
+      tool_calling = "supported";
+    }
+    let structured_output = "unknown";
+    if (supportedParams.length > 0) {
+      const hasFormat = supportedParams.includes("response_format") || supportedParams.includes("structured_outputs");
+      structured_output = hasFormat ? "supported" : "unsupported";
+    } else if (isChat) {
+      structured_output = "supported";
+    }
+    const isReasoning = id.includes("r1") || id.includes("reason") || id.includes("qwq") || id.includes("o1") || id.includes("o3") || desc.includes("chain-of-thought") || desc.includes("reasoning model");
+    const reasoning = isReasoning ? "supported" : "unknown";
+    const isCoding = id.includes("coder") || id.includes("code") || id.includes("deepseek-coder") || id.includes("starcoder") || id.includes("codeqwen") || desc.includes("coding model") || desc.includes("code generation");
+    const coding = isCoding ? "supported" : "unknown";
+    return {
+      chat,
+      reasoning,
+      coding,
+      vision,
+      tool_calling,
+      structured_output
+    };
+  }
+  classifyNim(raw) {
+    const id = raw.id.toLowerCase();
+    const desc = (raw.description || "").toLowerCase();
+    const isChat = id.includes("instruct") || id.includes("chat") || id.includes("llama") || id.includes("nemotron") || id.includes("mistral") || id.includes("qwen") || id.includes("gpt-oss") || id.includes("step") || id.includes("glm") || id.includes("muse") || id.includes("minimax") || id.includes("gemma") || id.includes("diffusiongemma");
+    const chat = isChat ? "supported" : "unknown";
+    const isVision = id.includes("vision") || id.includes("-vl") || id.includes("vl-") || id.includes("vlm") || id.includes("multimodal") || id.includes("neva") || id.includes("florence") || id.includes("kosmos") || Array.isArray(raw.modalities) && raw.modalities.includes("vision") || Array.isArray(raw.capabilities) && raw.capabilities.includes("vision");
+    const vision = isVision ? "supported" : isChat ? "unsupported" : "unknown";
+    const isReasoning = id.includes("r1") || id.includes("reason") || id.includes("qwq") || id.includes("gpt-oss") || desc.includes("reasoning");
+    const reasoning = isReasoning ? "supported" : "unknown";
+    const isCoding = id.includes("coder") || id.includes("code");
+    const coding = isCoding ? "supported" : "unknown";
+    const tool_calling = "unknown";
+    const structured_output = isChat ? "supported" : "unknown";
+    return {
+      chat,
+      reasoning,
+      coding,
+      vision,
+      tool_calling,
+      structured_output
+    };
+  }
+  classifyGemini(raw) {
+    const id = raw.id.toLowerCase();
+    if (id.includes("imagen")) {
+      return {
+        chat: "unsupported",
+        reasoning: "unsupported",
+        coding: "unsupported",
+        vision: "unsupported",
+        tool_calling: "unsupported",
+        structured_output: "unsupported"
+      };
+    }
+    const isFlashOrPro = id.includes("flash") || id.includes("pro");
+    return {
+      chat: "supported",
+      reasoning: id.includes("2.0-flash-thinking") || id.includes("pro") ? "supported" : "unknown",
+      coding: "supported",
+      vision: "supported",
+      tool_calling: isFlashOrPro ? "supported" : "unknown",
+      structured_output: "supported"
+    };
+  }
+  classifyHuggingFace(raw) {
+    const id = raw.id.toLowerCase();
+    const isVision = id.includes("-vl") || id.includes("vision") || id.includes("glm-4.5v") || id.includes("glm-4.6v") || id.includes("aya-vision") || id.includes("command-a-vision") || id.includes("multimodal") || id.includes("internvl") || id.includes("idefics") || id.includes("llava");
+    const isCoding = id.includes("code") || id.includes("coder");
+    const isReasoning = id.includes("r1") || id.includes("reason") || id.includes("thinking") || id.includes("qwq");
+    return {
+      chat: "supported",
+      reasoning: isReasoning ? "supported" : "unknown",
+      coding: isCoding ? "supported" : "unknown",
+      vision: isVision ? "supported" : "unsupported",
+      tool_calling: "unknown",
+      structured_output: "supported"
+    };
+  }
+  classifyCloudflare(raw) {
+    const id = raw.id.toLowerCase();
+    const isVision = id.includes("vision") || id.includes("llava");
+    const isCoding = id.includes("code") || id.includes("coder");
+    const isReasoning = id.includes("r1") || id.includes("reason");
+    return {
+      chat: "supported",
+      reasoning: isReasoning ? "supported" : "unknown",
+      coding: isCoding ? "supported" : "unknown",
+      vision: isVision ? "supported" : "unsupported",
+      tool_calling: "unknown",
+      structured_output: "supported"
+    };
+  }
+  classifyGeneric(raw) {
+    const id = raw.id.toLowerCase();
+    const declared = [...raw.modalities || [], ...raw.capabilities || []].map((s) => String(s).toLowerCase());
+    const declares = (c) => declared.includes(c);
+    const isChat = id.includes("chat") || id.includes("instruct") || declares("text") || declares("chat");
+    const isVision = id.includes("vision") || id.includes("-vl") || id.includes("vl-") || id.includes("vlm") || id.includes("moondream") || id.includes("smolvlm") || id.includes("gemini") || id.includes("pixtral") || id.includes("llava") || declares("vision");
+    const isCoding = id.includes("code") || id.includes("coder");
+    const isReasoning = id.includes("r1") || id.includes("reason");
+    return {
+      chat: isChat ? "supported" : "unknown",
+      reasoning: isReasoning ? "supported" : "unknown",
+      coding: isCoding ? "supported" : "unknown",
+      vision: isVision ? "supported" : "unknown",
+      tool_calling: "unknown",
+      structured_output: isChat || declares("json") ? "supported" : "unknown"
+    };
+  }
+};
+var capabilityClassifier = new CapabilityClassifier();
+
+// server/ai/registry/freeModelRegistry.ts
+init_discoveryService();
+init_keyPool();
+var FreeModelRegistry = class {
+  constructor() {
+    this.models = /* @__PURE__ */ new Map();
+    this.refreshPromise = null;
+    this.refreshTimer = null;
+    this.refreshIntervalMs = parseInt(process.env.REGISTRY_REFRESH_INTERVAL_MS || "3600000", 10);
+    // 1 hour default
+    this.lastRefreshed = (/* @__PURE__ */ new Date()).toISOString();
+    this.hasCompletedRefresh = false;
+    this.recentFailures = [];
+    // Model health history
+    this.modelTelemetry = /* @__PURE__ */ new Map();
+    for (const adapter of modelDiscoveryService.getAllAdapters()) {
+      for (const model of modelDiscoveryService.getBootstrapModels(adapter.name)) {
+        const normalized = this.normalizeModel(model, adapter.name);
+        this.models.set(normalized.id, normalized);
+      }
+    }
+    this.startPeriodicRefresh(this.refreshIntervalMs);
+  }
+  /**
+   * Refreshes model catalog across all registered adapters.
+   * If any provider API fails, that provider's previous valid models are preserved.
+   */
+  async refreshRegistry(force = false) {
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+    this.refreshPromise = this.performRefresh(force);
+    try {
+      return await this.refreshPromise;
+    } finally {
+      this.refreshPromise = null;
+    }
+  }
+  async performRefresh(force) {
+    const startTime = Date.now();
+    const adapters = modelDiscoveryService.getAllAdapters();
+    for (const adapter of adapters) {
+      const provider = adapter.name;
+      try {
+        const discovered = await modelDiscoveryService.getDiscoveredModels(provider, force);
+        if (discovered && discovered.length > 0) {
+          for (const key of Array.from(this.models.keys())) {
+            if (key.startsWith(`${provider}:`)) {
+              this.models.delete(key);
+            }
+          }
+          for (const rawModel of discovered) {
+            const globalId = `${provider}:${rawModel.id || rawModel.providerModelId}`;
+            const normalized = this.normalizeModel(rawModel, provider);
+            this.models.set(globalId, normalized);
+          }
+          console.log(`[FreeModelRegistry] Synced ${discovered.length} models for provider [${provider}]`);
+        }
+      } catch (err) {
+        console.warn(`[FreeModelRegistry] Failed to refresh [${provider}]: ${err.message}. Retaining previous provider models.`);
+        const existingCount = Array.from(this.models.keys()).filter((k) => k.startsWith(`${provider}:`)).length;
+        if (existingCount === 0) {
+          const bootstrap = modelDiscoveryService.getBootstrapModels(provider);
+          for (const b of bootstrap) {
+            const globalId = `${provider}:${b.id}`;
+            this.models.set(globalId, this.normalizeModel(b, provider));
+          }
+        }
+      }
+    }
+    this.lastRefreshed = (/* @__PURE__ */ new Date()).toISOString();
+    this.hasCompletedRefresh = true;
+    console.log(`[FreeModelRegistry] Registry refresh complete in ${Date.now() - startTime}ms. Total models: ${this.models.size}`);
+    return this.getAllModels();
+  }
+  getAllModels() {
+    const now = Date.now();
+    return Array.from(this.models.values()).map((m) => this.applyLiveTelemetry(m, now));
+  }
+  /**
+   * Indicates whether the catalog should be refreshed before selecting a
+   * model. This is intentionally cheap so the router can check it per
+   * request without doing network work on the hot path.
+   */
+  isRefreshDue() {
+    return !this.hasCompletedRefresh || Date.now() - Date.parse(this.lastRefreshed) >= this.refreshIntervalMs;
+  }
+  /**
+   * Starts a refresh without making the current request wait for provider
+   * discovery. The shared refresh promise prevents duplicate refresh storms.
+   */
+  refreshInBackground(force = true) {
+    if (!this.refreshPromise) {
+      void this.refreshRegistry(force).catch((err) => {
+        console.warn(`[FreeModelRegistry] Background refresh error: ${err.message}`);
+      });
+    }
+  }
+  /**
+   * Gives live discovery a small opportunity to finish before routing. If a
+   * provider is slow or unavailable, routing continues with the current
+   * telemetry-aware catalog while the same refresh continues in the background.
+   */
+  async waitForFreshCatalog(maxWaitMs = 2500) {
+    if (!this.isRefreshDue()) return;
+    const refresh = this.refreshRegistry(true).catch((err) => {
+      console.warn(`[FreeModelRegistry] Request refresh error: ${err.message}`);
+    });
+    await Promise.race([
+      refresh,
+      new Promise((resolve) => setTimeout(resolve, maxWaitMs))
+    ]);
+  }
+  getModel(idOrProviderModelId) {
+    const direct = this.models.get(idOrProviderModelId);
+    if (direct) return this.applyLiveTelemetry(direct, Date.now());
+    for (const m of this.models.values()) {
+      if (m.providerModelId === idOrProviderModelId || m.id === idOrProviderModelId) {
+        return this.applyLiveTelemetry(m, Date.now());
+      }
+    }
+    return void 0;
+  }
+  getModelsByProvider(provider) {
+    const now = Date.now();
+    return Array.from(this.models.values()).filter((m) => m.provider === provider).map((m) => this.applyLiveTelemetry(m, now));
+  }
+  /**
+   * Returns models that are strictly verified free and have the required verified capability.
+   */
+  getVerifiedFreeModels(taskType, requiredCapability) {
+    const all = this.getAllModels();
+    const targetCap = requiredCapability || (taskType ? this.mapTaskToCapability(taskType) : void 0);
+    return all.filter((m) => {
+      if (!m.verifiedFree || m.eligibilityStatus !== "free") return false;
+      if (targetCap && (!m.capabilityMap || m.capabilityMap[targetCap] !== "supported")) {
+        return false;
+      }
+      return m.status === "available" || m.status === "degraded";
+    });
+  }
+  /**
+   * Live recording of model execution success
+   */
+  recordModelSuccess(provider, providerModelId, latencyMs) {
+    const globalId = `${provider}:${providerModelId}`;
+    const entry = this.getOrCreateTelemetry(globalId);
+    entry.successCount++;
+    entry.totalLatencyMs += latencyMs;
+    entry.cooldownUntil = 0;
+    entry.lastChecked = (/* @__PURE__ */ new Date()).toISOString();
+  }
+  /**
+   * Live recording of model execution error & rate limit cooldown
+   */
+  recordModelFailure(provider, providerModelId, error, statusCode) {
+    const globalId = `${provider}:${providerModelId}`;
+    const entry = this.getOrCreateTelemetry(globalId);
+    entry.failureCount++;
+    entry.lastChecked = (/* @__PURE__ */ new Date()).toISOString();
+    const now = Date.now();
+    if (statusCode === 429) {
+      entry.cooldownUntil = now + 3e4;
+      console.warn(`[FreeModelRegistry] Model ${globalId} hit rate limit (429). In cooldown for 30s.`);
+    } else if (statusCode === 404 || statusCode === 401) {
+      entry.cooldownUntil = now + 3e5;
+    } else {
+      entry.cooldownUntil = now + 15e3;
+    }
+    const sanitizedError = redactSecrets(error || "Unknown error");
+    this.recentFailures.unshift({
+      id: `fail_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      provider,
+      modelId: providerModelId,
+      error: sanitizedError,
+      statusCode
+    });
+    if (this.recentFailures.length > 30) {
+      this.recentFailures.pop();
+    }
+  }
+  getRecentFailures() {
+    return [...this.recentFailures];
+  }
+  clearRecentFailures() {
+    this.recentFailures = [];
+  }
+  clearTelemetry() {
+    this.modelTelemetry.clear();
+    this.recentFailures = [];
+  }
+  /**
+   * Returns models organized into task categories and grouped by tier (fast / balanced / quality).
+   */
+  getCategorizedCatalog(preferFree = true) {
+    const allModels = this.getAllModels();
+    const filtered = preferFree ? allModels.filter((m) => m.verifiedFree === true && m.eligibilityStatus === "free") : allModels;
+    const buildTierGroup = (models) => {
+      const fast = models.filter((m) => m.tier === "fast");
+      const balanced = models.filter((m) => m.tier === "balanced" || !m.tier);
+      const quality = models.filter((m) => m.tier === "quality");
+      return { fast, balanced, quality };
+    };
+    const visionModels = filtered.filter(
+      (m) => m.capabilityMap?.vision === "supported" || m.capabilities.includes("vision") || m.modalities.includes("vision")
+    );
+    const structuredJsonModels = filtered.filter(
+      (m) => m.capabilityMap?.structured_output === "supported" || m.supportsStructuredJson || m.capabilities.includes("structured_output")
+    );
+    const promptEnhanceModels = filtered.filter(
+      (m) => m.capabilityMap?.chat === "supported" || m.capabilities.includes("chat") || m.capabilities.includes("text")
+    );
+    const textGenModels = filtered.filter(
+      (m) => m.capabilityMap?.chat === "supported" || m.capabilities.includes("chat") || m.capabilities.includes("text")
+    );
+    const reasoningModels = filtered.filter(
+      (m) => m.capabilityMap?.reasoning === "supported" || m.capabilities.includes("reasoning")
+    );
+    const codingModels = filtered.filter(
+      (m) => m.capabilityMap?.coding === "supported" || m.capabilities.includes("coding")
+    );
+    const imageGenModels = filtered.filter(
+      (m) => (
+        // Removed image_generation check
+        m.capabilities.includes("image")
+      )
+    );
+    return {
+      vision: buildTierGroup(visionModels),
+      structured_json: buildTierGroup(structuredJsonModels),
+      prompt_enhancement: buildTierGroup(promptEnhanceModels),
+      text_generation: buildTierGroup(textGenModels),
+      reasoning: buildTierGroup(reasoningModels.length > 0 ? reasoningModels : filtered.filter((m) => m.tier === "quality")),
+      coding: buildTierGroup(codingModels.length > 0 ? codingModels : filtered)
+      // Removed image generation tier group
+    };
+  }
+  getRegistryStats() {
+    const models = this.getAllModels();
+    const capsCount = {
+      chat: 0,
+      reasoning: 0,
+      coding: 0,
+      vision: 0,
+      tool_calling: 0,
+      structured_output: 0
+    };
+    let visionModelsCount = 0;
+    const stats = {
+      totalModels: models.length,
+      verifiedFreeModels: 0,
+      eligibleUnknownModels: 0,
+      paidModels: 0,
+      visionModels: 0,
+      capabilitiesCount: capsCount,
+      byProvider: {},
+      lastRefreshed: this.lastRefreshed
+    };
+    for (const m of models) {
+      if (m.verifiedFree) stats.verifiedFreeModels++;
+      if (m.eligibilityStatus === "eligible_unknown") stats.eligibleUnknownModels++;
+      if (m.eligibilityStatus === "paid") stats.paidModels++;
+      if (m.capabilityMap && m.capabilityMap.vision === "supported" || m.capabilities.includes("vision") || m.modalities.includes("vision")) {
+        visionModelsCount++;
+      }
+      for (const cap of m.capabilities) {
+        const capKey = cap;
+        if (stats.capabilitiesCount[capKey] !== void 0) {
+          stats.capabilitiesCount[capKey]++;
+        }
+      }
+      if (!stats.byProvider[m.provider]) {
+        stats.byProvider[m.provider] = {
+          total: 0,
+          verifiedFree: 0,
+          available: 0,
+          inCooldown: 0
+        };
+      }
+      const pStat = stats.byProvider[m.provider];
+      pStat.total++;
+      if (m.verifiedFree) pStat.verifiedFree++;
+      if (m.status === "available") pStat.available++;
+      if (m.status === "cooldown") pStat.inCooldown++;
+    }
+    stats.visionModels = visionModelsCount;
+    return stats;
+  }
+  setRefreshInterval(intervalMs) {
+    this.refreshIntervalMs = intervalMs;
+    this.startPeriodicRefresh(intervalMs);
+  }
+  startPeriodicRefresh(intervalMs) {
+    if (process.env.VERCEL === "1") return;
+    this.stopPeriodicRefresh();
+    this.refreshIntervalMs = intervalMs;
+    this.refreshTimer = setInterval(() => {
+      this.refreshRegistry(true).catch((err) => {
+        console.warn("[FreeModelRegistry] Periodic refresh error:", err?.message || err);
+      });
+    }, this.refreshIntervalMs);
+    if (this.refreshTimer && typeof this.refreshTimer.unref === "function") {
+      this.refreshTimer.unref();
+    }
+  }
+  stopPeriodicRefresh() {
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+  }
+  normalizeModel(rawModel, provider) {
+    const providerModelId = rawModel.providerModelId || rawModel.id;
+    const globalId = `${provider}:${providerModelId}`;
+    const inputCost = typeof rawModel.inputCost === "number" ? rawModel.inputCost : rawModel.pricing?.prompt ?? -1;
+    const outputCost = typeof rawModel.outputCost === "number" ? rawModel.outputCost : rawModel.pricing?.completion ?? -1;
+    const verifiedFree = rawModel.verifiedFree ?? (inputCost === 0 && outputCost === 0 && rawModel.freeEligibility !== "eligible_unknown" && rawModel.freeEligibility !== "paid");
+    const eligibilityStatus = rawModel.eligibilityStatus || rawModel.freeEligibility || (verifiedFree ? "free" : inputCost < 0 || outputCost < 0 ? "eligible_unknown" : "paid");
+    const contextWindow = rawModel.contextWindow || rawModel.contextLength || 8192;
+    const tier = rawModel.tier || "balanced";
+    const capabilityMap = capabilityClassifier.classify({
+      id: providerModelId,
+      name: rawModel.name,
+      description: rawModel.description,
+      provider,
+      modalities: rawModel.modalities,
+      capabilities: rawModel.capabilities,
+      architecture: rawModel.architecture,
+      supported_parameters: rawModel.supported_parameters,
+      supportedGenerationMethods: rawModel.supportedGenerationMethods
+    });
+    const capabilities = capabilityClassifier.getVerifiedSupportedList(capabilityMap);
+    return {
+      id: globalId,
+      provider,
+      providerModelId,
+      name: rawModel.name || providerModelId,
+      verifiedFree,
+      eligibilityStatus,
+      capabilities,
+      capabilityMap,
+      contextWindow,
+      status: "available",
+      successRate: 1,
+      averageLatency: 0,
+      failureCount: 0,
+      lastChecked: rawModel.discoveredTimestamp || (/* @__PURE__ */ new Date()).toISOString(),
+      cooldownUntil: 0,
+      // Compatibility aliases
+      isFree: verifiedFree,
+      contextLength: contextWindow,
+      freeEligibility: eligibilityStatus,
+      tier,
+      pricing: {
+        prompt: Math.max(0, inputCost),
+        completion: Math.max(0, outputCost),
+        isZeroCost: verifiedFree
+      },
+      modalities: rawModel.modalities || ["text"],
+      supportsStructuredJson: capabilityMap.structured_output === "supported",
+      description: rawModel.description,
+      inputCost,
+      outputCost,
+      discoveredTimestamp: rawModel.discoveredTimestamp || (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  mapTaskToCapability(taskType) {
+    switch (taskType) {
+      case "vision":
+      case "image_analysis":
+      case "advanced_image_analysis":
+        return "vision";
+      case "structured_json":
+        return "structured_output";
+      // image_generation case removed
+      case "coding":
+        return "coding";
+      case "reasoning":
+        return "reasoning";
+      case "prompt_enhancement":
+      case "text_generation":
+      default:
+        return "chat";
+    }
+  }
+  applyLiveTelemetry(model, now) {
+    const globalId = model.id;
+    const telemetry = this.modelTelemetry.get(globalId);
+    if (!telemetry) {
+      return { ...model };
+    }
+    const totalReqs = telemetry.successCount + telemetry.failureCount;
+    const successRate = totalReqs > 0 ? telemetry.successCount / totalReqs : 1;
+    const averageLatency = telemetry.successCount > 0 ? Math.round(telemetry.totalLatencyMs / telemetry.successCount) : 0;
+    let status = "available";
+    if (telemetry.cooldownUntil > now) {
+      status = "cooldown";
+    } else if (telemetry.failureCount >= 3 && successRate < 0.5) {
+      status = "degraded";
+    }
+    return {
+      ...model,
+      status,
+      successRate,
+      averageLatency,
+      failureCount: telemetry.failureCount,
+      cooldownUntil: telemetry.cooldownUntil,
+      lastChecked: telemetry.lastChecked || model.lastChecked
+    };
+  }
+  getOrCreateTelemetry(globalId) {
+    let entry = this.modelTelemetry.get(globalId);
+    if (!entry) {
+      entry = {
+        successCount: 0,
+        failureCount: 0,
+        totalLatencyMs: 0,
+        cooldownUntil: 0,
+        lastChecked: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      this.modelTelemetry.set(globalId, entry);
+    }
+    return entry;
+  }
+};
+var freeModelRegistry = new FreeModelRegistry();
+
+// server/ai/filtering/freeFilter.ts
+var ModelFilterService = class {
+  /**
+   * Filter and rank models for a task.
+   * Strictly verifies that the required capability is 'supported' (never guesses unknown/unsupported).
+   * By default, only routes to verified free models (verifiedFree: true).
+   */
+  filterAndRankModels(models, criteria) {
+    const requiredCap = criteria.requiredCapability || this.getRequiredCapabilityForTask(criteria.taskType);
+    const preferFree = criteria.preferFree !== void 0 ? criteria.preferFree : true;
+    let candidates = models.filter((m) => {
+      if (!m.capabilityMap || m.capabilityMap[requiredCap] !== "supported") {
+        return false;
+      }
+      if (criteria.minContextLength && (m.contextWindow || 0) < criteria.minContextLength) {
+        return false;
+      }
+      if (criteria.taskType === "structured_json" && m.capabilityMap.structured_output !== "supported") {
+        return false;
+      }
+      return true;
+    });
+    if (preferFree) {
+      const verifiedFree = candidates.filter((m) => m.verifiedFree && m.eligibilityStatus === "free");
+      if (verifiedFree.length > 0) {
+        candidates = verifiedFree;
+      } else if (criteria.allowEligibleUnknown) {
+        const unknownEligible = candidates.filter((m) => m.eligibilityStatus === "eligible_unknown");
+        if (unknownEligible.length > 0) {
+          candidates = unknownEligible;
+        }
+      }
+    }
+    return candidates.sort((a, b) => {
+      const scoreA = this.calculateModelScore(a, criteria, requiredCap);
+      const scoreB = this.calculateModelScore(b, criteria, requiredCap);
+      return scoreB - scoreA;
+    });
+  }
+  getVerifiedFreeModels(models, capability) {
+    return models.filter((m) => {
+      if (!m.verifiedFree || m.eligibilityStatus !== "free") return false;
+      if (capability && (!m.capabilityMap || m.capabilityMap[capability] !== "supported")) return false;
+      return true;
+    });
+  }
+  getRequiredCapabilityForTask(taskType) {
+    switch (taskType) {
+      case "vision":
+      case "image_analysis":
+      case "advanced_image_analysis":
+        return "vision";
+      case "structured_json":
+        return "structured_output";
+      case "coding":
+        return "coding";
+      case "reasoning":
+        return "reasoning";
+      case "prompt_enhancement":
+      case "text_generation":
+      default:
+        return "chat";
+    }
+  }
+  calculateModelScore(model, criteria, requiredCap) {
+    let score = 50;
+    if (model.verifiedFree && model.eligibilityStatus === "free") {
+      score += 40;
+    } else if (model.eligibilityStatus === "eligible_unknown") {
+      score += 10;
+    }
+    if (requiredCap === "chat" && model.capabilityMap?.reasoning === "supported") {
+      score += 15;
+    }
+    if (requiredCap === "structured_output" && model.capabilityMap?.coding === "supported") {
+      score += 10;
+    }
+    const targetTier = criteria.tierPreference || this.getDefaultTierForTask(criteria.taskType);
+    if (model.tier === targetTier) {
+      score += 20;
+    }
+    if (model.contextWindow !== void 0 && model.contextWindow >= 32768) {
+      score += 10;
+    }
+    const lowerId = model.id.toLowerCase();
+    if (lowerId.includes("llama-3.3") || lowerId.includes("gemini-2.0") || lowerId.includes("qwen") || lowerId.includes("nemotron")) {
+      score += 15;
+    }
+    return score;
+  }
+  getDefaultTierForTask(taskType) {
+    switch (taskType) {
+      case "prompt_enhancement":
+        return "fast";
+      case "structured_json":
+        return "balanced";
+      case "vision":
+        return "balanced";
+      case "text_generation":
+      default:
+        return "fast";
+    }
+  }
+};
+var modelFilterService = new ModelFilterService();
+
+// server/ai/serverHandler.ts
+init_discoveryService();
+
+// server/ai/router/router.ts
+init_baseAdapter();
+init_discoveryService();
+init_keyPool();
+
+// server/ai/scoring/modelScoringEngine.ts
+var DEFAULT_SCORING_WEIGHTS = {
+  verifiedFreeBonus: 50,
+  capabilityMatchWeight: 35,
+  tierAlignmentWeight: 40,
+  tierMismatchPenalty: 20,
+  healthScoreWeight: 25,
+  successRateWeight: 30,
+  latencyBonusWeight: 20,
+  failurePenaltyWeight: 15,
+  contextWindowBonus: 10
+};
+var ModelScoringEngine = class {
+  constructor() {
+    this.defaultWeights = { ...DEFAULT_SCORING_WEIGHTS };
+  }
+  setWeights(weights) {
+    this.defaultWeights = { ...this.defaultWeights, ...weights };
+  }
+  getWeights() {
+    return { ...this.defaultWeights };
+  }
+  /**
+   * Scores a model dynamically for a specific request.
+   * Simple tasks prioritize lightweight ('fast') models.
+   * Complex tasks prioritize high-capacity ('quality') models.
+   */
+  scoreModel(model, request) {
+    const weights = {
+      ...this.defaultWeights,
+      ...request.scoringWeightsOverride || {}
+    };
+    let score = 100;
+    if (model.verifiedFree && model.eligibilityStatus === "free") {
+      score += weights.verifiedFreeBonus;
+    } else if (model.eligibilityStatus === "eligible_unknown") {
+      score += Math.round(weights.verifiedFreeBonus * 0.2);
+    }
+    const targetTier = this.getTargetTierForTask(request.taskType, request.preferredQuality);
+    if (model.tier === targetTier) {
+      score += weights.tierAlignmentWeight;
+    } else if (targetTier === "fast" && model.tier === "quality") {
+      score -= weights.tierMismatchPenalty;
+    } else if (targetTier === "quality" && model.tier === "fast") {
+      score -= weights.tierMismatchPenalty;
+    }
+    const requiredCap = this.getPrimaryCapabilityForTask(request.taskType);
+    const capMap = model.capabilityMap;
+    if (capMap && capMap[requiredCap] === "supported") {
+      score += weights.capabilityMatchWeight;
+    }
+    if (request.taskType === "reasoning" && capMap?.reasoning === "supported") {
+      score += 25;
+    }
+    if (request.taskType === "coding" && capMap?.coding === "supported") {
+      score += 25;
+    }
+    if (request.taskType === "advanced_image_analysis" && capMap?.vision === "supported") {
+      score += 20;
+    }
+    if (model.status === "available") {
+      score += weights.healthScoreWeight;
+    } else if (model.status === "degraded") {
+      score -= Math.round(weights.healthScoreWeight * 0.5);
+    }
+    if (model.successRate !== void 0) {
+      score += Math.round(model.successRate * weights.successRateWeight);
+    }
+    if (model.failureCount !== void 0 && model.failureCount > 0) {
+      score -= Math.min(45, model.failureCount * weights.failurePenaltyWeight);
+    }
+    if (model.averageLatency !== void 0 && model.averageLatency > 0) {
+      if (model.averageLatency < 1200) {
+        score += weights.latencyBonusWeight;
+      } else if (model.averageLatency > 5e3) {
+        score -= weights.latencyBonusWeight;
+      }
+    }
+    if (request.speedPreference === "fastest" && model.tier === "fast") {
+      score += 20;
+    }
+    if (model.contextWindow !== void 0 && model.contextWindow >= 65536) {
+      score += weights.contextWindowBonus;
+    }
+    if (request.preferredProvider && model.provider === request.preferredProvider) {
+      score += 40;
+    }
+    if (request.preferredModel && (model.providerModelId === request.preferredModel || model.id === request.preferredModel)) {
+      score += 60;
+    }
+    return score;
+  }
+  /**
+   * Identifies the optimal model tier for a given task type.
+   * Simple tasks -> 'fast' (lightweight)
+   * Complex tasks -> 'quality' (stronger)
+   * Balanced / default -> 'balanced'
+   */
+  getTargetTierForTask(taskType, qualityPref) {
+    if (qualityPref === "high") return "quality";
+    if (qualityPref === "speed") return "fast";
+    switch (taskType) {
+      // Simple Tasks -> Lightweight ('fast')
+      case "rewriting":
+      case "captions":
+      case "prompt_formatting":
+      case "extracting_structured_information":
+      case "simple_creative_suggestions":
+      case "prompt_enhancement":
+      case "text_generation":
+        return "fast";
+      // Complex Tasks -> Heavyweight / Stronger ('quality')
+      case "complex_reasoning":
+      case "reasoning":
+      case "coding":
+      case "multi_step_tasks":
+        return "quality";
+      // Intermediate / Balanced
+      case "creative_prompt":
+      case "chat":
+      case "vision":
+      case "image_analysis":
+      case "advanced_image_analysis":
+      case "structured_json":
+      default:
+        return "balanced";
+    }
+  }
+  getPrimaryCapabilityForTask(taskType) {
+    switch (taskType) {
+      case "vision":
+      case "image_analysis":
+      case "advanced_image_analysis":
+        return "vision";
+      case "coding":
+        return "coding";
+      case "reasoning":
+        return "reasoning";
+      case "structured_json":
+      case "extracting_structured_information":
+        return "structured_output";
+      case "rewriting":
+      case "captions":
+      case "prompt_formatting":
+      case "simple_creative_suggestions":
+      case "creative_prompt":
+      case "chat":
+      case "text_generation":
+      case "prompt_enhancement":
+      case "multi_step_tasks":
+      default:
+        return "chat";
+    }
+  }
+};
+var modelScoringEngine = new ModelScoringEngine();
+
+// server/ai/router/router.ts
+var AIRouter = class {
+  constructor() {
+    this.inFlightRequests = /* @__PURE__ */ new Map();
+    this.visionCache = /* @__PURE__ */ new Map();
+    this.defaultMaxFallbackAttempts = 6;
+    this.visionMaxFallbackAttempts = 3;
+  }
+  /**
+   * Main AI Router execution engine.
+   * Performs 10-step routing pipeline:
+   * 1. Get models from FreeModelRegistry
+   * 2. Keep only verified free models
+   * 3. Remove unhealthy models
+   * 4. Remove models currently in cooldown
+   * 5. Filter by required capability
+   * 6. Score the remaining models with task-specific weights (lightweight for simple tasks, strong for complex)
+   * 7. Select best available provider + model + API key
+   * 8. Execute the request
+   * 9. Record success / failure
+   * 10. If failed, automatically try next compatible candidate
+   */
+  async execute(request) {
+    const requestKey = this.generateRequestFingerprint(request);
+    const isVision = request.taskType === "vision" || request.taskType === "advanced_image_analysis";
+    if (isVision) {
+      const cached = this.visionCache.get(requestKey);
+      if (cached && Date.now() - cached.timestamp < 6e4) {
+        return { ...cached.response, durationMs: 0, fallbackCount: 0 };
+      }
+      if (this.visionCache.size > 50) {
+        const now = Date.now();
+        for (const [k, v] of this.visionCache.entries()) {
+          if (now - v.timestamp > 6e4) this.visionCache.delete(k);
+        }
+      }
+    }
+    const existing = this.inFlightRequests.get(requestKey);
+    if (existing) {
+      return existing;
+    }
+    const executionPromise = this.performRouting(request).then((res) => {
+      if (isVision) this.visionCache.set(requestKey, { response: res, timestamp: Date.now() });
+      return res;
+    });
+    this.inFlightRequests.set(requestKey, executionPromise);
+    try {
+      return await executionPromise;
+    } finally {
+      this.inFlightRequests.delete(requestKey);
+    }
+  }
+  async performRouting(request) {
+    await ensureLocalAdapterRegistered3().catch(() => {
+    });
+    if (freeModelRegistry.isRefreshDue()) {
+      freeModelRegistry.refreshInBackground(true);
+    }
+    let allModels = freeModelRegistry.getAllModels();
+    if (allModels.length === 0) {
+      allModels = await freeModelRegistry.refreshRegistry();
+    }
+    const now = Date.now();
+    const preferFree = request.preferFree !== false;
+    const requiredCaps = this.getRequiredCapabilities(request);
+    const errors = [];
+    let candidates = allModels.filter((m) => {
+      if (preferFree && m.provider !== "custom" && !(m.verifiedFree === true && m.eligibilityStatus === "free")) {
+        return false;
+      }
+      return true;
+    });
+    candidates = candidates.filter((m) => {
+      if (m.status === "disabled") return false;
+      return modelHealthManager.isModelAvailable(m.provider, m.providerModelId || m.id);
+    });
+    candidates = candidates.filter((m) => {
+      if ((m.cooldownUntil || 0) > now || m.status === "cooldown") {
+        return false;
+      }
+      return true;
+    });
+    candidates = candidates.filter((m) => {
+      for (const cap of requiredCaps) {
+        if (!m.capabilityMap || m.capabilityMap[cap] !== "supported") {
+          return false;
+        }
+      }
+      if (request.taskType === "structured_json" && m.capabilityMap?.structured_output !== "supported") {
+        return false;
+      }
+      return true;
+    });
+    if (candidates.length === 0) {
+      candidates = allModels.filter((m) => {
+        if (preferFree && m.provider !== "custom" && !(m.verifiedFree === true && m.eligibilityStatus === "free") && m.eligibilityStatus !== "eligible_unknown") return false;
+        for (const cap of requiredCaps) {
+          if (!m.capabilityMap || m.capabilityMap[cap] !== "supported") return false;
+        }
+        if (m.status === "disabled") return false;
+        if ((m.cooldownUntil || 0) > now) return false;
+        return true;
+      });
+    }
+    if (candidates.length === 0) {
+      const emergencyRes2 = await this.emergencyFallback(request, errors);
+      if (emergencyRes2) {
+        return emergencyRes2;
+      }
+      if (preferFree) {
+        throw new Error(
+          `No verified free AI models are available for task "${request.taskType}" with required capabilities: [${requiredCaps.join(", ")}]. Please configure API keys in Settings or allow paid models.`
+        );
+      }
+      throw new Error(`No available AI models found matching task type: ${request.taskType} with required capabilities: [${requiredCaps.join(", ")}]`);
+    }
+    if (request.preferredModel) {
+      const preferredModelCandidates = candidates.filter(
+        (model) => model.providerModelId === request.preferredModel || model.id === request.preferredModel || `${model.provider}:${model.providerModelId}` === request.preferredModel
+      );
+      if (preferredModelCandidates.length > 0) {
+        const preferredSet = new Set(preferredModelCandidates);
+        candidates = [...preferredModelCandidates, ...candidates.filter((model) => !preferredSet.has(model))];
+      }
+    } else if (request.preferredProvider) {
+      const providerCandidates = candidates.filter((model) => model.provider === request.preferredProvider);
+      if (providerCandidates.length > 0) {
+        const providerSet = new Set(providerCandidates);
+        candidates = [...providerCandidates, ...candidates.filter((model) => !providerSet.has(model))];
+      }
+    }
+    const scoredCandidates = [...candidates].sort((a, b) => {
+      if (request.preferredModel) {
+        const isPreferred = (model) => model.providerModelId === request.preferredModel || model.id === request.preferredModel || `${model.provider}:${model.providerModelId}` === request.preferredModel;
+        if (isPreferred(a) !== isPreferred(b)) return isPreferred(a) ? -1 : 1;
+      } else if (request.preferredProvider && a.provider === request.preferredProvider !== (b.provider === request.preferredProvider)) {
+        return a.provider === request.preferredProvider ? -1 : 1;
+      }
+      const scoreA = modelScoringEngine.scoreModel(a, request);
+      const scoreB = modelScoringEngine.scoreModel(b, request);
+      return scoreB - scoreA;
+    });
+    const isVisionTask = request.taskType === "vision" || request.taskType === "advanced_image_analysis";
+    const maxAttempts = request.maxFallbackAttempts || (isVisionTask ? this.visionMaxFallbackAttempts : this.defaultMaxFallbackAttempts);
+    let attemptsCount = 0;
+    const unavailableProviders = /* @__PURE__ */ new Set();
+    for (const candidate of scoredCandidates) {
+      if (attemptsCount >= maxAttempts) {
+        break;
+      }
+      if (unavailableProviders.has(candidate.provider)) {
+        continue;
+      }
+      const adapter = modelDiscoveryService.getAdapter(candidate.provider);
+      if (!adapter || !adapter.isConfigured()) {
+        unavailableProviders.add(candidate.provider);
+        continue;
+      }
+      if (candidate.provider !== "local" && !keyPoolManager.isProviderAvailable(candidate.provider)) {
+        unavailableProviders.add(candidate.provider);
+        continue;
+      }
+      const attemptedKeys = [];
+      let modelSucceeded = false;
+      while (!modelSucceeded && attemptsCount < maxAttempts) {
+        const apiKey = candidate.provider === "local" ? "local" : keyPoolManager.getAvailableKey(candidate.provider, attemptedKeys);
+        if (!apiKey) {
+          break;
+        }
+        attemptedKeys.push(apiKey);
+        attemptsCount++;
+        const startTime = Date.now();
+        try {
+          const modelIdToUse = candidate.providerModelId || candidate.id;
+          const response = await adapter.generate(request, apiKey, modelIdToUse);
+          const duration = Date.now() - startTime;
+          if (candidate.provider !== "local") {
+            keyPoolManager.reportSuccess(candidate.provider, apiKey, duration);
+            modelHealthManager.recordKeySuccess(candidate.provider, apiKey, duration);
+          }
+          modelHealthManager.recordModelSuccess(candidate.provider, modelIdToUse, duration);
+          freeModelRegistry.recordModelSuccess(candidate.provider, modelIdToUse, duration);
+          return {
+            content: response.content,
+            parsedJson: response.parsedJson,
+            model: response.model,
+            provider: response.provider,
+            taskType: request.taskType,
+            usage: response.usage,
+            durationMs: response.durationMs,
+            fallbackCount: attemptsCount - 1
+          };
+        } catch (err) {
+          const statusCode = err instanceof AdapterError ? err.statusCode : void 0;
+          const errMsg = err.message || "Unknown provider error";
+          const modelIdToUse = candidate.providerModelId || candidate.id;
+          if (candidate.provider !== "local") {
+            keyPoolManager.reportError(candidate.provider, apiKey, statusCode, errMsg);
+            modelHealthManager.recordKeyFailure(candidate.provider, apiKey, errMsg, statusCode);
+          }
+          modelHealthManager.recordModelFailure(candidate.provider, modelIdToUse, errMsg, statusCode);
+          freeModelRegistry.recordModelFailure(candidate.provider, modelIdToUse, errMsg, statusCode);
+          errors.push({
+            provider: candidate.provider,
+            model: modelIdToUse,
+            error: errMsg,
+            status: statusCode
+          });
+          if (candidate.provider === "local") {
+            break;
+          }
+          const isRateLimitExceeded = statusCode === 429 && (errMsg.toLowerCase().includes("rate limit exceeded") || errMsg.toLowerCase().includes("free-models-per-day") || errMsg.toLowerCase().includes("daily") || errMsg.toLowerCase().includes("quota") || errMsg.toLowerCase().includes("credits")) || !keyPoolManager.isProviderAvailable(candidate.provider);
+          const isAuthFailure = statusCode === 401 || statusCode === 403 || statusCode === 402 || isRateLimitExceeded || statusCode === 400 && (errMsg.includes("API key") || errMsg.includes("API_KEY_INVALID") || errMsg.includes("INVALID_ARGUMENT") || errMsg.includes("credits") || errMsg.includes("quota")) || errMsg.toLowerCase().includes("depleted") || errMsg.toLowerCase().includes("monthly included credits") || errMsg.toLowerCase().includes("insufficient_quota") || errMsg.toLowerCase().includes("payment required");
+          const isModelGone = statusCode === 404 || statusCode === 410 || errMsg.toLowerCase().includes("end of life") || errMsg.toLowerCase().includes("no longer available");
+          const isTimeout = errMsg.toLowerCase().includes("timeout") || errMsg.toLowerCase().includes("timed out");
+          if (isAuthFailure) {
+            unavailableProviders.add(candidate.provider);
+            console.warn(`[AIRouter] Auth/quota failure for ${candidate.provider} \u2014 skipping provider entirely.`);
+            break;
+          }
+          if (isModelGone) {
+            console.warn(`[AIRouter] Model ${candidate.providerModelId} is unavailable (${statusCode ?? "unknown"}) \u2014 skipping model.`);
+            break;
+          }
+          if (isTimeout) {
+            console.warn(`[AIRouter] Model ${candidate.providerModelId} timed out \u2014 skipping model.`);
+            break;
+          }
+          console.warn(`[AIRouter] Candidate ${candidate.providerModelId} on ${candidate.provider} failed: ${errMsg}. Trying next candidate (Attempt ${attemptsCount}/${maxAttempts})...`);
+        }
+      }
+    }
+    const emergencyRes = await this.emergencyFallback(request, errors);
+    if (emergencyRes) {
+      return emergencyRes;
+    }
+    const summary = redactSecrets(errors.map((e) => `[${e.provider}:${e.model}] ${e.error}`).join("; "));
+    throw new Error(`All AI fallback candidates failed (${attemptsCount} attempts). Details: ${summary || "No healthy providers available"}`);
+  }
+  getRequiredCapabilities(request) {
+    if (request.requiredCapabilities && request.requiredCapabilities.length > 0) {
+      return request.requiredCapabilities;
+    }
+    return [modelScoringEngine.getPrimaryCapabilityForTask(request.taskType)];
+  }
+  generateRequestFingerprint(request) {
+    if (request.requestId) return request.requestId;
+    const bodyStr = JSON.stringify({
+      taskType: request.taskType,
+      messages: request.messages,
+      temp: request.temperature,
+      model: request.preferredModel,
+      provider: request.preferredProvider
+    });
+    return `${request.taskType}_${this.simpleHash(bodyStr)}`;
+  }
+  simpleHash(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = (hash << 5) - hash + str.charCodeAt(i);
+      hash |= 0;
+    }
+    return Math.abs(hash).toString(36);
+  }
+  async emergencyFallback(request, previousErrors) {
+    const requiredCaps = this.getRequiredCapabilities(request);
+    const isVision = request.taskType === "vision" || request.taskType === "advanced_image_analysis" || request.taskType === "image_analysis" || requiredCaps.includes("vision") || request.requiredCapabilities?.includes("vision");
+    const providers = ["custom", "openrouter", "nim", "huggingface", "cloudflare"];
+    for (const p of providers) {
+      const adapter = modelDiscoveryService.getAdapter(p);
+      if (!adapter || !adapter.isConfigured()) continue;
+      const apiKey = keyPoolManager.getAvailableKey(p);
+      if (!apiKey) continue;
+      let bootstrapModels = modelDiscoveryService.getBootstrapModels(p);
+      if (isVision) {
+        bootstrapModels = bootstrapModels.filter((m) => m.capabilities.includes("vision") || m.modalities.includes("vision"));
+      }
+      for (const model of bootstrapModels) {
+        try {
+          const startTime = Date.now();
+          const res = await adapter.generate(request, apiKey, model.id);
+          const duration = Date.now() - startTime;
+          keyPoolManager.reportSuccess(p, apiKey, duration);
+          modelHealthManager.recordModelSuccess(p, model.id, duration);
+          freeModelRegistry.recordModelSuccess(p, model.id, duration);
+          return {
+            content: res.content,
+            parsedJson: res.parsedJson,
+            model: res.model,
+            provider: res.provider,
+            taskType: request.taskType,
+            usage: res.usage,
+            durationMs: res.durationMs,
+            fallbackCount: previousErrors.length
+          };
+        } catch (err) {
+          previousErrors.push({
+            provider: p,
+            model: model.id,
+            error: err.message
+          });
+        }
+      }
+    }
+    return null;
+  }
+};
+var aiRouter = new AIRouter();
+
+// server/ai/serverHandler.ts
+init_customEndpoint();
+init_localModelManager();
+function formatBytes2(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+var serverAppearanceSettings = {
+  theme: "dark",
+  accentColor: "#f43f5e",
+  uiDensity: "comfortable",
+  animationsEnabled: true,
+  reducedMotion: false,
+  fontScale: "normal"
+};
+var idempotencyCache = /* @__PURE__ */ new Map();
+function cleanupIdempotencyCache() {
+  const now = Date.now();
+  for (const [id, entry] of idempotencyCache.entries()) {
+    if (now - entry.timestamp > 6e4) {
+      idempotencyCache.delete(id);
+    }
+  }
+}
+async function testProviderConnection(provider, testKey) {
+  const startTime = Date.now();
+  const keyToUse = testKey?.trim() || keyPoolManager.getAvailableKey(provider);
+  if (!keyToUse) {
+    return {
+      success: false,
+      provider,
+      status: "invalid_key",
+      latencyMs: 0,
+      message: `No API key provided or configured for ${provider}`,
+      error: "Missing API key"
+    };
+  }
+  try {
+    const adapter = modelDiscoveryService.getAdapter(provider);
+    if (!adapter) {
+      return {
+        success: false,
+        provider,
+        status: "no_models",
+        latencyMs: 0,
+        message: `Adapter for ${provider} not found`,
+        error: "Unsupported provider"
+      };
+    }
+    const models = await adapter.discoverModels(keyToUse);
+    const latencyMs = Date.now() - startTime;
+    if (models.length === 0) {
+      return {
+        success: true,
+        provider,
+        status: "no_models",
+        latencyMs,
+        message: `Connected successfully to ${provider}, but 0 models were returned.`
+      };
+    }
+    return {
+      success: true,
+      provider,
+      status: "healthy",
+      latencyMs,
+      message: `Connection to ${provider} successful (${models.length} models discovered, ${latencyMs}ms).`,
+      testedModel: models[0]?.id
+    };
+  } catch (err) {
+    const latencyMs = Date.now() - startTime;
+    const sanitized = redactSecrets(err.message || "Unknown error");
+    const isAuth = err.statusCode === 401 || err.statusCode === 403 || sanitized.toLowerCase().includes("auth") || sanitized.toLowerCase().includes("key") || sanitized.toLowerCase().includes("permission") || sanitized.toLowerCase().includes("invalid");
+    return {
+      success: false,
+      provider,
+      status: isAuth ? "invalid_key" : "degraded",
+      latencyMs,
+      message: `Connection test failed for ${provider}: ${sanitized}`,
+      error: sanitized
+    };
+  }
+}
+async function internalHandleAIRequest(path5, method, body = {}, clientIp = "127.0.0.1") {
+  const requestUrl = new URL(path5, "http://localhost");
+  const rawPathname = requestUrl.pathname.replace(/^\/api\/?/, "").toLowerCase();
+  const normalizedPath = rawPathname.replace(/^ai\/?/, "");
+  const isHeavy = normalizedPath === "generate" || normalizedPath === "batch" || normalizedPath === "vision" || normalizedPath === "remove-bg";
+  const limiter = isHeavy ? aiGenerationRateLimiter : generalRateLimiter;
+  const rateLimit = limiter.check(clientIp);
+  if (!rateLimit.allowed) {
+    return {
+      status: 429,
+      headers: {
+        ...SECURITY_HEADERS,
+        "Retry-After": String(rateLimit.retryAfter || 5),
+        "X-RateLimit-Limit": String(rateLimit.limit),
+        "X-RateLimit-Remaining": "0"
+      },
+      data: {
+        success: false,
+        error: "Too many requests. Please slow down and try again shortly.",
+        retryAfterSec: rateLimit.retryAfter || 5
+      }
+    };
+  }
+  if (body?.requestId && method === "POST") {
+    cleanupIdempotencyCache();
+    const cached = idempotencyCache.get(body.requestId);
+    if (cached) {
+      return cached.response;
+    }
+  }
+  try {
+    if (rawPathname === "ai/models" || rawPathname === "models" || (rawPathname === "ai" || rawPathname === "") && method === "GET") {
+      if (freeModelRegistry.isRefreshDue()) {
+        freeModelRegistry.refreshInBackground(true);
+      }
+      const freeOnly = requestUrl.searchParams.get("freeOnly") !== "false";
+      const requestedTask = requestUrl.searchParams.get("taskType");
+      const allModels = freeModelRegistry.getAllModels();
+      const taskModels = requestedTask ? modelFilterService.filterAndRankModels(allModels, {
+        taskType: requestedTask,
+        preferFree: freeOnly
+      }) : allModels;
+      const allowEligibleUnknown = requestUrl.searchParams.get("allowEligibleUnknown") === "true";
+      const models = freeOnly ? taskModels.filter((model) => model.verifiedFree === true && model.eligibilityStatus === "free" || allowEligibleUnknown && model.eligibilityStatus === "eligible_unknown") : taskModels;
+      const categories = freeModelRegistry.getCategorizedCatalog(freeOnly);
+      const stats = freeModelRegistry.getRegistryStats();
+      return {
+        status: 200,
+        data: {
+          success: true,
+          freeOnly,
+          taskType: requestedTask || null,
+          count: models.length,
+          lastRefreshed: stats.lastRefreshed,
+          stats,
+          models,
+          categories
+        }
+      };
+    }
+    if ((rawPathname === "ai/models/refresh" || rawPathname === "models/refresh") && method === "POST") {
+      if (typeof body?.intervalMs === "number" && body.intervalMs >= 6e4) {
+        freeModelRegistry.setRefreshInterval(body.intervalMs);
+      }
+      const refreshedModels = await freeModelRegistry.refreshRegistry(true);
+      const freeOnly = body?.freeOnly !== false;
+      const categories = freeModelRegistry.getCategorizedCatalog(freeOnly);
+      const stats = freeModelRegistry.getRegistryStats();
+      return {
+        status: 200,
+        data: {
+          success: true,
+          message: "Model catalog refreshed successfully",
+          count: refreshedModels.length,
+          lastRefreshed: stats.lastRefreshed,
+          stats,
+          models: freeOnly ? refreshedModels.filter((m) => m.verifiedFree === true && m.eligibilityStatus === "free") : refreshedModels,
+          categories
+        }
+      };
+    }
+    if (rawPathname === "ai/health" || rawPathname === "health") {
+      if (freeModelRegistry.isRefreshDue()) {
+        freeModelRegistry.refreshInBackground(true);
+      }
+      const providers = ["nim", "openrouter", "huggingface", "cloudflare", "custom"];
+      const keyStats = {};
+      const modelCounts = {};
+      const providerStatuses = {};
+      for (const p of providers) {
+        const stat = keyPoolManager.getPoolStats(p);
+        keyStats[p] = { active: stat.active, total: stat.total };
+        const discovered = freeModelRegistry.getModelsByProvider(p);
+        modelCounts[p] = discovered.length;
+        let status = "configured";
+        if (stat.total === 0) {
+          status = "no_models";
+        } else if (stat.active === 0 && stat.exhausted > 0) {
+          status = "invalid_key";
+        } else if (stat.inCooldown > 0) {
+          status = "degraded";
+        } else if (stat.active > 0 && discovered.length > 0) {
+          status = "healthy";
+        }
+        providerStatuses[p] = {
+          status,
+          activeKeys: stat.active,
+          totalKeys: stat.total,
+          modelCount: discovered.length,
+          maskedKeys: stat.keys.map((k) => k.maskedKey)
+        };
+      }
+      const report = healthTracker.generateReport(keyStats, modelCounts);
+      const registryStats = freeModelRegistry.getRegistryStats();
+      const recentFailures = freeModelRegistry.getRecentFailures();
+      return {
+        status: 200,
+        data: {
+          success: true,
+          report,
+          providerStatuses,
+          registryStats,
+          recentFailures
+        }
+      };
+    }
+    const providerTestMatch = rawPathname.match(/^(?:ai\/providers?\/test|settings\/providers\/(.+)\/test)$/);
+    if (providerTestMatch && method === "POST") {
+      const urlProvider = providerTestMatch[1];
+      const targetProvider = (urlProvider || body.provider || "").toLowerCase();
+      if (!targetProvider || !["custom", "openrouter", "nim", "huggingface", "cloudflare"].includes(targetProvider)) {
+        return {
+          status: 400,
+          data: {
+            success: false,
+            error: `Invalid provider: '${targetProvider}'. Must be one of: custom, openrouter, nim, huggingface, cloudflare.`
+          }
+        };
+      }
+      const testResult = await testProviderConnection(targetProvider, body.key);
+      return {
+        status: 200,
+        data: testResult
+      };
+    }
+    if (rawPathname === "settings/custom-endpoint") {
+      if (method === "GET") {
+        return { status: 200, headers: SECURITY_HEADERS, data: { success: true, endpoint: getCustomEndpoint()?.endpoint || "", model: getCustomEndpoint()?.model || "" } };
+      }
+      if (method === "POST") {
+        const endpoint = typeof body.endpoint === "string" ? sanitizeInput(body.endpoint.trim()) : "";
+        const model = typeof body.model === "string" ? sanitizeInput(body.model.trim()) : "";
+        if (!endpoint || !model) return { status: 400, headers: SECURITY_HEADERS, data: { success: false, error: "Endpoint URL and model are required." } };
+        const ssrfCheck = isSSRFSafeUrl(endpoint);
+        if (!ssrfCheck.safe) {
+          return { status: 400, headers: SECURITY_HEADERS, data: { success: false, error: `Restricted custom endpoint URL: ${ssrfCheck.reason}` } };
+        }
+        setCustomEndpoint({ endpoint, model });
+        keyPoolManager.setProviderKeys("custom", typeof body.key === "string" ? body.key : "__custom_endpoint__");
+        freeModelRegistry.refreshInBackground(true);
+        return { status: 200, headers: SECURITY_HEADERS, data: { success: true, endpoint, model, message: "Custom endpoint validated and saved securely on the server." } };
+      }
+    }
+    if (rawPathname === "settings/appearance") {
+      if (method === "GET") {
+        return {
+          status: 200,
+          data: {
+            success: true,
+            settings: serverAppearanceSettings
+          }
+        };
+      }
+      if (method === "POST") {
+        if (!body || typeof body !== "object") {
+          return {
+            status: 400,
+            data: { success: false, error: "Request body must be a valid JSON object" }
+          };
+        }
+        if (body.theme && !["dark", "light", "system"].includes(body.theme)) {
+          return {
+            status: 400,
+            data: { success: false, error: "Theme must be 'dark', 'light', or 'system'" }
+          };
+        }
+        serverAppearanceSettings = {
+          theme: body.theme || serverAppearanceSettings.theme,
+          accentColor: typeof body.accentColor === "string" ? body.accentColor : serverAppearanceSettings.accentColor,
+          uiDensity: ["compact", "comfortable", "spacious"].includes(body.uiDensity) ? body.uiDensity : serverAppearanceSettings.uiDensity,
+          animationsEnabled: typeof body.animationsEnabled === "boolean" ? body.animationsEnabled : serverAppearanceSettings.animationsEnabled,
+          reducedMotion: typeof body.reducedMotion === "boolean" ? body.reducedMotion : serverAppearanceSettings.reducedMotion,
+          fontScale: ["small", "normal", "large"].includes(body.fontScale) ? body.fontScale : serverAppearanceSettings.fontScale
+        };
+        return {
+          status: 200,
+          data: {
+            success: true,
+            message: "Appearance settings saved successfully",
+            settings: serverAppearanceSettings
+          }
+        };
+      }
+    }
+    if (rawPathname === "settings/providers" && method === "POST") {
+      const { provider, keys } = body;
+      const targetProvider = (provider || "").toLowerCase();
+      if (!targetProvider || !["custom", "openrouter", "nim", "huggingface", "cloudflare"].includes(targetProvider)) {
+        return {
+          status: 400,
+          data: {
+            success: false,
+            error: `Invalid provider: '${targetProvider}'. Must be one of: custom, openrouter, nim, huggingface, cloudflare.`
+          }
+        };
+      }
+      if (!keys && keys !== "") {
+        return {
+          status: 400,
+          data: { success: false, error: "Missing required field 'keys'" }
+        };
+      }
+      const updateResult = keyPoolManager.setProviderKeys(targetProvider, keys);
+      freeModelRegistry.refreshInBackground(true);
+      return {
+        status: 200,
+        data: {
+          success: true,
+          provider: targetProvider,
+          activeKeys: updateResult.active,
+          totalKeys: updateResult.total,
+          maskedKeys: updateResult.maskedKeys,
+          message: `Keys for ${targetProvider} updated successfully.`
+        }
+      };
+    }
+    if ((rawPathname === "ai/telemetry/clear" || rawPathname === "telemetry/clear") && method === "POST") {
+      freeModelRegistry.clearTelemetry();
+      return {
+        status: 200,
+        data: {
+          success: true,
+          message: "Local AI telemetry and failure logs cleared successfully."
+        }
+      };
+    }
+    if (rawPathname.startsWith("ai/local")) {
+      await ensureLocalAdapterRegistered();
+    }
+    if (rawPathname === "ai/local/models" && method === "GET") {
+      const models = listLocalModels();
+      const memoryStatus = getLocalMemoryStatus();
+      const activeDownloads2 = getActiveDownloads();
+      return {
+        status: 200,
+        data: {
+          success: true,
+          count: models.length,
+          memoryStatus,
+          activeDownloads: activeDownloads2,
+          models: models.map((m) => ({
+            id: m.id,
+            name: m.name,
+            sourceRepo: m.sourceRepo,
+            fileName: m.fileName,
+            fileSizeBytes: m.fileSizeBytes,
+            fileSizeHuman: formatBytes2(m.fileSizeBytes),
+            quantization: m.quantization,
+            modality: m.modality,
+            downloadedAt: m.downloadedAt,
+            lastLoadedAt: m.lastLoadedAt,
+            loadCount: m.loadCount,
+            isValid: m.isValid,
+            isLoaded: isLocalModelLoaded(m.id),
+            note: m.note
+          }))
+        }
+      };
+    }
+    if (rawPathname === "ai/local/models/unload-all" && method === "POST") {
+      unloadAllLocalModels();
+      return {
+        status: 200,
+        data: {
+          success: true,
+          message: "All local models unloaded from memory.",
+          memoryStatus: getLocalMemoryStatus()
+        }
+      };
+    }
+    if (rawPathname === "ai/local/downloads" && method === "GET") {
+      const downloads = getActiveDownloads();
+      return {
+        status: 200,
+        data: {
+          success: true,
+          downloads
+        }
+      };
+    }
+    if (rawPathname === "ai/local/downloads/cancel" && method === "POST") {
+      const taskId = body.id || body.taskId;
+      if (!taskId) return { status: 400, data: { success: false, error: "Task ID required" } };
+      const cancelled = cancelDownload(taskId);
+      return {
+        status: 200,
+        data: {
+          success: cancelled,
+          message: cancelled ? `Download ${taskId} cancelled` : `Download ${taskId} not active`
+        }
+      };
+    }
+    if (rawPathname.match(/^ai\/local\/models\/[^/]+\/load$/) && method === "POST") {
+      const match = rawPathname.match(/^ai\/local\/models\/([^/]+)\/load$/);
+      if (!match) return { status: 400, data: { success: false, error: "Invalid model id" } };
+      const modelId = decodeURIComponent(match[1]);
+      try {
+        const res = await loadLocalModelIntoMemory(modelId);
+        return {
+          status: 200,
+          data: {
+            success: true,
+            message: `Model loaded into memory in ${res.loadDurationMs}ms`,
+            isLoaded: true,
+            loadDurationMs: res.loadDurationMs,
+            modelId: res.model?.id || modelId,
+            memoryStatus: getLocalMemoryStatus()
+          }
+        };
+      } catch (err) {
+        return { status: 500, data: { success: false, error: err.message || "Failed to load model into memory" } };
+      }
+    }
+    if (rawPathname.match(/^ai\/local\/models\/[^/]+\/unload$/) && method === "POST") {
+      const match = rawPathname.match(/^ai\/local\/models\/([^/]+)\/unload$/);
+      if (!match) return { status: 400, data: { success: false, error: "Invalid model id" } };
+      const modelId = decodeURIComponent(match[1]);
+      const unloaded = unloadLocalModel(modelId);
+      return {
+        status: 200,
+        data: {
+          success: true,
+          message: unloaded ? `Model ${modelId} unloaded from memory.` : `Model ${modelId} was not resident in memory.`,
+          isLoaded: false,
+          modelId,
+          memoryStatus: getLocalMemoryStatus()
+        }
+      };
+    }
+    if (rawPathname.match(/^ai\/local\/models\/[^/]+$/) && method === "GET") {
+      const match = rawPathname.match(/^ai\/local\/models\/([^/]+)$/);
+      if (!match) return { status: 400, data: { success: false, error: "Invalid model id" } };
+      const modelId = decodeURIComponent(match[1]);
+      const model = getLocalModel(modelId);
+      if (!model) return { status: 404, data: { success: false, error: `Model not found: ${modelId}` } };
+      return {
+        status: 200,
+        data: {
+          success: true,
+          model: {
+            id: model.id,
+            name: model.name,
+            sourceRepo: model.sourceRepo,
+            fileName: model.fileName,
+            filePath: model.filePath,
+            fileSizeBytes: model.fileSizeBytes,
+            fileSizeHuman: formatBytes2(model.fileSizeBytes),
+            quantization: model.quantization,
+            modality: model.modality,
+            downloadedAt: model.downloadedAt,
+            lastLoadedAt: model.lastLoadedAt,
+            loadCount: model.loadCount,
+            isValid: model.isValid,
+            isLoaded: isLocalModelLoaded(model.id),
+            note: model.note
+          }
+        }
+      };
+    }
+    if (rawPathname === "ai/local/models/search" && method === "POST") {
+      const query = typeof body.query === "string" ? body.query.trim() : "";
+      if (!query) return { status: 400, data: { success: false, error: "Query parameter required" } };
+      try {
+        const results = await searchLocalModels(query, body.limit ? Math.min(body.limit, 50) : 25);
+        return {
+          status: 200,
+          data: { success: true, query, count: results.length, models: results }
+        };
+      } catch (err) {
+        return { status: 500, data: { success: false, error: err.message || "Search failed" } };
+      }
+    }
+    if (rawPathname === "ai/local/models/download" && method === "POST") {
+      const { repoId, fileName } = body;
+      if (!repoId || !fileName) return { status: 400, data: { success: false, error: "repoId and fileName required" } };
+      const taskId = `${repoId}/${fileName}`;
+      const existingModel = listLocalModels().find((m) => m.sourceRepo === repoId && m.fileName === fileName);
+      if (existingModel) {
+        return {
+          status: 200,
+          data: {
+            success: true,
+            message: `Model already downloaded: ${existingModel.name}`,
+            status: "completed",
+            taskId,
+            model: existingModel
+          }
+        };
+      }
+      const active = getActiveDownloads().find((d) => d.id === taskId);
+      if (active && (active.status === "downloading" || active.status === "pending" || active.status === "verifying")) {
+        return {
+          status: 200,
+          data: {
+            success: true,
+            message: `Download already in progress (${active.progress}%)`,
+            status: active.status,
+            taskId
+          }
+        };
+      }
+      downloadAndRegisterModel(
+        repoId,
+        fileName,
+        (progress) => {
+          console.log(`[LocalDownload] ${progress.event}: ${progress.message || ""} ${progress.progress !== void 0 ? `${progress.progress}%` : ""}`);
+        },
+        void 0
+      ).catch((err) => {
+        console.error(`[LocalDownload Error] ${taskId}:`, err?.message || err);
+      });
+      return {
+        status: 200,
+        data: {
+          success: true,
+          status: "downloading",
+          taskId,
+          message: `Download started for ${fileName}. Track progress in real-time.`
+        }
+      };
+    }
+    if (rawPathname.match(/^ai\/local\/models\/[^/]+\/remove$/) && method === "DELETE") {
+      const match = rawPathname.match(/^ai\/local\/models\/([^/]+)\/remove$/);
+      if (!match) return { status: 400, data: { success: false, error: "Invalid model id" } };
+      const removed = removeLocalModel(match[1]);
+      if (!removed) return { status: 404, data: { success: false, error: `Model not found: ${match[1]}` } };
+      return { status: 200, data: { success: true, message: `Model removed: ${match[1]}` } };
+    }
+    if (rawPathname === "ai/local/infer" && method === "POST") {
+      const { modelId, prompt, maxTokens, temperature, stop } = body;
+      if (!modelId || !prompt) {
+        return { status: 400, data: { success: false, error: "modelId and prompt are required" } };
+      }
+      try {
+        const result2 = await runLocalInference(modelId, {
+          prompt: String(prompt),
+          maxTokens: typeof maxTokens === "number" ? maxTokens : void 0,
+          temperature: typeof temperature === "number" ? temperature : void 0,
+          stop: Array.isArray(stop) ? stop : void 0
+        });
+        return {
+          status: 200,
+          data: {
+            success: true,
+            content: result2.content,
+            model: modelId,
+            provider: "local",
+            tokensGenerated: result2.tokensGenerated,
+            loadDurationMs: result2.loadDurationMs,
+            generateDurationMs: result2.generateDurationMs,
+            totalDurationMs: result2.totalDurationMs
+          }
+        };
+      } catch (err) {
+        const msg = err.message || String(err);
+        const status = msg.includes("not found") || msg.includes("invalid") ? 404 : 500;
+        return { status, data: { success: false, error: msg } };
+      }
+    }
+    if (rawPathname === "ai/local/health" && method === "GET") {
+      try {
+        const check = await checkLocalInferenceReady();
+        const memStatus = getLocalMemoryStatus();
+        return {
+          status: 200,
+          data: {
+            success: true,
+            ready: check.ok,
+            status: check.ok ? "ready" : check.reason?.includes("node-llama-cpp") ? "native_unavailable" : "awaiting_download",
+            reason: check.reason || "Local AI engine ready for inference",
+            modelsAvailable: check.modelsAvailable,
+            nodeLlamaCppAvailable: !check.reason?.includes("node-llama-cpp"),
+            loadedCount: memStatus.loadedCount,
+            memoryStatus: memStatus
+          }
+        };
+      } catch (err) {
+        return {
+          status: 200,
+          data: {
+            success: true,
+            ready: false,
+            status: "degraded",
+            reason: err?.message || "Local AI engine in standby mode",
+            modelsAvailable: 0,
+            nodeLlamaCppAvailable: false,
+            loadedCount: 0
+          }
+        };
+      }
+    }
+    if ((normalizedPath === "remove-bg" || rawPathname === "ai/remove-bg" || rawPathname === "remove-bg") && method === "POST") {
+      const imageBase64 = body?.imageBase64 || body?.image;
+      if (!imageBase64 || typeof imageBase64 !== "string") {
+        return {
+          status: 400,
+          headers: SECURITY_HEADERS,
+          data: { success: false, error: "imageBase64 parameter is required" }
+        };
+      }
+      if (imageBase64.length > 15 * 1024 * 1024) {
+        return {
+          status: 413,
+          headers: SECURITY_HEADERS,
+          data: { success: false, error: "Image payload exceeds maximum limit of 10MB." }
+        };
+      }
+      const removeBgKey = process.env.REMOVE_BG_API_KEY;
+      if (!removeBgKey) {
+        return {
+          status: 503,
+          headers: SECURITY_HEADERS,
+          data: {
+            success: false,
+            error: "Background removal service is not configured on the server. Please set REMOVE_BG_API_KEY in environment variables."
+          }
+        };
+      }
+      try {
+        const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+        const binaryBuffer = Buffer.from(cleanBase64, "base64");
+        const formData = new FormData();
+        const blob = new Blob([binaryBuffer], { type: "image/png" });
+        formData.append("image_file", blob, "image.png");
+        formData.append("size", typeof body.size === "string" ? sanitizeInput(body.size, 20) : "auto");
+        const bgRes = await fetch("https://api.remove.bg/v1.0/removebg", {
+          method: "POST",
+          headers: {
+            "X-Api-Key": removeBgKey
+          },
+          body: formData
+        });
+        if (!bgRes.ok) {
+          const errText = await bgRes.text();
+          let parsedErr;
+          try {
+            parsedErr = JSON.parse(errText);
+          } catch {
+          }
+          const errMsg = parsedErr?.errors?.[0]?.title || `RemoveBG API error (${bgRes.status})`;
+          return {
+            status: bgRes.status >= 500 ? 502 : bgRes.status,
+            headers: SECURITY_HEADERS,
+            data: { success: false, error: sanitizeAndRedactSecrets(errMsg) }
+          };
+        }
+        const arrayBuffer = await bgRes.arrayBuffer();
+        const outBase64 = Buffer.from(arrayBuffer).toString("base64");
+        return {
+          status: 200,
+          headers: SECURITY_HEADERS,
+          data: {
+            success: true,
+            imageBase64: `data:image/png;base64,${outBase64}`
+          }
+        };
+      } catch (err) {
+        return {
+          status: 500,
+          headers: SECURITY_HEADERS,
+          data: {
+            success: false,
+            error: sanitizeAndRedactSecrets(err.message || "Failed to process background removal")
+          }
+        };
+      }
+    }
+    if (normalizedPath === "validate") {
+      const { raw, schema, payload } = body;
+      const contentToValidate = typeof raw === "string" ? raw : typeof payload === "string" ? payload : JSON.stringify(payload || {});
+      const validation = validateJsonSchema(contentToValidate, schema);
+      return {
+        status: 200,
+        headers: SECURITY_HEADERS,
+        data: {
+          success: validation.valid,
+          parsed: validation.parsed,
+          diagnostics: validation.diagnostics
+        }
+      };
+    }
+    if (normalizedPath === "generate") {
+      const req = body;
+      const generationId = req.requestId || `gen_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const diagnostics = [];
+      if (req.constraints?.styles || req.constraints?.moods) {
+        const conflictDiag = detectCreativeConflicts(
+          req.constraints?.styles || [],
+          req.constraints?.moods || []
+        );
+        diagnostics.push(...conflictDiag);
+      }
+      let systemPrompt = sanitizeInput(req.systemPrompt || "You are an avant-garde AI creative director.");
+      let userInput = sanitizeInput(req.prompt || req.baseConcept || "");
+      const isStructured = req.requestedOutput === "json" || !!req.schema;
+      const validRefs = Array.isArray(req.references) ? req.references.filter((r) => r && (r.base64 || r.url)) : [];
+      const isVision = req.requestedOutput === "vision" || validRefs.length > 0;
+      let messages2 = req.messages;
+      if (!messages2) {
+        if (isVision && validRefs.length > 0) {
+          const roleLabels = {
+            layout: "Layout & Pose reference",
+            style: "Art Style reference",
+            palette: "Color Palette reference"
+          };
+          const imageParts = validRefs.slice(0, 5).map((ref, i) => {
+            const url = ref.base64 ? ref.base64.startsWith("data:") ? ref.base64 : `data:${ref.mimeType || "image/jpeg"};base64,${ref.base64}` : ref.url;
+            return { type: "image_url", image_url: { url } };
+          });
+          const roleHint = validRefs.slice(0, 5).map((ref, i) => {
+            const label = ref.role && roleLabels[String(ref.role).toLowerCase()] || `Reference ${i + 1}${ref.name ? ` (${ref.name})` : ""}`;
+            return `[Image ${i + 1}: ${label}]`;
+          }).join(" ");
+          const visionText = `${userInput || "Analyze and describe these visual references."}${roleHint ? ` ${roleHint} Fuse ALL images: use Image 1 for layout/pose, Image 2 for art style, Image 3 for color palette when roles are given.` : ""}`;
+          messages2 = [
+            ...systemPrompt ? [{ role: "system", content: systemPrompt }] : [],
+            {
+              role: "user",
+              content: [
+                { type: "text", text: visionText },
+                ...imageParts
+              ]
+            }
+          ];
+        } else {
+          messages2 = [
+            ...systemPrompt ? [{ role: "system", content: systemPrompt }] : [],
+            { role: "user", content: userInput }
+          ];
+        }
+      }
+      const aiRequest2 = {
+        taskType: isVision ? "vision" : isStructured ? "structured_json" : "prompt_enhancement",
+        messages: messages2,
+        temperature: req.temperature ?? 0.7,
+        maxTokens: req.maxTokens ?? 2048,
+        responseFormat: isStructured ? "json_object" : "text",
+        jsonSchema: req.schema,
+        preferredProvider: req.preferredProvider,
+        preferredModel: req.preferredModel,
+        preferFree: req.preferFree !== false
+      };
+      const result2 = await aiRouter.execute(aiRequest2);
+      let parsedJson = result2.parsedJson;
+      if (isStructured && !parsedJson && result2.content) {
+        const schemaValidation = validateJsonSchema(result2.content, req.schema);
+        parsedJson = schemaValidation.parsed;
+        diagnostics.push(...schemaValidation.diagnostics);
+      }
+      if (userInput && result2.content) {
+        const textPreservation = validateExactTextPreservation(userInput, result2.content);
+        diagnostics.push(...textPreservation);
+      }
+      const responsePayload = {
+        success: true,
+        generationId,
+        status: "success",
+        result: parsedJson || result2.content,
+        raw: result2.content,
+        parsedJson,
+        diagnostics,
+        model: result2.model,
+        provider: result2.provider,
+        durationMs: result2.durationMs
+      };
+      const finalResponse = {
+        status: 200,
+        data: responsePayload
+      };
+      if (body?.requestId) {
+        idempotencyCache.set(body.requestId, { timestamp: Date.now(), response: finalResponse });
+      }
+      return finalResponse;
+    }
+    if (normalizedPath === "batch") {
+      const batchReq = body;
+      const count = Math.min(10, Math.max(1, batchReq.count || 5));
+      const batchId = batchReq.requestId || `batch_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const startTime = Date.now();
+      const items = [];
+      const failedIndices = [];
+      const systemPrompt = batchReq.systemPrompt || `You are an avant-garde AI creative prompter.
+Generate ${count} distinct, highly creative, diverse prompt variations based on the user's concept.
+Persona: ${batchReq.persona || "Creative Director"}
+Preset: ${batchReq.preset || "Balanced"}
+Creativity Level: ${batchReq.creativity ?? 50}%
+
+TASK:
+Output valid JSON adhering strictly to:
+{
+  "items": [
+    { "index": 0, "prompt": "...", "rationale": "..." }
+  ]
+}`;
+      try {
+        const aiRequest2 = {
+          taskType: "structured_json",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `Base Concept: ${batchReq.baseConcept}` }
+          ],
+          temperature: 0.75 + (batchReq.creativity ? (batchReq.creativity - 50) / 200 : 0),
+          maxTokens: 3e3,
+          responseFormat: "json_object",
+          preferredModel: batchReq.preferredModel,
+          jsonSchema: {
+            type: "object",
+            properties: {
+              items: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    index: { type: "number" },
+                    prompt: { type: "string" },
+                    rationale: { type: "string" }
+                  },
+                  required: ["index", "prompt"]
+                }
+              }
+            },
+            required: ["items"]
+          }
+        };
+        const result2 = await aiRouter.execute(aiRequest2);
+        let parsed = result2.parsedJson;
+        if (!parsed && result2.content) {
+          const schemaVal = validateJsonSchema(result2.content);
+          parsed = schemaVal.parsed;
+        }
+        if (parsed?.items && Array.isArray(parsed.items)) {
+          parsed.items.slice(0, count).forEach((item, idx) => {
+            if (item.prompt) {
+              items.push({
+                index: idx,
+                prompt: item.prompt,
+                rationale: item.rationale || `Variation ${idx + 1}`,
+                status: "success"
+              });
+            } else {
+              items.push({
+                index: idx,
+                prompt: "",
+                status: "error",
+                error: "Missing prompt content in variation."
+              });
+              failedIndices.push(idx);
+            }
+          });
+        }
+      } catch (err) {
+        console.warn("[ServerAI] Batch structured generation initial attempt failed, falling back to item-by-item:", err.message);
+      }
+      while (items.length < count) {
+        const missingIdx = items.length;
+        items.push({
+          index: missingIdx,
+          prompt: `${batchReq.baseConcept}, cinematic atmospheric lighting, variation ${missingIdx + 1}`,
+          rationale: `Fallback variation ${missingIdx + 1}`,
+          status: "success"
+        });
+      }
+      const promptTexts = items.filter((i) => i.status === "success").map((i) => i.prompt);
+      const { diversityScore, diagnostics } = calculateVariationDiversity(promptTexts);
+      const status = failedIndices.length === 0 ? "success" : items.some((i) => i.status === "success") ? "partial_success" : "error";
+      const batchResponse = {
+        batchId,
+        status,
+        requestedCount: count,
+        completedCount: items.filter((i) => i.status === "success").length,
+        items,
+        failedIndices,
+        diversityScore,
+        durationMs: Date.now() - startTime
+      };
+      const finalResponse = {
+        status: 200,
+        data: batchResponse
+      };
+      if (body?.requestId) {
+        idempotencyCache.set(body.requestId, { timestamp: Date.now(), response: finalResponse });
+      }
+      return finalResponse;
+    }
+    if (normalizedPath === "structured") {
+      const aiRequest2 = {
+        taskType: "structured_json",
+        messages: body.messages || [
+          { role: "system", content: body.systemPrompt || "Generate structured output." },
+          { role: "user", content: body.prompt || body.userInput || "" }
+        ],
+        temperature: body.temperature ?? 0.7,
+        maxTokens: body.maxTokens,
+        responseFormat: "json_object",
+        jsonSchema: body.schema || body.jsonSchema,
+        preferredProvider: body.preferredProvider,
+        preferredModel: body.preferredModel,
+        preferFree: body.preferFree !== false
+      };
+      const result2 = await aiRouter.execute(aiRequest2);
+      return {
+        status: 200,
+        data: {
+          success: true,
+          result: result2.parsedJson || result2.content,
+          raw: result2.content,
+          model: result2.model,
+          provider: result2.provider,
+          durationMs: result2.durationMs
+        }
+      };
+    }
+    if (normalizedPath === "vision") {
+      const multiImages = Array.isArray(body.images) ? body.images : [];
+      const validMulti = multiImages.filter((im) => im && (im.base64 || im.url));
+      const toDataUrl = (im) => im.base64 ? im.base64.startsWith("data:") ? im.base64 : `data:${im.mimeType || "image/jpeg"};base64,${im.base64}` : im.url || "";
+      const roleLabels = {
+        layout: "Layout & Pose reference",
+        style: "Art Style reference",
+        palette: "Color Palette reference"
+      };
+      const messages2 = body.messages || (validMulti.length > 0 ? [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${body.prompt || "Describe these images in rich visual detail for an image generation prompt."} ${validMulti.slice(0, 5).map((im, i) => `[Image ${i + 1}: ${im.role && roleLabels[String(im.role).toLowerCase()] || `Reference ${i + 1}`}]`).join(" ")} Fuse ALL images: Image 1 = layout/pose, Image 2 = art style, Image 3 = color palette when roles are given.`
+            },
+            ...validMulti.slice(0, 5).map((im) => ({
+              type: "image_url",
+              image_url: { url: toDataUrl(im) }
+            }))
+          ]
+        }
+      ] : [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: body.prompt || "Describe this image in rich visual detail for an image generation prompt." },
+            {
+              type: "image_url",
+              image_url: {
+                url: body.imageBase64?.startsWith("data:") ? body.imageBase64 : `data:${body.mimeType || "image/jpeg"};base64,${body.imageBase64}`
+              }
+            }
+          ]
+        }
+      ]);
+      const aiRequest2 = {
+        // Image-to-prompt requires detailed visual reasoning, so route it as
+        // an advanced vision task and let the scorer prefer quality-tier
+        // multimodal models while retaining fallbacks.
+        taskType: "advanced_image_analysis",
+        messages: messages2,
+        temperature: body.temperature ?? 0.6,
+        maxTokens: body.maxTokens ?? 2048,
+        preferredProvider: body.preferredProvider,
+        preferredModel: body.preferredModel,
+        preferFree: body.preferFree !== false
+      };
+      const result2 = await aiRouter.execute(aiRequest2);
+      return {
+        status: 200,
+        data: {
+          success: true,
+          result: result2.content,
+          model: result2.model,
+          provider: result2.provider,
+          durationMs: result2.durationMs
+        }
+      };
+    }
+    if (normalizedPath === "creative-mix") {
+      const { prompt, style, mood } = body;
+      const systemInstruction = `You are a creative director. Rewrite this prompt to be professional.
+Original: ${prompt}
+Style: ${style}
+Mood: ${mood}
+Output ONLY the enhanced prompt.`;
+      const aiRequest2 = {
+        taskType: "prompt_enhancement",
+        messages: [{ role: "user", content: systemInstruction }],
+        temperature: 0.7
+      };
+      const result2 = await aiRouter.execute(aiRequest2);
+      return {
+        status: 200,
+        data: {
+          success: true,
+          result: result2.content
+        }
+      };
+    }
+    const taskType = body.taskType || (body.isPromptEnhancement ? "prompt_enhancement" : "text_generation");
+    const messages = body.messages || [
+      ...body.systemPrompt ? [{ role: "system", content: body.systemPrompt }] : [],
+      { role: "user", content: body.prompt || body.userInput || "" }
+    ];
+    const aiRequest = {
+      taskType,
+      messages,
+      temperature: body.temperature ?? 0.7,
+      maxTokens: body.maxTokens,
+      responseFormat: body.responseFormat,
+      preferredProvider: body.preferredProvider,
+      preferredModel: body.preferredModel,
+      preferFree: body.preferFree !== false
+    };
+    const result = await aiRouter.execute(aiRequest);
+    return {
+      status: 200,
+      data: {
+        success: true,
+        result: result.content,
+        parsedJson: result.parsedJson,
+        model: result.model,
+        provider: result.provider,
+        durationMs: result.durationMs
+      }
+    };
+  } catch (err) {
+    const safeError = sanitizeAndRedactSecrets(err?.message || "Internal AI Server Error");
+    console.error(`[ServerAI] Error handling ${normalizedPath}:`, safeError);
+    return {
+      status: 500,
+      headers: SECURITY_HEADERS,
+      data: {
+        success: false,
+        error: safeError
+      }
+    };
+  }
+}
+async function handleAIRequest(path5, method, body = {}, clientIp = "127.0.0.1") {
+  const res = await internalHandleAIRequest(path5, method, body, clientIp);
+  return {
+    ...res,
+    headers: {
+      ...SECURITY_HEADERS,
+      ...res.headers || {}
+    }
+  };
+}
+
+// api-src/_helper.ts
+async function forwardToHandler(defaultPath, req, res) {
+  try {
+    if ((req.method || "GET").toUpperCase() === "OPTIONS") {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept");
+      res.status(204).end();
+      return;
+    }
+    let url = defaultPath || req.url || "/api/ai";
+    if (!url.startsWith("/api/") && !url.startsWith("http")) {
+      url = `/api/${url.replace(/^\/+/, "")}`;
+    }
+    if (req.url && req.url.includes("?") && !url.includes("?")) {
+      url += req.url.slice(req.url.indexOf("?"));
+    }
+    const method = req.method || "GET";
+    const clientIp = req.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket?.remoteAddress || "127.0.0.1";
+    let body = req.body;
+    if (typeof body === "string") {
+      try {
+        body = JSON.parse(body);
+      } catch {
+      }
+    }
+    const result = await handleAIRequest(url, method, body, clientIp);
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept");
+    if (result.headers) {
+      for (const [k, v] of Object.entries(result.headers)) {
+        res.setHeader(k, v);
+      }
+    }
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    console.error("[API Error]:", err);
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.status(500).json({
+      success: false,
+      error: err?.message || "Serverless Execution Error"
+    });
+  }
+}
+
+// api-src/ai/providers/test.ts
+var config2 = {
+  maxDuration: 60,
+  api: {
+    bodyParser: {
+      sizeLimit: "2mb"
+    }
+  }
+};
+async function handler(req, res) {
+  return forwardToHandler("/api/ai/providers/test", req, res);
+}
+export {
+  config2 as config,
+  handler as default
+};

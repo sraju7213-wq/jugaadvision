@@ -7,5 +7,4 @@ android
 .cache
 .env
 .env.*
-api/*.js
 public/styles.css

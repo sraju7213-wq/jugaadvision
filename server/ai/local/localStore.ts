@@ -6,11 +6,25 @@
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import type { LocalModelFile, LocalStoreStats } from './localTypes';
 
-const DEFAULT_MODEL_DIR = path.resolve(process.cwd(), '.local-models');
+/**
+ * Default model directory.
+ *
+ * Serverless platforms (Vercel, AWS Lambda, …) ship a READ-ONLY project
+ * directory. Resolving to `process.cwd()` there makes the first `mkdirSync`
+ * throw `EACCES`, which crashed this module at import time and turned every
+ * /api/* route into a 500. Use the writable temp dir instead and allow an
+ * explicit override via LOCAL_MODEL_DIR.
+ */
+const DEFAULT_MODEL_DIR =
+  process.env.LOCAL_MODEL_DIR ||
+  (process.env.VERCEL
+    ? path.join(os.tmpdir(), 'jugaad-local-models')
+    : path.resolve(process.cwd(), '.local-models'));
 
 // ── manifest ────────────────────────────────────────────────────────────────
 
@@ -77,10 +91,18 @@ export class LocalModelStore {
   private models: Record<string, LocalModelFile> = {};
 
   constructor(modelDir?: string) {
-    this.dir = modelDir || (process.env.LOCAL_MODEL_DIR || DEFAULT_MODEL_DIR);
+    this.dir = modelDir || DEFAULT_MODEL_DIR;
     this.models = readManifest(this.dir);
     if (!fs.existsSync(this.dir)) {
-      fs.mkdirSync(this.dir, { recursive: true });
+      try {
+        fs.mkdirSync(this.dir, { recursive: true });
+      } catch (err: any) {
+        // Read-only serverless filesystem: stay usable with the (empty)
+        // in-memory manifest instead of throwing during module evaluation.
+        console.warn(
+          `[LocalModelStore] ${this.dir} is not writable (${err?.code || err?.message}); using in-memory manifest only.`
+        );
+      }
     }
   }
 
@@ -98,9 +120,17 @@ export class LocalModelStore {
     return Object.keys(this.models);
   }
 
-  /** Full record for a model id */
+  /** Full record for a model id (supports prefix, case-insensitive, and filename matches) */
   get(id: string): LocalModelFile | undefined {
-    return this.models[id];
+    if (this.models[id]) return this.models[id];
+    const cleanId = id.replace(/^local:/i, '').toLowerCase().trim();
+    if (this.models[cleanId]) return this.models[cleanId];
+    return Object.values(this.models).find(m =>
+      m.id.toLowerCase() === cleanId ||
+      m.fileName.toLowerCase() === cleanId ||
+      m.name.toLowerCase() === cleanId ||
+      m.sourceRepo.toLowerCase() === cleanId
+    );
   }
 
   /**
@@ -213,7 +243,12 @@ function diskSpaceAvailable(dir: string): number {
   }
 }
 
-// Singleton accessor
+// Singleton accessor.
+//
+// NOTE: this must stay lazy. A module-scope `export const localModelStore =
+// getLocalModelStore()` would construct the store (and hit the filesystem) while
+// the serverless bundle is merely being imported, which is fatal on read-only
+// runtimes even for requests that never touch local models.
 let _store: LocalModelStore | null = null;
 
 export function getLocalModelStore(): LocalModelStore {
@@ -222,6 +257,3 @@ export function getLocalModelStore(): LocalModelStore {
   }
   return _store;
 }
-
-/** Backward-compatible named export for direct imports. */
-export const localModelStore = getLocalModelStore();

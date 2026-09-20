@@ -60,6 +60,7 @@ import {
   cancelDownload,
   getLocalMemoryStatus,
   formatBytes,
+  subscribeDownloadProgress,
   RECOMMENDED_MODELS,
   type LocalModelInfo,
   type LocalSearchResult,
@@ -68,6 +69,7 @@ import {
   type LocalMemoryStatus,
   type RecommendedModel,
 } from '../../services/localAiService';
+import { isNativeMobile } from '../../services/nativeMedia';
 
 interface Feedback {
   type: 'success' | 'error' | 'info';
@@ -147,10 +149,47 @@ const LocalModelsPanel: React.FC = () => {
     }
   }, [testModelId]);
 
-  // Initial load
+  // Initial load & real-time progress subscription
   useEffect(() => {
     refreshAll();
-  }, []);
+
+    const unsub = subscribeDownloadProgress((task) => {
+      setActiveDownloads((prev) => {
+        const idx = prev.findIndex((d) => d.id === task.id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = task;
+          return next;
+        }
+        return [...prev, task];
+      });
+
+      if (task.status === 'downloading' || task.status === 'pending' || task.status === 'verifying') {
+        setDownloadingKeys((prev) => new Set(prev).add(task.id));
+      } else {
+        setDownloadingKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(task.id);
+          return next;
+        });
+      }
+
+      if (task.status === 'completed') {
+        refreshAll();
+      }
+    });
+
+    const handleModelChange = () => {
+      refreshAll();
+    };
+
+    window.addEventListener('jugaad:localmodelchange', handleModelChange);
+
+    return () => {
+      unsub();
+      window.removeEventListener('jugaad:localmodelchange', handleModelChange);
+    };
+  }, [refreshAll]);
 
   // Poll for downloads & memory while active downloads exist
   useEffect(() => {
@@ -270,6 +309,21 @@ const LocalModelsPanel: React.FC = () => {
     } catch (err: any) {
       showFeedback('error', `Failed to cancel: ${err.message}`);
     }
+  };
+
+  const handleDownloadAndLoad = async (repoId: string, fileName: string, modelName: string) => {
+    await handleDownload(repoId, fileName);
+    setTimeout(async () => {
+      const fresh = await listLocalModels();
+      const match = fresh.find(
+        (m) =>
+          m.sourceRepo.toLowerCase() === repoId.toLowerCase() ||
+          m.fileName.toLowerCase() === fileName.toLowerCase()
+      );
+      if (match) {
+        await handleLoadModel(match.id, modelName);
+      }
+    }, 600);
   };
 
   // ── memory actions (load / unload) ────────────────────────────────────────
@@ -472,7 +526,15 @@ const LocalModelsPanel: React.FC = () => {
             {/* Runtime engine */}
             <span className="flex items-center gap-1 px-2 py-1 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)] text-[var(--editorial-muted)]">
               <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-              <span>node-llama-cpp: {health?.nodeLlamaCppAvailable ? 'native acceleration' : 'unavailable'}</span>
+              <span>Engine: {health?.nodeLlamaCppAvailable ? 'native acceleration' : 'mobile edge hybrid'}</span>
+            </span>
+
+            {/* Platform indicator */}
+            <span className={`flex items-center gap-1 px-2 py-1 bg-[var(--editorial-surface)] border ${
+              isNativeMobile() ? 'border-emerald-500/40 text-emerald-400 font-bold' : 'border-[var(--editorial-rule)] text-[var(--editorial-muted)]'
+            }`}>
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>Platform: {isNativeMobile() ? 'Capacitor Android Native' : 'Web / PWA'}</span>
             </span>
           </div>
 
@@ -849,17 +911,39 @@ const LocalModelsPanel: React.FC = () => {
                           >
                             TEST
                           </button>
+
+                          {/* Remove button */}
+                          <button
+                            type="button"
+                            onClick={() => handleRemove(installedModel.id, installedModel.name)}
+                            className="editorial-button editorial-button--sm text-rose-400 hover:border-rose-400 p-1.5"
+                            title="Remove model from device storage"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleDownload(rec.repoId, rec.fileName)}
-                          disabled={downloadingKeys.size > 0}
-                          className="editorial-button editorial-button--sm editorial-button--primary flex items-center gap-1.5"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          DOWNLOAD ({rec.fileSizeHuman})
-                        </button>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => handleDownload(rec.repoId, rec.fileName)}
+                            disabled={downloadingKeys.size > 0}
+                            className="editorial-button editorial-button--sm editorial-button--primary flex items-center gap-1.5"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            DOWNLOAD ({rec.fileSizeHuman})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadAndLoad(rec.repoId, rec.fileName, rec.name)}
+                            disabled={downloadingKeys.size > 0}
+                            className="editorial-button editorial-button--sm bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 flex items-center gap-1 font-mono text-[11px]"
+                            title="Download and immediately pre-warm model into RAM"
+                          >
+                            <Cpu className="w-3 h-3" />
+                            DOWNLOAD & LOAD
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>

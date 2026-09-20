@@ -4,15 +4,19 @@ export async function forwardToHandler(defaultPath: string, req: any, res: any) 
   try {
     if ((req.method || 'GET').toUpperCase() === 'OPTIONS') {
       res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
       res.status(204).end();
       return;
     }
 
-    let url = req.url || defaultPath;
+    let url = defaultPath || req.url || '/api/ai';
     if (!url.startsWith('/api/') && !url.startsWith('http')) {
-      url = defaultPath + (url.startsWith('?') ? url : (url ? `/${url}` : ''));
+      url = `/api/${url.replace(/^\/+/, '')}`;
+    }
+    // Append query string if present
+    if (req.url && req.url.includes('?') && !url.includes('?')) {
+      url += req.url.slice(req.url.indexOf('?'));
     }
     const method = req.method || 'GET';
     const clientIp = (req.headers?.['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket?.remoteAddress || '127.0.0.1';
@@ -30,7 +34,7 @@ export async function forwardToHandler(defaultPath: string, req: any, res: any) 
 
     // Always set CORS so Capacitor WebView (Origin: capacitor://localhost) works
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
 
     if (result.headers) {

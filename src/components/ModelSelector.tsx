@@ -1,6 +1,29 @@
-import React from 'react';
-import { Cpu, Cloud, Sparkles, ChevronDown, HardDrive, RefreshCw } from 'lucide-react';
-import { useModelSelection } from '../hooks/useModelSelection';
+import React, { useState, useEffect } from 'react';
+import {
+  Cpu,
+  Cloud,
+  Sparkles,
+  ChevronDown,
+  HardDrive,
+  RefreshCw,
+  Download,
+  Loader2,
+  Layers,
+  CheckCircle2,
+  AlertCircle,
+  X,
+} from 'lucide-react';
+import { useModelSelection, type UnifiedModelOption } from '../hooks/useModelSelection';
+import {
+  downloadLocalModel,
+  loadLocalModel,
+  unloadLocalModel,
+  isModelLoadedInRam,
+  subscribeDownloadProgress,
+  formatBytes,
+  type DownloadTaskState,
+} from '../services/localAiService';
+import { triggerHaptic } from '../services/nativeMedia';
 import { Link } from 'react-router-dom';
 
 interface ModelSelectorProps {
@@ -11,6 +34,209 @@ interface ModelSelectorProps {
   onModelChange?: (modelId: string) => void;
   disabled?: boolean;
 }
+
+// ── Interactive Offline Controller Subcomponent ──────────────────────────────
+
+interface OfflineControllerProps {
+  option: UnifiedModelOption;
+  onRefresh: () => void;
+  compact?: boolean;
+}
+
+const OfflineController: React.FC<OfflineControllerProps> = ({
+  option,
+  onRefresh,
+  compact = false,
+}) => {
+  const [downloadTask, setDownloadTask] = useState<DownloadTaskState | null>(null);
+  const [isOperating, setIsOperating] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  // Subscribe to real-time download progress events
+  useEffect(() => {
+    const unsubscribe = subscribeDownloadProgress((task) => {
+      const match =
+        task.fileName.toLowerCase() === (option.fileName || '').toLowerCase() ||
+        task.repoId.toLowerCase() === (option.repoId || '').toLowerCase() ||
+        task.id.toLowerCase().includes(option.id.replace(/^local:/, '').toLowerCase());
+
+      if (match) {
+        setDownloadTask(task);
+        if (task.status === 'completed') {
+          onRefresh();
+          setTimeout(() => setDownloadTask(null), 3000);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [option.fileName, option.repoId, option.id, onRefresh]);
+
+  const isLoaded = option.isLoaded || isModelLoadedInRam(option.id);
+  const isInstalled = option.isInstalled;
+  const isDownloading = downloadTask && (downloadTask.status === 'downloading' || downloadTask.status === 'pending');
+
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!option.repoId || !option.fileName || isDownloading) return;
+
+    triggerHaptic('medium');
+    setStatusMessage('Starting download…');
+
+    try {
+      await downloadLocalModel(option.repoId, option.fileName, (p) => {
+        if (p.message) setStatusMessage(p.message);
+      });
+      triggerHaptic('success');
+      onRefresh();
+      setStatusMessage('Downloaded!');
+      setTimeout(() => setStatusMessage(null), 2500);
+    } catch (err: any) {
+      triggerHaptic('error');
+      setStatusMessage(`Error: ${err.message || 'Download failed'}`);
+      setTimeout(() => setStatusMessage(null), 3500);
+    }
+  };
+
+  const handleLoad = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isOperating) return;
+
+    setIsOperating(true);
+    triggerHaptic('selection');
+    try {
+      await loadLocalModel(option.id);
+      triggerHaptic('success');
+      onRefresh();
+      setStatusMessage('Loaded in RAM!');
+      setTimeout(() => setStatusMessage(null), 2000);
+    } catch (err: any) {
+      triggerHaptic('error');
+      setStatusMessage(`Load failed: ${err.message}`);
+      setTimeout(() => setStatusMessage(null), 3000);
+    } finally {
+      setIsOperating(false);
+    }
+  };
+
+  const handleUnload = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isOperating) return;
+
+    setIsOperating(true);
+    triggerHaptic('light');
+    try {
+      await unloadLocalModel(option.id);
+      triggerHaptic('success');
+      onRefresh();
+      setStatusMessage('RAM freed!');
+      setTimeout(() => setStatusMessage(null), 2000);
+    } catch (err: any) {
+      triggerHaptic('error');
+      setStatusMessage(`Unload failed: ${err.message}`);
+      setTimeout(() => setStatusMessage(null), 3000);
+    } finally {
+      setIsOperating(false);
+    }
+  };
+
+  // Downloading State: display live progress bar + speed
+  if (isDownloading && downloadTask) {
+    return (
+      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-cyan-500/10 border border-cyan-500/30 rounded font-mono text-[9px] text-cyan-300">
+        <Loader2 className="w-3 h-3 animate-spin text-cyan-400" />
+        <span>
+          {downloadTask.progress}% ({formatBytes(downloadTask.speedBps)}/s)
+        </span>
+        <div className="w-12 bg-black/40 h-1.5 rounded-full overflow-hidden border border-cyan-500/30 hidden sm:block">
+          <div
+            className="h-full bg-cyan-400 transition-all duration-200"
+            style={{ width: `${downloadTask.progress || 2}%` }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Not Downloaded State: show Download button
+  if (!isInstalled) {
+    return (
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={handleDownload}
+          title="Download model to device storage"
+          className="editorial-button editorial-button--xs bg-[var(--editorial-coral)] text-white hover:opacity-90 flex items-center gap-1 font-mono text-[9px] font-bold !py-0.5 !px-2 shadow-xs"
+        >
+          <Download className="w-2.5 h-2.5" />
+          <span>DOWNLOAD {option.fileSizeHuman ? `(${option.fileSizeHuman})` : ''}</span>
+        </button>
+        {statusMessage && (
+          <span className="font-mono text-[8px] text-[var(--editorial-coral)] hidden sm:inline">
+            {statusMessage}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  // Installed & Loaded in RAM: show UNLOAD button to free RAM
+  if (isLoaded) {
+    return (
+      <div className="flex items-center gap-1">
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 rounded font-mono text-[8.5px] font-bold">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          IN RAM
+        </span>
+        <button
+          type="button"
+          onClick={handleUnload}
+          disabled={isOperating}
+          title="Unload model from RAM to reclaim system memory"
+          className="editorial-button editorial-button--xs bg-amber-500/15 text-amber-300 border border-amber-500/40 hover:bg-amber-500/25 flex items-center gap-1 font-mono text-[9px] font-bold !py-0.5 !px-1.5"
+        >
+          {isOperating ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Layers className="w-2.5 h-2.5" />}
+          <span>{compact ? 'FREE' : 'UNLOAD (FREE RAM)'}</span>
+        </button>
+        {statusMessage && (
+          <span className="font-mono text-[8px] text-amber-300 hidden sm:inline">
+            {statusMessage}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  // Installed on Disk (Not in RAM): show LOAD TO RAM button
+  return (
+    <div className="flex items-center gap-1">
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-500/15 text-slate-400 border border-slate-500/30 rounded font-mono text-[8.5px]">
+        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+        ON DISK
+      </span>
+      <button
+        type="button"
+        onClick={handleLoad}
+        disabled={isOperating}
+        title="Pre-warm model into RAM for instant response"
+        className="editorial-button editorial-button--xs bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 flex items-center gap-1 font-mono text-[9px] font-bold !py-0.5 !px-1.5"
+      >
+        {isOperating ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Cpu className="w-2.5 h-2.5" />}
+        <span>{compact ? 'LOAD' : 'LOAD TO RAM'}</span>
+      </button>
+      {statusMessage && (
+        <span className="font-mono text-[8px] text-emerald-400 hidden sm:inline">
+          {statusMessage}
+        </span>
+      )}
+    </div>
+  );
+};
+
+// ── Main ModelSelector Component ─────────────────────────────────────────────
 
 export const ModelSelector: React.FC<ModelSelectorProps> = ({
   variant = 'inline',
@@ -31,16 +257,20 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     refreshModels,
   } = useModelSelection(filterModality);
 
+  const activeOfflineOption = isOffline
+    ? offlineModelOptions.find((m) => m.id === selectedModel)
+    : undefined;
+
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const val = e.target.value;
     setSelectedModel(val);
     onModelChange?.(val);
   };
 
-  // 1. NAVBAR VARIANT: ultra-clean, minimal, fits perfectly into the desktop/mobile header
+  // 1. NAVBAR VARIANT: ultra-clean, fits desktop & mobile navbar
   if (variant === 'navbar') {
     return (
-      <div className={`relative flex items-center ${className}`}>
+      <div className={`relative flex items-center gap-1.5 ${className}`}>
         <div
           className={`flex items-center gap-1.5 h-8 px-2.5 rounded-sm border transition-all ${
             isOffline
@@ -65,26 +295,32 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
               onChange={handleChange}
               disabled={disabled || isLoading}
               aria-label="Select AI Model (Cloud or Offline)"
-              className="appearance-none bg-transparent font-mono text-[10px] font-bold uppercase tracking-wider text-inherit outline-none cursor-pointer pr-4 max-w-[140px] sm:max-w-[170px] truncate"
+              className="appearance-none bg-transparent font-mono text-[10px] font-bold uppercase tracking-wider text-inherit outline-none cursor-pointer pr-4 max-w-[130px] sm:max-w-[160px] truncate"
             >
               <option value="" className="bg-[var(--editorial-paper)] text-[var(--editorial-ink)]">
                 AUTO · BEST FREE
               </option>
 
-              <optgroup label="⚡ OFFLINE / ON-DEVICE GGUF (NO INTERNET NEEDED)" className="bg-[var(--editorial-paper)] text-emerald-600 dark:text-emerald-400 font-bold">
+              <optgroup
+                label="⚡ OFFLINE / ON-DEVICE GGUF"
+                className="bg-[var(--editorial-paper)] text-emerald-600 dark:text-emerald-400 font-bold"
+              >
                 {offlineModelOptions.map((m) => (
                   <option
                     key={m.id}
                     value={m.id}
                     className="bg-[var(--editorial-paper)] text-[var(--editorial-ink)]"
                   >
-                    {m.name} {m.isLoaded ? '[● RAM]' : m.fileSizeHuman ? `(${m.fileSizeHuman})` : ''}
+                    {m.name} {m.isLoaded ? '[● RAM]' : m.isInstalled ? '[○ DISK]' : m.fileSizeHuman ? `[↓ ${m.fileSizeHuman}]` : ''}
                   </option>
                 ))}
               </optgroup>
 
               {cloudModelOptions.length > 0 && (
-                <optgroup label="☁ CLOUD VERIFIED FREE MODELS" className="bg-[var(--editorial-paper)] text-[var(--editorial-muted)] font-bold">
+                <optgroup
+                  label="☁ CLOUD VERIFIED FREE MODELS"
+                  className="bg-[var(--editorial-paper)] text-[var(--editorial-muted)] font-bold"
+                >
                   {cloudModelOptions.map((m) => (
                     <option
                       key={m.id}
@@ -99,13 +335,12 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
             </select>
             <ChevronDown className="w-2.5 h-2.5 opacity-60 pointer-events-none absolute right-0" />
           </div>
-
-          {isOffline && (
-            <span className="hidden lg:inline-flex items-center px-1 py-0.2 rounded-xs font-mono text-[8px] font-extrabold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-              OFFLINE
-            </span>
-          )}
         </div>
+
+        {/* Inline Load / Unload / Download Controller in Navbar */}
+        {isOffline && activeOfflineOption && (
+          <OfflineController option={activeOfflineOption} onRefresh={refreshModels} compact />
+        )}
       </div>
     );
   }
@@ -144,14 +379,14 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
               onChange={handleChange}
               disabled={disabled || isLoading}
               aria-label="Select AI Model"
-              className="appearance-none h-6 bg-[var(--editorial-paper)] border border-[var(--editorial-rule)] px-2 pr-5 font-mono text-[10px] font-bold uppercase tracking-wide text-[var(--editorial-ink)] outline-none focus:border-[var(--editorial-coral)] cursor-pointer max-w-[200px] sm:max-w-[260px] truncate"
+              className="appearance-none h-6 bg-[var(--editorial-paper)] border border-[var(--editorial-rule)] px-2 pr-5 font-mono text-[10px] font-bold uppercase tracking-wide text-[var(--editorial-ink)] outline-none focus:border-[var(--editorial-coral)] cursor-pointer max-w-[190px] sm:max-w-[240px] truncate"
             >
               <option value="">AUTO · BEST FREE</option>
 
               <optgroup label="⚡ OFFLINE / LOCAL GGUF MODELS (ON-DEVICE)">
                 {offlineModelOptions.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.name} {m.isLoaded ? '[● LOADED IN RAM]' : m.fileSizeHuman ? `(${m.fileSizeHuman})` : ''}
+                    {m.name} {m.isLoaded ? '[● IN RAM]' : m.isInstalled ? '[○ ON DISK]' : m.fileSizeHuman ? `[↓ ${m.fileSizeHuman}]` : ''}
                   </option>
                 ))}
               </optgroup>
@@ -180,22 +415,27 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
           </button>
         </div>
 
+        {/* Direct Download & Load/Unload Options */}
+        {isOffline && activeOfflineOption && (
+          <OfflineController option={activeOfflineOption} onRefresh={refreshModels} />
+        )}
+
         {showManageLink && (
           <Link
             to="/settings"
-            className="font-mono text-[9px] font-bold uppercase tracking-wider text-[var(--editorial-muted)] hover:text-[var(--editorial-coral)] underline transition-colors"
+            className="font-mono text-[9px] font-bold uppercase tracking-wider text-[var(--editorial-muted)] hover:text-[var(--editorial-coral)] underline transition-colors ml-1"
           >
-            Manage Offline Models &rarr;
+            Manage Models &rarr;
           </Link>
         )}
       </div>
     );
   }
 
-  // 3. INLINE VARIANT: for action toolbars and generation panels
+  // 3. INLINE VARIANT: for toolbars, generation panels, and mixer actions
   if (variant === 'inline') {
     return (
-      <div className={`flex items-center gap-1.5 ${className}`}>
+      <div className={`flex flex-wrap items-center gap-1.5 ${className}`}>
         <div
           className={`flex items-center gap-1 p-0.5 px-1.5 border transition-all ${
             isOffline
@@ -215,14 +455,14 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
               onChange={handleChange}
               disabled={disabled || isLoading}
               aria-label="Select AI Model"
-              className="appearance-none h-6 bg-[var(--editorial-paper)] border border-[var(--editorial-rule)] px-1.5 pr-4 font-mono text-[9px] font-bold uppercase tracking-wide text-[var(--editorial-ink)] outline-none focus:border-[var(--editorial-coral)] cursor-pointer max-w-[180px] sm:max-w-[220px] truncate"
+              className="appearance-none h-6 bg-[var(--editorial-paper)] border border-[var(--editorial-rule)] px-1.5 pr-4 font-mono text-[9px] font-bold uppercase tracking-wide text-[var(--editorial-ink)] outline-none focus:border-[var(--editorial-coral)] cursor-pointer max-w-[170px] sm:max-w-[210px] truncate"
             >
               <option value="">AUTO · BEST FREE</option>
 
               <optgroup label="⚡ OFFLINE / ON-DEVICE MODELS">
                 {offlineModelOptions.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.name} {m.isLoaded ? '[● RAM]' : m.fileSizeHuman ? `(${m.fileSizeHuman})` : ''}
+                    {m.name} {m.isLoaded ? '[● RAM]' : m.isInstalled ? '[○ DISK]' : m.fileSizeHuman ? `[↓ ${m.fileSizeHuman}]` : ''}
                   </option>
                 ))}
               </optgroup>
@@ -240,11 +480,16 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
             <ChevronDown className="w-2.5 h-2.5 text-[var(--editorial-muted)] pointer-events-none absolute right-1" />
           </div>
         </div>
+
+        {/* Load / Unload & Download actions */}
+        {isOffline && activeOfflineOption && (
+          <OfflineController option={activeOfflineOption} onRefresh={refreshModels} />
+        )}
       </div>
     );
   }
 
-  // 4. CARD / PANEL VARIANT: full-width bar with complete specs & offline status
+  // 4. CARD / PANEL VARIANT: full-width bar with specs & status controls
   return (
     <div
       className={`p-3 border rounded-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
@@ -264,7 +509,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
           {isOffline ? <Cpu className="w-4 h-4 animate-pulse" /> : <HardDrive className="w-4 h-4" />}
         </div>
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-[var(--editorial-ink)]">
               {activeModelName}
             </span>
@@ -276,13 +521,13 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
           </div>
           <p className="m-0 font-mono text-[9px] text-[var(--editorial-muted)]">
             {isOffline
-              ? 'Executing locally on device (node-llama-cpp GGUF) — zero cloud latency & private'
+              ? 'Executing locally on device (node-llama-cpp / mobile edge) — private & zero cloud latency'
               : 'Multi-provider verified free cloud routing with automatic fallback'}
           </p>
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <div className="relative">
           <select
             value={selectedModel}
@@ -295,7 +540,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
             <optgroup label="⚡ OFFLINE / ON-DEVICE MODELS">
               {offlineModelOptions.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.name} {m.isLoaded ? '[● LOADED]' : m.fileSizeHuman ? `(${m.fileSizeHuman})` : ''}
+                  {m.name} {m.isLoaded ? '[● RAM]' : m.isInstalled ? '[○ DISK]' : m.fileSizeHuman ? `[↓ ${m.fileSizeHuman}]` : ''}
                 </option>
               ))}
             </optgroup>
@@ -311,6 +556,11 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
           </select>
           <ChevronDown className="w-3 h-3 text-[var(--editorial-muted)] pointer-events-none absolute right-1.5 top-2" />
         </div>
+
+        {/* Load / Unload & Download actions */}
+        {isOffline && activeOfflineOption && (
+          <OfflineController option={activeOfflineOption} onRefresh={refreshModels} />
+        )}
 
         {showManageLink && (
           <Link

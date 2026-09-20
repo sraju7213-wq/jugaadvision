@@ -13,11 +13,14 @@ export interface UnifiedModelOption {
   name: string;
   group: 'auto' | 'offline' | 'cloud';
   isOffline: boolean;
+  isInstalled?: boolean;
   isLoaded?: boolean;
   fileSizeHuman?: string;
   badge?: string;
   modality: 'text' | 'vision' | 'unknown';
   description?: string;
+  repoId?: string;
+  fileName?: string;
 }
 
 export function useModelSelection(filterModality?: 'text' | 'vision' | 'all') {
@@ -35,6 +38,10 @@ export function useModelSelection(filterModality?: 'text' | 'vision' | 'all') {
       }
     };
 
+    const handleLocalModelChange = () => {
+      refreshModels();
+    };
+
     const handleStorage = (e: StorageEvent) => {
       if (e.key === 'jugaad_selected_model_v1') {
         setSelectedModelState(e.newValue || '');
@@ -42,9 +49,11 @@ export function useModelSelection(filterModality?: 'text' | 'vision' | 'all') {
     };
 
     window.addEventListener('jugaad:modelchange', handleModelChange as EventListener);
+    window.addEventListener('jugaad:localmodelchange', handleLocalModelChange as EventListener);
     window.addEventListener('storage', handleStorage);
     return () => {
       window.removeEventListener('jugaad:modelchange', handleModelChange as EventListener);
+      window.removeEventListener('jugaad:localmodelchange', handleLocalModelChange as EventListener);
       window.removeEventListener('storage', handleStorage);
     };
   }, []);
@@ -92,11 +101,14 @@ export function useModelSelection(filterModality?: 'text' | 'vision' | 'all') {
         name: `[OFFLINE] ${m.name}`,
         group: 'offline',
         isOffline: true,
+        isInstalled: true,
         isLoaded: m.isLoaded,
         fileSizeHuman: m.fileSizeHuman,
         badge: m.isLoaded ? 'IN RAM' : 'ON DISK',
         modality: m.modality,
         description: m.note || `${m.fileName} · On-Device GGUF`,
+        repoId: m.sourceRepo,
+        fileName: m.fileName,
       });
     }
 
@@ -109,11 +121,14 @@ export function useModelSelection(filterModality?: 'text' | 'vision' | 'all') {
           name: `[OFFLINE] ${r.name}`,
           group: 'offline',
           isOffline: true,
+          isInstalled: false,
           isLoaded: false,
           fileSizeHuman: r.fileSizeHuman,
           badge: r.badge,
           modality: r.modality,
           description: `${r.tagline} (${r.fileSizeHuman})`,
+          repoId: r.repoId,
+          fileName: r.fileName,
         });
       }
     }

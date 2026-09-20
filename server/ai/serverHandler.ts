@@ -553,8 +553,9 @@ async function internalHandleAIRequest(
     if (rawPathname.match(/^ai\/local\/models\/[^/]+\/load$/) && method === 'POST') {
       const match = rawPathname.match(/^ai\/local\/models\/([^/]+)\/load$/);
       if (!match) return { status: 400, data: { success: false, error: 'Invalid model id' } };
+      const modelId = decodeURIComponent(match[1]);
       try {
-        const res = await loadLocalModelIntoMemory(match[1]);
+        const res = await loadLocalModelIntoMemory(modelId);
         return {
           status: 200,
           data: {
@@ -562,7 +563,7 @@ async function internalHandleAIRequest(
             message: `Model loaded into memory in ${res.loadDurationMs}ms`,
             isLoaded: true,
             loadDurationMs: res.loadDurationMs,
-            modelId: match[1],
+            modelId: res.model?.id || modelId,
             memoryStatus: getLocalMemoryStatus(),
           },
         };
@@ -575,14 +576,15 @@ async function internalHandleAIRequest(
     if (rawPathname.match(/^ai\/local\/models\/[^/]+\/unload$/) && method === 'POST') {
       const match = rawPathname.match(/^ai\/local\/models\/([^/]+)\/unload$/);
       if (!match) return { status: 400, data: { success: false, error: 'Invalid model id' } };
-      const unloaded = unloadLocalModel(match[1]);
+      const modelId = decodeURIComponent(match[1]);
+      const unloaded = unloadLocalModel(modelId);
       return {
         status: 200,
         data: {
           success: true,
-          message: unloaded ? `Model ${match[1]} unloaded from memory.` : `Model ${match[1]} was not resident in memory.`,
+          message: unloaded ? `Model ${modelId} unloaded from memory.` : `Model ${modelId} was not resident in memory.`,
           isLoaded: false,
-          modelId: match[1],
+          modelId,
           memoryStatus: getLocalMemoryStatus(),
         },
       };
@@ -591,8 +593,9 @@ async function internalHandleAIRequest(
     if (rawPathname.match(/^ai\/local\/models\/[^/]+$/) && method === 'GET') {
       const match = rawPathname.match(/^ai\/local\/models\/([^/]+)$/);
       if (!match) return { status: 400, data: { success: false, error: 'Invalid model id' } };
-      const model = getLocalModel(match[1]);
-      if (!model) return { status: 404, data: { success: false, error: `Model not found: ${match[1]}` } };
+      const modelId = decodeURIComponent(match[1]);
+      const model = getLocalModel(modelId);
+      if (!model) return { status: 404, data: { success: false, error: `Model not found: ${modelId}` } };
       return {
         status: 200,
         data: {
@@ -736,20 +739,32 @@ async function internalHandleAIRequest(
     if (rawPathname === 'ai/local/health' && method === 'GET') {
       try {
         const check = await checkLocalInferenceReady();
+        const memStatus = getLocalMemoryStatus();
         return {
-          status: check.ok ? 200 : 503,
+          status: 200,
           data: {
-            success: check.ok,
+            success: true,
             ready: check.ok,
-            reason: check.reason,
+            status: check.ok ? 'ready' : (check.reason?.includes('node-llama-cpp') ? 'native_unavailable' : 'awaiting_download'),
+            reason: check.reason || 'Local AI engine ready for inference',
             modelsAvailable: check.modelsAvailable,
-            nodeLlamaCppAvailable: true,
+            nodeLlamaCppAvailable: !check.reason?.includes('node-llama-cpp'),
+            loadedCount: memStatus.loadedCount,
+            memoryStatus: memStatus,
           },
         };
       } catch (err: any) {
         return {
-          status: 503,
-          data: { success: false, ready: false, reason: err.message || 'Health check failed', nodeLlamaCppAvailable: false },
+          status: 200,
+          data: {
+            success: true,
+            ready: false,
+            status: 'degraded',
+            reason: err?.message || 'Local AI engine in standby mode',
+            modelsAvailable: 0,
+            nodeLlamaCppAvailable: false,
+            loadedCount: 0,
+          },
         };
       }
     }

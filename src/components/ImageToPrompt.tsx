@@ -6,7 +6,20 @@ import {
   VisionPromptCustomization,
 } from "../services/geminiService";
 import { aiFetchModelCatalog, aiFetchHealth } from "../services/aiGatewayClient";
-import { listLocalModels, inferLocalModel, RECOMMENDED_MODELS, type LocalModelInfo } from "../services/localAiService";
+import {
+  listLocalModels,
+  inferLocalModel,
+  downloadLocalModel,
+  loadLocalModel,
+  unloadLocalModel,
+  isModelLoadedInRam,
+  isModelInstalledOnDisk,
+  subscribeDownloadProgress,
+  formatBytes,
+  RECOMMENDED_MODELS,
+  type LocalModelInfo,
+  type DownloadTaskState,
+} from "../services/localAiService";
 import { loadSelectedModel, saveSelectedModel } from "../services/settingsStorage";
 import { DESCRIPTION_TYPES } from "../constants";
 import {
@@ -32,7 +45,7 @@ import {
   TrashIcon,
   XIcon,
 } from "./icons";
-import { Loader2, Camera as CameraIcon, Share2 } from "lucide-react";
+import { Loader2, Camera as CameraIcon, Share2, Download, Cpu, Layers } from "lucide-react";
 import { pickImageFromDevice, shareContent, triggerHaptic } from "../services/nativeMedia";
 import QuickImageGenerators from "./QuickImageGenerators";
 
@@ -241,6 +254,74 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
       setIsUpdatingModels(false);
     }
   }, []);
+
+  const [offlineDownloadTask, setOfflineDownloadTask] = useState<DownloadTaskState | null>(null);
+  const [isOperatingOfflineModel, setIsOperatingOfflineModel] = useState(false);
+
+  useEffect(() => {
+    const unsub = subscribeDownloadProgress((task) => {
+      if (selectedModel.startsWith("local:")) {
+        const cleanId = selectedModel.replace(/^local:/, "").toLowerCase();
+        if (
+          task.id.toLowerCase().includes(cleanId) ||
+          task.fileName.toLowerCase().includes(cleanId) ||
+          task.repoId.toLowerCase().includes(cleanId)
+        ) {
+          setOfflineDownloadTask(task);
+          if (task.status === "completed") {
+            refreshModelCatalog();
+          }
+        }
+      }
+    });
+
+    const handleModelChange = () => refreshModelCatalog();
+    window.addEventListener("jugaad:localmodelchange", handleModelChange);
+
+    return () => {
+      unsub();
+      window.removeEventListener("jugaad:localmodelchange", handleModelChange);
+    };
+  }, [selectedModel, refreshModelCatalog]);
+
+  const handleDownloadSelectedOfflineModel = async (repoId: string, fileName: string) => {
+    triggerHaptic('medium');
+    try {
+      await downloadLocalModel(repoId, fileName);
+      triggerHaptic('success');
+      refreshModelCatalog();
+    } catch {
+      triggerHaptic('error');
+    }
+  };
+
+  const handleLoadSelectedOfflineModel = async (modelId: string) => {
+    setIsOperatingOfflineModel(true);
+    triggerHaptic('selection');
+    try {
+      await loadLocalModel(modelId);
+      triggerHaptic('success');
+      refreshModelCatalog();
+    } catch {
+      triggerHaptic('error');
+    } finally {
+      setIsOperatingOfflineModel(false);
+    }
+  };
+
+  const handleUnloadSelectedOfflineModel = async (modelId: string) => {
+    setIsOperatingOfflineModel(true);
+    triggerHaptic('light');
+    try {
+      await unloadLocalModel(modelId);
+      triggerHaptic('success');
+      refreshModelCatalog();
+    } catch {
+      triggerHaptic('error');
+    } finally {
+      setIsOperatingOfflineModel(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -976,6 +1057,76 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
                     <span className={isUpdatingModels ? "inline-block animate-spin" : ""}>↻</span>
                     <span className="hidden sm:inline">{isUpdatingModels ? "REFRESHING" : "REFRESH"}</span>
                   </button>
+
+                  {/* Offline Model Download & Load/Unload Controls */}
+                  {selectedModel.startsWith("local:") && (() => {
+                    const cleanId = selectedModel.replace(/^local:/, "");
+                    const rec = RECOMMENDED_MODELS.find(
+                      (r) =>
+                        r.id.toLowerCase() === cleanId.toLowerCase() ||
+                        r.fileName.toLowerCase() === cleanId.toLowerCase()
+                    );
+                    const installedModel = localVisionModels.find(
+                      (m) =>
+                        m.id.toLowerCase() === cleanId.toLowerCase() ||
+                        (rec && m.sourceRepo.toLowerCase() === rec.repoId.toLowerCase())
+                    );
+                    const isInstalled = !!installedModel || isModelInstalledOnDisk(cleanId);
+                    const isLoaded = (installedModel?.isLoaded ?? false) || isModelLoadedInRam(cleanId);
+                    const isDownloading =
+                      offlineDownloadTask &&
+                      (offlineDownloadTask.status === "downloading" || offlineDownloadTask.status === "pending");
+
+                    if (isDownloading && offlineDownloadTask) {
+                      return (
+                        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-cyan-500/10 border border-cyan-500/30 rounded font-mono text-[9px] text-cyan-300">
+                          <Loader2 className="w-2.5 h-2.5 animate-spin text-cyan-400" />
+                          <span>DOWNLOADING {offlineDownloadTask.progress}%</span>
+                        </div>
+                      );
+                    }
+
+                    if (!isInstalled && rec) {
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadSelectedOfflineModel(rec.repoId, rec.fileName)}
+                          className="editorial-button editorial-button--xs bg-[var(--editorial-coral)] text-white hover:opacity-90 flex items-center gap-1 font-mono text-[9px] font-bold !py-0.5 !px-2 shadow-xs"
+                        >
+                          <Download className="w-2.5 h-2.5" />
+                          <span>DOWNLOAD ({rec.fileSizeHuman})</span>
+                        </button>
+                      );
+                    }
+
+                    if (isInstalled) {
+                      return isLoaded ? (
+                        <button
+                          type="button"
+                          onClick={() => handleUnloadSelectedOfflineModel(cleanId)}
+                          disabled={isOperatingOfflineModel}
+                          className="editorial-button editorial-button--xs bg-amber-500/15 text-amber-300 border border-amber-500/40 hover:bg-amber-500/25 flex items-center gap-1 font-mono text-[9px] font-bold !py-0.5 !px-1.5"
+                          title="Unload from RAM to free system memory"
+                        >
+                          {isOperatingOfflineModel ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Layers className="w-2.5 h-2.5" />}
+                          <span>UNLOAD (FREE RAM)</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleLoadSelectedOfflineModel(cleanId)}
+                          disabled={isOperatingOfflineModel}
+                          className="editorial-button editorial-button--xs bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 flex items-center gap-1 font-mono text-[9px] font-bold !py-0.5 !px-1.5"
+                          title="Pre-warm model into RAM for instant inference"
+                        >
+                          {isOperatingOfflineModel ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Cpu className="w-2.5 h-2.5" />}
+                          <span>LOAD TO RAM</span>
+                        </button>
+                      );
+                    }
+
+                    return null;
+                  })()}
                 </div>
 
                 {structuredVision && (
