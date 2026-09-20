@@ -1,5 +1,6 @@
 import React, { useState, useCallback, memo, useRef, useEffect, useMemo, Suspense, lazy } from "react";
 import { ProcessingAnimation } from "./ProcessingAnimation";
+import ModelSelector from "./ModelSelector";
 import {
     generateBannerPrompt,
     generateBannerFromImages,
@@ -1069,6 +1070,14 @@ const BannerPrompter: React.FC<BannerPrompterProps> = ({
                             {error}
                         </div>
                     )}
+
+                    {/* Model Selector Bar */}
+                    <div className="flex items-center justify-between gap-2 p-2 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
+                      <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-[var(--editorial-muted)]">
+                        AI Engine Model:
+                      </span>
+                      <ModelSelector variant="inline" />
+                    </div>
 
                     {/* Generate Button */}
                     <div className="pt-2">

@@ -1,5 +1,6 @@
 import type { AIModel, AIRequest, AIResponse, ChatMessage, FreeEligibility, ModelModality } from '../types';
 import { AdapterError, fetchWithTimeout, type IProviderAdapter } from './baseAdapter';
+import { keyPoolManager } from '../pools/keyPool';
 
 // Kept deliberately small and periodically verified.  NIM's catalog exposes
 // availability but not reliable price metadata, so this list is the only group
@@ -18,7 +19,8 @@ export class NvidiaNimAdapter implements IProviderAdapter {
     return !!(
       process.env.NVIDIA_NIM_API_KEY_1 ||
       process.env.NVIDIA_NIM_API_KEYS ||
-      process.env.NVIDIA_API_KEY
+      process.env.NVIDIA_API_KEY ||
+      keyPoolManager.hasConfiguredKeys(this.name)
     );
   }
 

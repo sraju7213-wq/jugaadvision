@@ -10,6 +10,7 @@ import {
   SearchIcon,
 } from "./icons";
 import QuickImageGenerators from "./QuickImageGenerators";
+import ModelSelector from "./ModelSelector";
 
 interface PromptLibraryProps {
   prompts: Prompt[];
@@ -225,6 +226,7 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ prompts, setPrompts, onUs
         </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
+          <ModelSelector variant="inline" />
           {prompts.length > 0 && (
             <button
               onClick={handleExportJson}
@@ -325,9 +327,9 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ prompts, setPrompts, onUs
           <div className="editorial-empty-state__icon">
             <FolderIcon className="w-6 h-6" />
           </div>
-          <h3 className="editorial-empty-state__title">Your vault is currently empty</h3>
+          <h3 className="editorial-empty-state__title text-lg font-bold text-[var(--editorial-ink)]">No prompts saved yet</h3>
           <p className="editorial-empty-state__description">
-            Save prompts from Prompt Builder, Image to Prompt, Creative Mixer, Studio, or Pro Prompter to access them here.
+            Start by creating a prompt in any tool below.
           </p>
         </div>
       ) : filteredPrompts.length === 0 ? (

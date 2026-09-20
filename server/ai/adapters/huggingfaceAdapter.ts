@@ -1,5 +1,6 @@
 import type { AIModel, AIRequest, AIResponse, ChatMessage, FreeEligibility, ModelModality } from '../types';
 import { AdapterError, fetchWithTimeout, type IProviderAdapter } from './baseAdapter';
+import { keyPoolManager } from '../pools/keyPool';
 
 const KNOWN_VISION_MODEL_PATTERNS = [
   'vl',
@@ -27,7 +28,8 @@ export class HuggingFaceAdapter implements IProviderAdapter {
       process.env.HUGGINGFACE_API_KEYS ||
       process.env.HUGGINGFACE_API_KEY ||
       process.env.HF_TOKEN ||
-      process.env.HF_API_KEY
+      process.env.HF_API_KEY ||
+      keyPoolManager.hasConfiguredKeys(this.name)
     );
   }
 

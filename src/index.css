@@ -1211,7 +1211,10 @@ input[type="range"]::-moz-range-thumb {
 @media (prefers-reduced-motion: reduce) { .prompt-panel__orb { animation: none; } .studio-button, .capability-card, .spectrum-field { transition: none; } }
 @media (max-width: 1050px) {
   .studio-hero { gap: 2.6rem; }
-  .studio-display { font-size: clamp(3.3rem, 7vw, 6.2rem); }
+  .studio-display { font-size: clamp(2.6rem, 10vw, 4rem); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; letter-spacing: -.04em; line-height: 1.05; }
+  .studio-display em { font-style: normal; font-weight: 700; }
+  .prompt-panel__headline { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: clamp(1.5rem, 5vw, 2.2rem); letter-spacing: -.03em; line-height: 1.15; }
+  .prompt-panel__headline em { font-style: normal; font-weight: 600; }
   .studio-spectrum__grid, .capability-grid { grid-template-columns: repeat(3, 1fr); }
   .spectrum-field:nth-child(5n + 1), .capability-card:first-child { border-left: 0; }
   .spectrum-field:nth-child(3n + 1), .capability-card:nth-child(3n + 1) { border-left: 1px solid var(--studio-rule); }

@@ -8,15 +8,17 @@ const config: CapacitorConfig = {
   android: {
     allowMixedContent: true,
     backgroundColor: '#050505',
+    captureInput: true,
   },
   server: {
     androidScheme: 'https',
-    hostname: 'jugaadvision.vercel.app',
+    hostname: 'localhost',
     cleartext: true,
+    allowNavigation: ['*'],
   },
   plugins: {
     SplashScreen: {
-      launchShowDuration: 1200,
+      launchShowDuration: 800,
       backgroundColor: '#050505',
       showSpinner: false,
     },
@@ -24,6 +26,6 @@ const config: CapacitorConfig = {
       resizeOnFullScreen: true,
     },
   },
-};
+} as const;
 
 export default config;

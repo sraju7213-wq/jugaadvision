@@ -72,10 +72,25 @@ export class CapabilityClassifier {
       modality.includes('image->') ||
       modality.includes('text+image') ||
       id.includes('-vl') ||
+      id.includes('vl-') ||
       id.includes('vision') ||
       id.includes('multimodal') ||
+      id.includes('gemini') ||
+      id.includes('pixtral') ||
+      id.includes('llava') ||
+      id.includes('moondream') ||
+      id.includes('paligemma') ||
+      id.includes('internvl') ||
+      id.includes('qwen-2-vl') ||
+      id.includes('qwen2-vl') ||
+      id.includes('qwen2.5-vl') ||
+      id.includes('glm-4v') ||
+      id.includes('glm-4.6v') ||
+      id.includes('smolvlm') ||
+      id.includes('florence') ||
       desc.includes('vision model') ||
-      desc.includes('visual reasoning')
+      desc.includes('visual reasoning') ||
+      desc.includes('multimodal')
     );
     const vision = hasVisionModality ? 'supported' : (modality || isChat ? 'unsupported' : 'unknown');
 
@@ -262,7 +277,17 @@ return {
     const declared = [...(raw.modalities || []), ...(raw.capabilities || [])].map((s) => String(s).toLowerCase());
     const declares = (c: string) => declared.includes(c);
     const isChat = id.includes('chat') || id.includes('instruct') || declares('text') || declares('chat');
-    const isVision = id.includes('vision') || id.includes('vlm') || declares('vision');
+    const isVision =
+      id.includes('vision') ||
+      id.includes('-vl') ||
+      id.includes('vl-') ||
+      id.includes('vlm') ||
+      id.includes('moondream') ||
+      id.includes('smolvlm') ||
+      id.includes('gemini') ||
+      id.includes('pixtral') ||
+      id.includes('llava') ||
+      declares('vision');
     const isCoding = id.includes('code') || id.includes('coder');
     const isReasoning = id.includes('r1') || id.includes('reason');
 

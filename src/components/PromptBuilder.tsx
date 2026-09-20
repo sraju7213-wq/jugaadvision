@@ -34,6 +34,7 @@ import AnalyticsDashboard from "./analytics/AnalyticsDashboard";
 import { usePromptVersion } from "../hooks/usePromptVersion";
 import { runCreativeFusion } from "../services/creativeFusionService";
 import QuickImageGenerators from "./QuickImageGenerators";
+import ModelSelector from "./ModelSelector";
 
 import {
   CopyIcon,
@@ -48,7 +49,7 @@ import {
 import {
   Loader2,
   SlidersHorizontal,
-
+  Share2,
   ScanText,
   ArrowRightLeft,
   Minimize2,
@@ -69,6 +70,7 @@ import {
 } from "lucide-react";
 import useSpeechToText from "../hooks/useSpeechToText";
 import Tooltip from "./Tooltip";
+import { shareContent, triggerHaptic } from "../services/nativeMedia";
 
 interface PromptBuilderProps {
   prompts: Prompt[];
@@ -722,9 +724,18 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
 
   const handleCopyPrompt = () => {
     if (!finalPrompt) return;
+    triggerHaptic("success");
     navigator.clipboard.writeText(finalPrompt);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  };
+
+  const handleSharePrompt = async () => {
+    if (!finalPrompt) return;
+    await shareContent({
+      title: "Generated Prompt - Jugaad Visuals",
+      text: finalPrompt,
+    });
   };
 
   // Scientific Laboratory: Molecular Synthesis Action
@@ -1538,11 +1549,14 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
             <div className="editorial-panel__header py-1.5 px-3 flex-wrap gap-2 justify-between items-center bg-[var(--editorial-surface)]">
               {renderModePills()}
 
-              {/* Status Badge */}
-              <span className="text-[9.5px] font-mono text-[var(--editorial-muted)] flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-[var(--editorial-violet)]" />
-                BUDGET: {maxChars}
-              </span>
+              <div className="flex items-center gap-2">
+                <ModelSelector variant="inline" />
+                {/* Status Badge */}
+                <span className="text-[9.5px] font-mono text-[var(--editorial-muted)] hidden sm:flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--editorial-violet)]" />
+                  BUDGET: {maxChars}
+                </span>
+              </div>
             </div>
 
             {/* INSTRUMENT 1: QUANTUM TOKEN WORKBENCH */}
@@ -2101,24 +2115,36 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
                   )}
                 </button>
 
-                <button
-                  type="button"
-                  onClick={handleCopyPrompt}
-                  disabled={!finalPrompt.trim() || isOverLimit}
-                  className="editorial-button editorial-button--primary w-full justify-center min-h-[34px]"
-                >
-                  {copied ? (
-                    <>
-                      <CheckIcon className="w-3.5 h-3.5 mr-1" />
-                      <span>Copied!</span>
-                    </>
-                  ) : (
-                    <>
-                      <CopyIcon className="w-3.5 h-3.5 mr-1" />
-                      <span>Copy to Clipboard</span>
-                    </>
-                  )}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCopyPrompt}
+                    disabled={!finalPrompt.trim() || isOverLimit}
+                    className="editorial-button editorial-button--primary flex-1 justify-center min-h-[34px]"
+                  >
+                    {copied ? (
+                      <>
+                        <CheckIcon className="w-3.5 h-3.5 mr-1" />
+                        <span>Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <CopyIcon className="w-3.5 h-3.5 mr-1" />
+                        <span>Copy to Clipboard</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSharePrompt}
+                    disabled={!finalPrompt.trim() || isOverLimit}
+                    className="editorial-button editorial-button--secondary flex items-center justify-center min-h-[34px] px-3.5"
+                    title="Share prompt to other apps"
+                  >
+                    <Share2 className="w-3.5 h-3.5 text-[var(--editorial-coral)]" />
+                    <span className="ml-1 text-xs">Share</span>
+                  </button>
+                </div>
               </div>
 
               {/* Direct Jump to AI Image Creators */}

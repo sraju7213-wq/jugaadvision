@@ -40,6 +40,7 @@ import {
   HealthResponse,
 } from '../services/aiGatewayClient';
 import type { AppearanceSettings, ModelPolicySettings, ProviderName } from '../../server/ai/types';
+import LocalModelsPanel from './settings/LocalModelsPanel';
 
 interface SettingsProps {
   currentTheme?: 'light' | 'dark';
@@ -47,7 +48,7 @@ interface SettingsProps {
 }
 
 export const Settings: React.FC<SettingsProps> = () => {
-  const [activeTab, setActiveTab] = useState<'appearance' | 'providers' | 'policy' | 'diagnostics'>('appearance');
+  const [activeTab, setActiveTab] = useState<'appearance' | 'providers' | 'localModels' | 'policy' | 'diagnostics'>('appearance');
 
   // Appearance State
   const [appearance, setAppearance] = useState<AppearanceSettings>(loadAppearanceSettings);
@@ -310,6 +311,19 @@ export const Settings: React.FC<SettingsProps> = () => {
         >
           <Key className="w-4 h-4" />
           <span>AI Providers</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('localModels')}
+          className={`flex items-center gap-2 px-4 py-2.5 font-mono text-xs font-bold uppercase tracking-wider border-b-2 transition-all whitespace-nowrap flex-shrink-0 ${
+            activeTab === 'localModels'
+              ? 'border-[var(--editorial-coral)] text-[var(--editorial-ink)] bg-[var(--editorial-surface)]'
+              : 'border-transparent text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]'
+          }`}
+        >
+          <Cpu className="w-4 h-4" />
+          <span>Local Models</span>
         </button>
 
         <button
@@ -955,6 +969,9 @@ export const Settings: React.FC<SettingsProps> = () => {
           </div>
         </div>
       )}
+
+      {/* SECTION B2: LOCAL MODELS */}
+      {activeTab === 'localModels' && <LocalModelsPanel />}
 
       {/* SECTION C: MODEL POLICY */}
       {activeTab === 'policy' && (

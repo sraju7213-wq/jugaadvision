@@ -16,6 +16,7 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react";
 import Tooltip from "./Tooltip";
+import ModelSelector from "./ModelSelector";
 
 interface NavbarProps {
   theme: "light" | "dark";
@@ -158,6 +159,9 @@ const Navbar: React.FC<NavbarProps> = ({ theme, toggleTheme }) => {
 
         {/* Right Actions */}
         <div className="editorial-nav__actions">
+          {/* Global Model Selector with Offline Model Support */}
+          <ModelSelector variant="navbar" />
+
           {/* Settings */}
           <Tooltip content="Settings & AI Orchestration">
             <Link

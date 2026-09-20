@@ -15,7 +15,29 @@ const STORAGE_KEYS = {
   APPEARANCE: 'jugaad_appearance_settings_v1',
   MODEL_POLICY: 'jugaad_model_policy_v1',
   LOCAL_TELEMETRY: 'jugaad_local_telemetry_v1',
+  SELECTED_MODEL: 'jugaad_selected_model_v1',
 } as const;
+
+export function loadSelectedModel(): string {
+  try {
+    return localStorage.getItem(STORAGE_KEYS.SELECTED_MODEL) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function saveSelectedModel(modelId: string): void {
+  try {
+    if (modelId) {
+      localStorage.setItem(STORAGE_KEYS.SELECTED_MODEL, modelId);
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.SELECTED_MODEL);
+    }
+    window.dispatchEvent(new CustomEvent('jugaad:modelchange', { detail: { modelId } }));
+  } catch (err) {
+    console.warn('[SettingsStorage] Error saving selected model:', err);
+  }
+}
 
 export const DEFAULT_APPEARANCE_SETTINGS: AppearanceSettings = {
   theme: 'light',

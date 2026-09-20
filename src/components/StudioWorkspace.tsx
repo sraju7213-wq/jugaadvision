@@ -38,6 +38,7 @@ import {
 import { Loader2, Dices, Star, Download, Search, Plus } from "lucide-react";
 import useSpeechToText from "../hooks/useSpeechToText";
 import QuickImageGenerators from "./QuickImageGenerators";
+import ModelSelector from "./ModelSelector";
 
 interface StudioWorkspaceProps {
   onSendToBuilder: (prompt: string) => void;
@@ -953,6 +954,10 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                 className="flex-grow bg-transparent border-none outline-none font-mono text-xs text-[var(--editorial-ink)] placeholder-[var(--editorial-muted)] px-2"
               />
 
+              <div className="hidden md:flex items-center">
+                <ModelSelector variant="inline" />
+              </div>
+
               <button type="button" onClick={() => runGeneration(true)} disabled={isGenerating || (!input.trim() && images.length === 0)} className="editorial-button editorial-button--sm editorial-button--secondary hidden sm:inline-flex" title="Quick single variant">
                 <RefreshIcon className="w-3.5 h-3.5" />
                 <span>Quick</span>
@@ -1046,6 +1051,10 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             </div>
 
             <div className="space-y-2.5 pt-1">
+              <div className="space-y-1">
+                <span className={labelClass}>AI Model (Cloud / Offline)</span>
+                <ModelSelector variant="inline" className="w-full [&>div]:w-full [&_select]:max-w-full" />
+              </div>
               <div className="space-y-1">
                 <span className={labelClass}>Lighting Style</span>
                 <select value={lighting} onChange={(e) => setLighting(e.target.value)} className={selectClass}>

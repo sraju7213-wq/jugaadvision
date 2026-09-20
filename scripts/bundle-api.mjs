@@ -59,6 +59,10 @@ async function bundleAll() {
         'net',
         'tls',
         'zlib',
+        // node-llama-cpp uses native .node bindings — must stay external
+        'node-llama-cpp',
+        '@reflink/reflink-linux-x64-gnu',
+        '@node-llama-cpp/*',
       ],
     });
     console.log(`  ✓ ${relPath} -> ${path.relative(process.cwd(), outFile)}`);

@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, useMemo, useEffect } from "react"
 import { ProcessingAnimation } from "./ProcessingAnimation";
 import { generateBatchPrompts } from "../services/geminiService";
 import { aiGenerateBatch } from "../services/aiGatewayClient";
+import ModelSelector from "./ModelSelector";
 import {
   LIGHTING_LABELS,
   CAMERA_LABELS,
@@ -586,7 +587,15 @@ const BatchGenerator: React.FC<BatchGeneratorProps> = ({
           </div>
 
           {/* Generate Action */}
-          <div className="pt-2">
+          <div className="pt-2 space-y-2">
+            {/* Model Selector Bar */}
+            <div className="flex items-center justify-between gap-2 p-2 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
+              <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-[var(--editorial-muted)]">
+                AI Engine Model:
+              </span>
+              <ModelSelector variant="inline" />
+            </div>
+
             {isGenerating ? (
               <button
                 type="button"

@@ -41,6 +41,7 @@ import {
   Zap,
 } from "lucide-react";
 import QuickImageGenerators from "./QuickImageGenerators";
+import ModelSelector from "./ModelSelector";
 
 type IconType = React.ComponentType<{ className?: string; strokeWidth?: number; "aria-hidden"?: boolean | "true" | "false" }>;
 
@@ -429,6 +430,12 @@ const Home: React.FC = () => {
                 <ArrowRight aria-hidden="true" />
               </button>
             </div>
+
+            {/* Active AI Model Controller (Cloud & Offline) */}
+            <div className="hero-enter__item mt-5 max-w-xl" style={{ "--enter-delay": "300ms" } as React.CSSProperties}>
+              <ModelSelector variant="card" showManageLink />
+            </div>
+
             <div className="studio-hero__meta hero-enter__item" style={{ "--enter-delay": "340ms" } as React.CSSProperties} aria-label="System highlights">
               {HERO_STATS.map((stat, i) => (
                 <div key={stat.label}>

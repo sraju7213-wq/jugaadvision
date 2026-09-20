@@ -1,10 +1,3 @@
-import { healthTracker } from './health/healthTracker';
-import { keyPoolManager, redactSecrets } from './pools/keyPool';
-import { freeModelRegistry } from './registry/freeModelRegistry';
-import { modelFilterService } from './filtering/freeFilter';
-import { modelDiscoveryService } from './discovery/discoveryService';
-import { aiRouter } from './router/router';
-import { getCustomEndpoint, setCustomEndpoint } from './customEndpoint';
 import {
   isSSRFSafeUrl,
   sanitizeInput,
@@ -31,11 +24,44 @@ import type {
   BatchItemResult,
   QualityGateDiagnostic,
 } from './types';
+import { healthTracker } from './health/healthTracker';
+import { keyPoolManager, redactSecrets } from './pools/keyPool';
+import { freeModelRegistry } from './registry/freeModelRegistry';
+import { modelFilterService } from './filtering/freeFilter';
+import { modelDiscoveryService } from './discovery/discoveryService';
+import { aiRouter } from './router/router';
+import { getCustomEndpoint, setCustomEndpoint } from './customEndpoint';
+import { LocalAdapter, LOCAL_PROVIDER, initAdapter } from './local/localAdapter';
+import {
+  listLocalModels,
+  getLocalModel,
+  searchLocalModels,
+  downloadAndRegisterModel,
+  removeLocalModel,
+  runLocalInference,
+  checkLocalInferenceReady,
+  ensureLocalAdapterRegistered,
+  isLocalModelLoaded,
+  loadLocalModelIntoMemory,
+  unloadLocalModel,
+  unloadAllLocalModels,
+  getLocalMemoryStatus,
+  getActiveDownloads,
+  cancelDownload,
+} from './local/localModelManager';
 
 export interface ServerResponse {
   status: number;
   data: any;
   headers?: Record<string, string>;
+}
+
+/** Format bytes to human-readable string */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 // In-memory server appearance state
@@ -437,6 +463,297 @@ async function internalHandleAIRequest(
       };
     }
 
+    // ── LOCAL GGUF MODEL MANAGEMENT ──────────────────────────────────────────
+    // Ensure the LocalAdapter is registered before handling local model requests
+    if (rawPathname.startsWith('ai/local')) {
+      await ensureLocalAdapterRegistered();
+    }
+    // GET  /api/ai/local/models            → list all downloaded local models
+    // GET  /api/ai/local/models/:id        → get one local model by id
+    // POST /api/ai/local/models/:id/load   → load model into RAM/VRAM
+    // POST /api/ai/local/models/:id/unload → unload model from RAM/VRAM
+    // POST /api/ai/local/models/unload-all → unload all models from RAM
+    // GET  /api/ai/local/downloads          → get all active and recent downloads
+    // POST /api/ai/local/downloads/cancel   → cancel an active download
+    // POST /api/ai/local/models/search     → search HuggingFace for GGUF models
+    // POST /api/ai/local/models/download   → download + register a GGUF model
+    // DELETE /api/ai/local/models/:id      → remove a local model (+ delete file)
+    // GET  /api/ai/local/health            → is local inference ready?
+    if (rawPathname === 'ai/local/models' && method === 'GET') {
+      const models = listLocalModels();
+      const memoryStatus = getLocalMemoryStatus();
+      const activeDownloads = getActiveDownloads();
+      return {
+        status: 200,
+        data: {
+          success: true,
+          count: models.length,
+          memoryStatus,
+          activeDownloads,
+          models: models.map(m => ({
+            id: m.id,
+            name: m.name,
+            sourceRepo: m.sourceRepo,
+            fileName: m.fileName,
+            fileSizeBytes: m.fileSizeBytes,
+            fileSizeHuman: formatBytes(m.fileSizeBytes),
+            quantization: m.quantization,
+            modality: m.modality,
+            downloadedAt: m.downloadedAt,
+            lastLoadedAt: m.lastLoadedAt,
+            loadCount: m.loadCount,
+            isValid: m.isValid,
+            isLoaded: isLocalModelLoaded(m.id),
+            note: m.note,
+          })),
+        },
+      };
+    }
+
+    // POST /api/ai/local/models/unload-all — unload all models from memory
+    if (rawPathname === 'ai/local/models/unload-all' && method === 'POST') {
+      unloadAllLocalModels();
+      return {
+        status: 200,
+        data: {
+          success: true,
+          message: 'All local models unloaded from memory.',
+          memoryStatus: getLocalMemoryStatus(),
+        },
+      };
+    }
+
+    // GET /api/ai/local/downloads — list active and recent downloads
+    if (rawPathname === 'ai/local/downloads' && method === 'GET') {
+      const downloads = getActiveDownloads();
+      return {
+        status: 200,
+        data: {
+          success: true,
+          downloads,
+        },
+      };
+    }
+
+    // POST /api/ai/local/downloads/cancel — cancel an ongoing download
+    if (rawPathname === 'ai/local/downloads/cancel' && method === 'POST') {
+      const taskId = body.id || body.taskId;
+      if (!taskId) return { status: 400, data: { success: false, error: 'Task ID required' } };
+      const cancelled = cancelDownload(taskId);
+      return {
+        status: 200,
+        data: {
+          success: cancelled,
+          message: cancelled ? `Download ${taskId} cancelled` : `Download ${taskId} not active`,
+        },
+      };
+    }
+
+    // POST /api/ai/local/models/:id/load — load model into memory
+    if (rawPathname.match(/^ai\/local\/models\/[^/]+\/load$/) && method === 'POST') {
+      const match = rawPathname.match(/^ai\/local\/models\/([^/]+)\/load$/);
+      if (!match) return { status: 400, data: { success: false, error: 'Invalid model id' } };
+      try {
+        const res = await loadLocalModelIntoMemory(match[1]);
+        return {
+          status: 200,
+          data: {
+            success: true,
+            message: `Model loaded into memory in ${res.loadDurationMs}ms`,
+            isLoaded: true,
+            loadDurationMs: res.loadDurationMs,
+            modelId: match[1],
+            memoryStatus: getLocalMemoryStatus(),
+          },
+        };
+      } catch (err: any) {
+        return { status: 500, data: { success: false, error: err.message || 'Failed to load model into memory' } };
+      }
+    }
+
+    // POST /api/ai/local/models/:id/unload — unload model from memory
+    if (rawPathname.match(/^ai\/local\/models\/[^/]+\/unload$/) && method === 'POST') {
+      const match = rawPathname.match(/^ai\/local\/models\/([^/]+)\/unload$/);
+      if (!match) return { status: 400, data: { success: false, error: 'Invalid model id' } };
+      const unloaded = unloadLocalModel(match[1]);
+      return {
+        status: 200,
+        data: {
+          success: true,
+          message: unloaded ? `Model ${match[1]} unloaded from memory.` : `Model ${match[1]} was not resident in memory.`,
+          isLoaded: false,
+          modelId: match[1],
+          memoryStatus: getLocalMemoryStatus(),
+        },
+      };
+    }
+
+    if (rawPathname.match(/^ai\/local\/models\/[^/]+$/) && method === 'GET') {
+      const match = rawPathname.match(/^ai\/local\/models\/([^/]+)$/);
+      if (!match) return { status: 400, data: { success: false, error: 'Invalid model id' } };
+      const model = getLocalModel(match[1]);
+      if (!model) return { status: 404, data: { success: false, error: `Model not found: ${match[1]}` } };
+      return {
+        status: 200,
+        data: {
+          success: true,
+          model: {
+            id: model.id,
+            name: model.name,
+            sourceRepo: model.sourceRepo,
+            fileName: model.fileName,
+            filePath: model.filePath,
+            fileSizeBytes: model.fileSizeBytes,
+            fileSizeHuman: formatBytes(model.fileSizeBytes),
+            quantization: model.quantization,
+            modality: model.modality,
+            downloadedAt: model.downloadedAt,
+            lastLoadedAt: model.lastLoadedAt,
+            loadCount: model.loadCount,
+            isValid: model.isValid,
+            isLoaded: isLocalModelLoaded(model.id),
+            note: model.note,
+          },
+        },
+      };
+    }
+
+    if (rawPathname === 'ai/local/models/search' && method === 'POST') {
+      const query = typeof body.query === 'string' ? body.query.trim() : '';
+      if (!query) return { status: 400, data: { success: false, error: 'Query parameter required' } };
+      try {
+        const results = await searchLocalModels(query, body.limit ? Math.min(body.limit as number, 50) : 25);
+        return {
+          status: 200,
+          data: { success: true, query, count: results.length, models: results },
+        };
+      } catch (err: any) {
+        return { status: 500, data: { success: false, error: err.message || 'Search failed' } };
+      }
+    }
+
+    if (rawPathname === 'ai/local/models/download' && method === 'POST') {
+      const { repoId, fileName } = body;
+      if (!repoId || !fileName) return { status: 400, data: { success: false, error: 'repoId and fileName required' } };
+
+      const taskId = `${repoId}/${fileName}`;
+
+      // Check if already downloaded
+      const existingModel = listLocalModels().find(m => m.sourceRepo === repoId && m.fileName === fileName);
+      if (existingModel) {
+        return {
+          status: 200,
+          data: {
+            success: true,
+            message: `Model already downloaded: ${existingModel.name}`,
+            status: 'completed',
+            taskId,
+            model: existingModel,
+          },
+        };
+      }
+
+      // Check if already downloading
+      const active = getActiveDownloads().find(d => d.id === taskId);
+      if (active && (active.status === 'downloading' || active.status === 'pending' || active.status === 'verifying')) {
+        return {
+          status: 200,
+          data: {
+            success: true,
+            message: `Download already in progress (${active.progress}%)`,
+            status: active.status,
+            taskId,
+          },
+        };
+      }
+
+      // Start asynchronous download in background — does not block HTTP connection
+      downloadAndRegisterModel(
+        repoId,
+        fileName,
+        (progress) => {
+          console.log(`[LocalDownload] ${progress.event}: ${progress.message || ''} ${progress.progress !== undefined ? `${progress.progress}%` : ''}`);
+        },
+        undefined,
+      ).catch((err: any) => {
+        console.error(`[LocalDownload Error] ${taskId}:`, err?.message || err);
+      });
+
+      return {
+        status: 200,
+        data: {
+          success: true,
+          status: 'downloading',
+          taskId,
+          message: `Download started for ${fileName}. Track progress in real-time.`,
+        },
+      };
+    }
+
+    if (rawPathname.match(/^ai\/local\/models\/[^/]+\/remove$/) && method === 'DELETE') {
+      const match = rawPathname.match(/^ai\/local\/models\/([^/]+)\/remove$/);
+      if (!match) return { status: 400, data: { success: false, error: 'Invalid model id' } };
+      const removed = removeLocalModel(match[1]);
+      if (!removed) return { status: 404, data: { success: false, error: `Model not found: ${match[1]}` } };
+      return { status: 200, data: { success: true, message: `Model removed: ${match[1]}` } };
+    }
+
+    // POST /api/ai/local/infer — run text inference on a local model
+    if (rawPathname === 'ai/local/infer' && method === 'POST') {
+      const { modelId, prompt, maxTokens, temperature, stop } = body;
+      if (!modelId || !prompt) {
+        return { status: 400, data: { success: false, error: 'modelId and prompt are required' } };
+      }
+
+      try {
+        const result = await runLocalInference(modelId, {
+          prompt: String(prompt),
+          maxTokens: typeof maxTokens === 'number' ? maxTokens : undefined,
+          temperature: typeof temperature === 'number' ? temperature : undefined,
+          stop: Array.isArray(stop) ? stop : undefined,
+        });
+        return {
+          status: 200,
+          data: {
+            success: true,
+            content: result.content,
+            model: modelId,
+            provider: 'local',
+            tokensGenerated: result.tokensGenerated,
+            loadDurationMs: result.loadDurationMs,
+            generateDurationMs: result.generateDurationMs,
+            totalDurationMs: result.totalDurationMs,
+          },
+        };
+      } catch (err: any) {
+        const msg = err.message || String(err);
+        const status = msg.includes('not found') || msg.includes('invalid') ? 404 : 500;
+        return { status, data: { success: false, error: msg } };
+      }
+    }
+
+    // GET /api/ai/local/health — check if local inference subsystem is ready
+    if (rawPathname === 'ai/local/health' && method === 'GET') {
+      try {
+        const check = await checkLocalInferenceReady();
+        return {
+          status: check.ok ? 200 : 503,
+          data: {
+            success: check.ok,
+            ready: check.ok,
+            reason: check.reason,
+            modelsAvailable: check.modelsAvailable,
+            nodeLlamaCppAvailable: true,
+          },
+        };
+      } catch (err: any) {
+        return {
+          status: 503,
+          data: { success: false, ready: false, reason: err.message || 'Health check failed', nodeLlamaCppAvailable: false },
+        };
+      }
+    }
+
     // 8. POST /api/ai/remove-bg or POST /api/remove-bg (Secure Server Proxy)
     if ((normalizedPath === 'remove-bg' || rawPathname === 'ai/remove-bg' || rawPathname === 'remove-bg') && method === 'POST') {
       const imageBase64 = body?.imageBase64 || body?.image;
@@ -685,6 +1002,7 @@ Output valid JSON adhering strictly to:
           temperature: 0.75 + (batchReq.creativity ? (batchReq.creativity - 50) / 200 : 0),
           maxTokens: 3000,
           responseFormat: 'json_object',
+          preferredModel: batchReq.preferredModel,
           jsonSchema: {
             type: 'object',
             properties: {

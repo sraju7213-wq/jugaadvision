@@ -8,6 +8,7 @@ import {
   Sparkles,
   ArrowLeft,
 } from "lucide-react";
+import ModelSelector from "./ModelSelector";
 
 export interface FeatureTool {
   id: string;
@@ -143,8 +144,9 @@ export const FeatureHeader: React.FC<FeatureHeaderProps> = ({
           </span>
         </nav>
 
-        <div className="hidden sm:flex items-center gap-2">
-          <span className="font-mono text-[11px] uppercase tracking-widest text-[var(--ui-muted)]">
+        <div className="flex items-center gap-3">
+          <ModelSelector variant="header" showManageLink />
+          <span className="hidden md:inline font-mono text-[11px] uppercase tracking-widest text-[var(--ui-muted)]">
             Engine {config.index} / 05
           </span>
         </div>

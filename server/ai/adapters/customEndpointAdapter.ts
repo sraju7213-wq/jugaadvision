@@ -24,15 +24,33 @@ export class CustomEndpointAdapter implements IProviderAdapter {
     const current = getCustomEndpoint();
     if (!current) throw new AdapterError('Custom endpoint is not configured', this.name, 400);
     const startTime = Date.now();
-    const body: Record<string, any> = { model: modelId || current.model, messages: request.messages, temperature: request.temperature ?? 0.7, max_tokens: request.maxTokens ?? 2048 };
+    const cleanModelId = modelId?.replace(/^custom:/, '');
+    const effectiveModel = (cleanModelId && cleanModelId !== 'custom') ? cleanModelId : (current.model || 'qwen2.5-coder:7b');
+    const maxTokens = request.maxTokens ? Math.min(request.maxTokens, 1024) : (request.taskType === 'structured_json' ? 800 : 400);
+    const body: Record<string, any> = {
+      model: effectiveModel,
+      messages: request.messages,
+      temperature: request.temperature ?? 0.7,
+      max_tokens: maxTokens,
+    };
     if (request.responseFormat === 'json_object' || request.taskType === 'structured_json') body.response_format = { type: 'json_object' };
     try {
-      const res = await fetchWithTimeout(current.endpoint, { method: 'POST', headers: { ...this.headers(apiKey), 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, 45000);
+      const res = await fetchWithTimeout(current.endpoint, { method: 'POST', headers: { ...this.headers(apiKey), 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, 120000);
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new AdapterError(`Custom endpoint error (${res.status}): ${json.error?.message || res.statusText}`, this.name, res.status);
-      const content = json.choices?.[0]?.message?.content || json.choices?.[0]?.text || json.output_text || '';
+      let content = json.choices?.[0]?.message?.content || json.choices?.[0]?.text || json.output_text || '';
+      content = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
       let parsedJson: any;
-      if (request.responseFormat === 'json_object' || request.taskType === 'structured_json') { try { parsedJson = JSON.parse(content); } catch { /* validation handles invalid JSON */ } }
+      if (request.responseFormat === 'json_object' || request.taskType === 'structured_json') {
+        try {
+          parsedJson = JSON.parse(content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim());
+        } catch {
+          const match = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+          if (match) {
+            try { parsedJson = JSON.parse(match[1].trim()); } catch {}
+          }
+        }
+      }
       return { content, parsedJson, model: body.model, provider: this.name, durationMs: Date.now() - startTime };
     } catch (err: any) {
       if (err instanceof AdapterError) throw err;
@@ -44,6 +62,6 @@ export class CustomEndpointAdapter implements IProviderAdapter {
     // OpenAI-compatible chat-completions endpoints carry text, JSON mode and
     // base64 image_url vision parts, so advertise all three explicitly.
     const modalities: ModelModality[] = ['text', 'json', 'vision'];
-    return { id, name, provider: this.name, inputCost: 0, outputCost: 0, contextLength: 32768, capabilities: ['text', 'json', 'vision'], modalities, isFree: false, freeEligibility: 'eligible_unknown', discoveredTimestamp: new Date().toISOString(), tier: 'balanced', pricing: { prompt: 0, completion: 0, isZeroCost: false }, supportsStructuredJson: true };
+    return { id, name, provider: this.name, inputCost: 0, outputCost: 0, contextLength: 32768, capabilities: ['text', 'json', 'vision'], modalities, isFree: true, freeEligibility: 'free', discoveredTimestamp: new Date().toISOString(), tier: 'balanced', pricing: { prompt: 0, completion: 0, isZeroCost: true }, supportsStructuredJson: true };
   }
 }

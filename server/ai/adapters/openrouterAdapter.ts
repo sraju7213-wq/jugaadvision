@@ -1,5 +1,6 @@
 import type { AIModel, AIRequest, AIResponse, ChatMessage, FreeEligibility, ModelModality } from '../types';
 import { AdapterError, fetchWithTimeout, type IProviderAdapter } from './baseAdapter';
+import { keyPoolManager } from '../pools/keyPool';
 
 export class OpenRouterAdapter implements IProviderAdapter {
   public readonly name = 'openrouter' as const;
@@ -9,7 +10,8 @@ export class OpenRouterAdapter implements IProviderAdapter {
     return !!(
       process.env.OPENROUTER_API_KEY_1 ||
       process.env.OPENROUTER_API_KEYS ||
-      process.env.OPENROUTER_API_KEY
+      process.env.OPENROUTER_API_KEY ||
+      keyPoolManager.hasConfiguredKeys(this.name)
     );
   }
 
@@ -58,9 +60,24 @@ export class OpenRouterAdapter implements IProviderAdapter {
           modStr.includes('text+image') ||
           modStr.includes('vision') ||
           lowerId.includes('-vl') ||
+          lowerId.includes('vl-') ||
           lowerId.includes('vision') ||
+          lowerId.includes('gemini') ||
+          lowerId.includes('pixtral') ||
+          lowerId.includes('llava') ||
+          lowerId.includes('moondream') ||
+          lowerId.includes('paligemma') ||
+          lowerId.includes('internvl') ||
+          lowerId.includes('qwen-2-vl') ||
+          lowerId.includes('qwen2-vl') ||
+          lowerId.includes('qwen2.5-vl') ||
+          lowerId.includes('glm-4v') ||
+          lowerId.includes('glm-4.6v') ||
+          lowerId.includes('smolvlm') ||
+          lowerId.includes('florence') ||
           desc.includes('vision model') ||
-          desc.includes('visual reasoning')
+          desc.includes('visual reasoning') ||
+          desc.includes('multimodal')
         )) {
           capabilities.push('vision');
           modalities.push('vision');
@@ -153,8 +170,18 @@ export class OpenRouterAdapter implements IProviderAdapter {
       }
 
       const json = await res.json();
+      if (json.error) {
+        throw new AdapterError(
+          `OpenRouter API error: ${json.error.message || JSON.stringify(json.error)}`,
+          this.name,
+          json.error.code || 500
+        );
+      }
+
       const choice = json.choices?.[0];
-      const rawContent = choice?.message?.content || '';
+      let rawContent = choice?.message?.content || '';
+      // Strip chain-of-thought reasoning tokens if present
+      rawContent = rawContent.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
       const durationMs = Date.now() - startTime;
 
       let parsedJson: any = undefined;
@@ -165,7 +192,7 @@ export class OpenRouterAdapter implements IProviderAdapter {
           const jsonMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
           if (jsonMatch) {
             try {
-              parsedJson = JSON.parse(jsonMatch[1]);
+              parsedJson = JSON.parse(this.cleanJsonString(jsonMatch[1]));
             } catch {
               // fallback
             }
@@ -225,6 +252,10 @@ export class OpenRouterAdapter implements IProviderAdapter {
   }
 
   private cleanJsonString(str: string): string {
-    return str.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+    return str
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim();
   }
 }

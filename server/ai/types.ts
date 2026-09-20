@@ -362,6 +362,7 @@ export interface BatchGenerateRequest {
   density?: number;
   systemPrompt?: string;
   requestId?: string;
+  preferredModel?: string;
 }
 
 export interface BatchItemResult {

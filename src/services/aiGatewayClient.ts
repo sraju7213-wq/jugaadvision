@@ -13,6 +13,7 @@ import type {
 } from '../../server/ai/types';
 
 import { apiUrl } from '../lib/apiBase';
+import { loadSelectedModel } from './settingsStorage';
 
 export interface AIGenerateOptions {
   prompt?: string;
@@ -128,9 +129,10 @@ async function postJsonWithRetry<T>(
 export async function aiGenerateUnified(
   options: UnifiedGenerateRequest & { signal?: AbortSignal }
 ): Promise<UnifiedGenerateResponse> {
+  const preferredModel = options.preferredModel || loadSelectedModel() || undefined;
   return postJsonWithRetry<UnifiedGenerateResponse>(
     apiUrl('/api/ai/generate'),
-    options,
+    { ...options, preferredModel },
     60000,
     1,
     options.signal
@@ -143,9 +145,10 @@ export async function aiGenerateUnified(
 export async function aiGenerateBatch(
   options: BatchGenerateRequest & { signal?: AbortSignal }
 ): Promise<BatchGenerateResponse> {
+  const preferredModel = options.preferredModel || loadSelectedModel() || undefined;
   return postJsonWithRetry<BatchGenerateResponse>(
     apiUrl('/api/ai/batch'),
-    options,
+    { ...options, preferredModel },
     90000,
     1,
     options.signal
@@ -170,19 +173,22 @@ export async function aiValidateStructured(
 export async function aiGenerateText(
   options: AIGenerateOptions
 ): Promise<{ result: string; model: string; provider: string; durationMs: number }> {
-  return postJsonWithRetry(apiUrl('/api/ai/chat'), options, 45000, 1, options.signal);
+  const preferredModel = options.preferredModel || loadSelectedModel() || undefined;
+  return postJsonWithRetry(apiUrl('/api/ai/chat'), { ...options, preferredModel }, 45000, 1, options.signal);
 }
 
 export async function aiGenerateStructured<T = any>(
   options: AIStructuredOptions
 ): Promise<{ result: T; raw: string; model: string; provider: string; durationMs: number }> {
-  return postJsonWithRetry(apiUrl('/api/ai/structured'), options, 60000, 1, options.signal);
+  const preferredModel = options.preferredModel || loadSelectedModel() || undefined;
+  return postJsonWithRetry(apiUrl('/api/ai/structured'), { ...options, preferredModel }, 60000, 1, options.signal);
 }
 
 export async function aiAnalyzeVision(
   options: AIVisionOptions
 ): Promise<{ result: string; model: string; provider: string; durationMs: number }> {
-  return postJsonWithRetry(apiUrl('/api/ai/vision'), { ...options, taskType: 'vision' }, 65000, 1, options.signal);
+  const preferredModel = options.preferredModel || loadSelectedModel() || undefined;
+  return postJsonWithRetry(apiUrl('/api/ai/vision'), { ...options, preferredModel, taskType: 'vision' }, 65000, 1, options.signal);
 }
 
 const VISION_ROLE_LABELS: Record<string, string> = {

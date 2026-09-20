@@ -27,12 +27,18 @@ export class KeyPoolManager {
   private baseRateLimitCooldownMs = 20000; // 20s initial cooldown for 429
   private maxCooldownMs = 300000; // 5 minutes max cooldown
   private serverErrorCooldownMs = 15000; // 15s initial for 5xx
+  private initialized = false;
 
   constructor() {
     this.reloadFromEnv();
   }
 
   public reloadFromEnv(): void {
+    const providers: ProviderName[] = ['openrouter', 'nim', 'huggingface', 'cloudflare', 'custom'];
+    for (const p of providers) {
+      if (!this.pools.has(p)) this.pools.set(p, []);
+    }
+
     this.loadProviderKeys('openrouter', [
       'OPENROUTER_API_KEY',
       'OPENROUTER_API_KEYS',
@@ -59,6 +65,15 @@ export class KeyPoolManager {
       'CLOUDFLARE_API_KEY',
       'CLOUDFLARE_TOKEN',
     ], 'CLOUDFLARE_API_KEY_', 'CLOUDFLARE_API_TOKEN_');
+
+    this.loadProviderKeys('custom', [
+      'CUSTOM_API_KEY',
+      'CUSTOM_KEY',
+    ]);
+    if (process.env.CUSTOM_ENDPOINT_URL || process.env.CUSTOM_ENDPOINT || process.env.OLLAMA_BASE_URL) {
+      this.setProviderKeys('custom', process.env.CUSTOM_API_KEY || '__custom_endpoint__');
+    }
+    this.initialized = true;
   }
 
   private loadProviderKeys(
@@ -255,6 +270,11 @@ export class KeyPoolManager {
         state.backoffReason = 'auth_permission_error';
         console.warn(`[KeyPool] Auth/permission issue (${statusCode}) on ${provider} key ${masked}. Cooldown for ${Math.round(cooldownMs / 1000)}s.`);
       }
+    } else if (statusCode === 404 || statusCode === 410 || statusCode === 422 || (statusCode === 400 && !errorMessage?.includes('API key') && !errorMessage?.includes('auth') && !errorMessage?.includes('credit') && !errorMessage?.includes('quota'))) {
+      // Model-specific errors (retired model, invalid parameter format, missing model endpoint).
+      // The API key itself is valid and must NOT be put into cooldown, so other candidate models can run immediately.
+      state.consecutiveFailures = 0;
+      console.log(`[KeyPool] Model error (${statusCode}) on ${provider} key ${masked} — key remains active for other models.`);
     } else {
       // General 5xx or network error with exponential backoff
       const cooldownMs = Math.min(
@@ -267,12 +287,15 @@ export class KeyPoolManager {
     }
   }
 
+  public hasConfiguredKeys(provider: ProviderName): boolean {
+    if (!this.initialized) this.reloadFromEnv();
+    const pool = this.pools.get(provider);
+    return !!(pool && pool.length > 0);
+  }
+
   public isProviderAvailable(provider: ProviderName): boolean {
-    let pool = this.pools.get(provider);
-    if (!pool || pool.length === 0) {
-      this.reloadFromEnv();
-      pool = this.pools.get(provider);
-    }
+    if (!this.initialized) this.reloadFromEnv();
+    const pool = this.pools.get(provider);
     if (!pool || pool.length === 0) return false;
     const now = Date.now();
     return pool.some(k => !k.isExhausted && k.backoffUntil <= now);

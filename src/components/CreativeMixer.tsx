@@ -1,6 +1,7 @@
 import React, { useState, useCallback, memo, useRef, useEffect } from "react";
 import { ProcessingAnimation } from "./ProcessingAnimation";
 import { generateCreativeMix } from "../services/geminiService";
+import ModelSelector from "./ModelSelector";
 import { promptToJson, JsonPrompt } from "../lib/promptToJson";
 import {
   generateCinematicPrompt,
@@ -45,7 +46,8 @@ import {
   ChevronUpIcon,
 } from "./icons";
 import QuickImageGenerators from "./QuickImageGenerators";
-import { Loader2 } from "lucide-react";
+import { Loader2, Share2 } from "lucide-react";
+import { shareContent, triggerHaptic } from "../services/nativeMedia";
 import useSpeechToText from "../hooks/useSpeechToText";
 import AdvancedSettingsPanel from "./creative-mixer/AdvancedSettingsPanel";
 import NodeModePanel from "./node-mode/NodeModePanel";
@@ -498,12 +500,22 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
   };
 
   const handleCopy = () => {
+    triggerHaptic("success");
     navigator.clipboard.writeText(generatedResult);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleShare = async () => {
+    if (!generatedResult) return;
+    await shareContent({
+      title: "Prompt from Creative Mixer",
+      text: generatedResult,
+    });
+  };
+
   const handleSave = () => {
+    triggerHaptic("success");
     onSaveToLibrary(generatedResult);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -834,6 +846,14 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
             </div>
           )}
 
+          {/* AI Model Selector Bar */}
+          <div className="flex items-center justify-between gap-2 p-2 bg-[var(--editorial-surface)] border border-[var(--editorial-rule)]">
+            <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-[var(--editorial-muted)]">
+              AI Engine Model:
+            </span>
+            <ModelSelector variant="inline" />
+          </div>
+
           {/* Generate Button */}
           <div className="pt-2">
             <button
@@ -1006,6 +1026,15 @@ const CreativeMixer: React.FC<CreativeMixerProps> = ({
                     >
                       {saved ? <CheckIcon className="w-3.5 h-3.5 text-emerald-500" /> : <FolderIcon className="w-3.5 h-3.5" />}
                       <span>{saved ? "Saved" : "Save to Vault"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleShare}
+                      className="editorial-button editorial-button--sm editorial-button--secondary"
+                      aria-label="Share result"
+                    >
+                      <Share2 className="w-3.5 h-3.5 text-[var(--editorial-coral)]" />
+                      <span>Share</span>
                     </button>
                     {generatedResult && !neuralMode && !professionalMode && (
                       <button

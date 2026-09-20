@@ -1,5 +1,5 @@
 import { AdapterError } from '../adapters/baseAdapter';
-import { modelDiscoveryService } from '../discovery/discoveryService';
+import { modelDiscoveryService, ensureLocalAdapterRegistered } from '../discovery/discoveryService';
 import { modelHealthManager } from '../health/modelHealthManager';
 import { keyPoolManager, redactSecrets } from '../pools/keyPool';
 import { freeModelRegistry } from '../registry/freeModelRegistry';
@@ -68,6 +68,9 @@ export class AIRouter {
   }
 
   private async performRouting(request: AIRequest): Promise<AIResponse> {
+    // Ensure local adapter is registered for offline / local models
+    await ensureLocalAdapterRegistered().catch(() => {});
+
     // Never make a normal user request wait for live model discovery. The
     // registry is initialized with bootstrap models and refreshes in the
     // background; only an empty registry may synchronously bootstrap once.
@@ -207,7 +210,8 @@ export class AIRouter {
         continue;
       }
 
-      if (!keyPoolManager.isProviderAvailable(candidate.provider)) {
+      // Local models do not use API keys from keyPoolManager
+      if (candidate.provider !== 'local' && !keyPoolManager.isProviderAvailable(candidate.provider)) {
         unavailableProviders.add(candidate.provider);
         continue;
       }
@@ -216,11 +220,9 @@ export class AIRouter {
       let modelSucceeded = false;
 
       while (!modelSucceeded && attemptsCount < maxAttempts) {
-        const apiKey = keyPoolManager.getAvailableKey(candidate.provider, attemptedKeys);
+        const apiKey = candidate.provider === 'local' ? 'local' : keyPoolManager.getAvailableKey(candidate.provider, attemptedKeys);
         if (!apiKey) {
-          if (attemptedKeys.length > 0) {
-            unavailableProviders.add(candidate.provider);
-          }
+          // No more untried keys for this specific model candidate
           break;
         }
 
@@ -235,9 +237,11 @@ export class AIRouter {
           const duration = Date.now() - startTime;
 
           // 9. Record success
-          keyPoolManager.reportSuccess(candidate.provider, apiKey, duration);
+          if (candidate.provider !== 'local') {
+            keyPoolManager.reportSuccess(candidate.provider, apiKey, duration);
+            modelHealthManager.recordKeySuccess(candidate.provider, apiKey, duration);
+          }
           modelHealthManager.recordModelSuccess(candidate.provider, modelIdToUse, duration);
-          modelHealthManager.recordKeySuccess(candidate.provider, apiKey, duration);
           freeModelRegistry.recordModelSuccess(candidate.provider, modelIdToUse, duration);
 
           return {
@@ -256,9 +260,11 @@ export class AIRouter {
           const errMsg = err.message || 'Unknown provider error';
           const modelIdToUse = candidate.providerModelId || candidate.id;
 
-          keyPoolManager.reportError(candidate.provider, apiKey, statusCode, errMsg);
+          if (candidate.provider !== 'local') {
+            keyPoolManager.reportError(candidate.provider, apiKey, statusCode, errMsg);
+            modelHealthManager.recordKeyFailure(candidate.provider, apiKey, errMsg, statusCode);
+          }
           modelHealthManager.recordModelFailure(candidate.provider, modelIdToUse, errMsg, statusCode);
-          modelHealthManager.recordKeyFailure(candidate.provider, apiKey, errMsg, statusCode);
           freeModelRegistry.recordModelFailure(candidate.provider, modelIdToUse, errMsg, statusCode);
 
           errors.push({
@@ -268,8 +274,20 @@ export class AIRouter {
             status: statusCode,
           });
 
+          if (candidate.provider === 'local') {
+            break;
+          }
+
           // Detect auth, quota, or payment failures — skip entire provider immediately
-          const isAuthFailure = statusCode === 401 || statusCode === 403 || statusCode === 402 ||
+          const isRateLimitExceeded = (statusCode === 429 && (
+            errMsg.toLowerCase().includes('rate limit exceeded') ||
+            errMsg.toLowerCase().includes('free-models-per-day') ||
+            errMsg.toLowerCase().includes('daily') ||
+            errMsg.toLowerCase().includes('quota') ||
+            errMsg.toLowerCase().includes('credits')
+          )) || !keyPoolManager.isProviderAvailable(candidate.provider);
+
+          const isAuthFailure = statusCode === 401 || statusCode === 403 || statusCode === 402 || isRateLimitExceeded ||
             (statusCode === 400 && (errMsg.includes('API key') || errMsg.includes('API_KEY_INVALID') || errMsg.includes('INVALID_ARGUMENT') || errMsg.includes('credits') || errMsg.includes('quota'))) ||
             errMsg.toLowerCase().includes('depleted') ||
             errMsg.toLowerCase().includes('monthly included credits') ||
@@ -281,9 +299,9 @@ export class AIRouter {
           const isTimeout = errMsg.toLowerCase().includes('timeout') || errMsg.toLowerCase().includes('timed out');
 
           if (isAuthFailure) {
-            // All keys for this provider are likely invalid — skip to next provider
+            // All keys for this provider are exhausted / invalid — skip to next provider
             unavailableProviders.add(candidate.provider);
-            console.warn(`[AIRouter] Auth failure for ${candidate.provider} — skipping provider entirely.`);
+            console.warn(`[AIRouter] Auth/quota failure for ${candidate.provider} — skipping provider entirely.`);
             break;
           }
 
@@ -354,8 +372,8 @@ export class AIRouter {
                      request.taskType === 'image_analysis' ||
                      requiredCaps.includes('vision') ||
                      request.requiredCapabilities?.includes('vision');
-    // Prioritize providers that have known working keys (NIM first for vision and general tasks)
-    const providers: ProviderName[] = ['custom', 'nim', 'openrouter'];
+    // Prioritize providers that have known working keys (Custom and OpenRouter first)
+    const providers: ProviderName[] = ['custom', 'openrouter', 'nim', 'huggingface', 'cloudflare'];
 
     for (const p of providers) {
       const adapter = modelDiscoveryService.getAdapter(p);

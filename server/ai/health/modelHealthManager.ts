@@ -65,6 +65,11 @@ export class ModelHealthManager {
         data.cooldownUntil = now + cooldownMs;
         data.state = 'temporarily_unavailable';
       }
+    } else if (statusCode === 404 || statusCode === 410 || statusCode === 422 || (statusCode === 400 && !error.toLowerCase().includes('api key') && !error.toLowerCase().includes('auth') && !error.toLowerCase().includes('credit') && !error.toLowerCase().includes('quota'))) {
+      // Model-level failure: key is healthy and available for other models
+      data.consecutiveFailures = 0;
+      data.cooldownUntil = 0;
+      data.state = 'healthy';
     } else {
       const cooldownMs = Math.min(300000, 15000 * Math.pow(1.5, data.consecutiveFailures - 1));
       data.cooldownUntil = now + cooldownMs;

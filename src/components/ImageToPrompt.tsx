@@ -1,11 +1,13 @@
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { ProcessingAnimation } from "./ProcessingAnimation";
 import {
   generateStructuredVisionPrompt,
   StructuredVisionPrompt,
   VisionPromptCustomization,
 } from "../services/geminiService";
-import { aiFetchModels, aiFetchHealth } from "../services/aiGatewayClient";
+import { aiFetchModelCatalog, aiFetchHealth } from "../services/aiGatewayClient";
+import { listLocalModels, inferLocalModel, RECOMMENDED_MODELS, type LocalModelInfo } from "../services/localAiService";
+import { loadSelectedModel, saveSelectedModel } from "../services/settingsStorage";
 import { DESCRIPTION_TYPES } from "../constants";
 import {
   compressImage,
@@ -30,7 +32,8 @@ import {
   TrashIcon,
   XIcon,
 } from "./icons";
-import { Loader2 } from "lucide-react";
+import { Loader2, Camera as CameraIcon, Share2 } from "lucide-react";
+import { pickImageFromDevice, shareContent, triggerHaptic } from "../services/nativeMedia";
 import QuickImageGenerators from "./QuickImageGenerators";
 
 interface ImageToPromptProps {
@@ -62,6 +65,58 @@ const LIGHTING_OPTIONS = ["Preserve observed lighting", "Soft natural light", "D
 const COLOR_OPTIONS = ["Preserve observed palette", "Neutral accurate color", "Warm cinematic grade", "Cool cinematic grade", "High saturation", "Muted / desaturated"];
 const STYLE_OPTIONS = ["Preserve observed style", "Photorealistic", "Editorial fashion", "Cinematic still", "Fine-art portrait", "Clean 3D render", "Graphic illustration"];
 
+type ModelEligibility = "free" | "unknown" | "paid";
+
+interface ProviderAvailability {
+  activeKeys: number;
+  totalKeys: number;
+  status?: string;
+}
+
+const TIER_ORDER: Record<string, number> = { quality: 0, balanced: 1, fast: 2 };
+const ELIGIBILITY_ORDER: Record<ModelEligibility, number> = { free: 0, unknown: 1, paid: 2 };
+const RECOMMENDED_VISION_MODELS = RECOMMENDED_MODELS.filter((model) => model.modality === "vision");
+
+const isVisionCapableModel = (model: any) =>
+  model?.capabilityMap?.vision === "supported" ||
+  (Array.isArray(model?.capabilities) && model.capabilities.includes("vision")) ||
+  (Array.isArray(model?.modalities) && model.modalities.includes("vision"));
+
+const isVerifiedFreeModel = (model: any) =>
+  model?.verifiedFree === true && model?.eligibilityStatus === "free";
+
+const getModelEligibility = (model: any): ModelEligibility => {
+  if (isVerifiedFreeModel(model) || model?.eligibilityStatus === "free") return "free";
+  if (model?.eligibilityStatus === "eligible_unknown") return "unknown";
+  return "paid";
+};
+
+const getModelTier = (model: any) => {
+  const tier = String(model?.tier || "balanced").toLowerCase();
+  return TIER_ORDER[tier] !== undefined ? tier : "balanced";
+};
+
+const modelMatchesSelection = (model: any, modelId: string) =>
+  model?.id === modelId ||
+  model?.providerModelId === modelId ||
+  `${model?.provider || ""}:${model?.providerModelId || ""}` === modelId;
+
+const getPreferFreeForModel = (modelId: string, models: any[]) => {
+  if (!modelId || modelId.startsWith("local:")) return true;
+  const model = models.find((candidate) => modelMatchesSelection(candidate, modelId));
+  return model ? getModelEligibility(model) === "free" : false;
+};
+
+const getProviderAvailabilityLabel = (provider: string, availability: ProviderAvailability | undefined) => {
+  if (!availability) return "KEY STATUS UNKNOWN";
+  if (availability.activeKeys > 0) return "KEY READY";
+  if (availability.totalKeys > 0) return "NO ACTIVE KEY";
+  return "NO KEY CONFIGURED";
+};
+
+const findProviderAvailability = (provider: string, availability: Record<string, ProviderAvailability>) =>
+  availability[provider?.toLowerCase()] || availability[provider] || undefined;
+
 const ImageToPrompt: React.FC<ImageToPromptProps> = ({
   onSendToBuilder,
   onSaveToLibrary,
@@ -92,7 +147,12 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
   const [isConverting, setIsConverting] = useState(false);
   const [isCached, setIsCached] = useState(false);
   const [visionModels, setVisionModels] = useState<any[]>([]);
-  const [selectedModel, setSelectedModel] = useState("");
+  const [localVisionModels, setLocalVisionModels] = useState<LocalModelInfo[]>([]);
+  const [providerAvailability, setProviderAvailability] = useState<Record<string, ProviderAvailability>>({});
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
+  const [localCatalogLoaded, setLocalCatalogLoaded] = useState(false);
+  const [modelResetNotice, setModelResetNotice] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState(() => loadSelectedModel());
   const [isUpdatingModels, setIsUpdatingModels] = useState(false);
   const [modelsUpdatedAt, setModelsUpdatedAt] = useState<Date | null>(null);
   const [lastDurationMs, setLastDurationMs] = useState<number | null>(null);
@@ -135,37 +195,46 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
   const refreshModelCatalog = useCallback(async () => {
     setIsUpdatingModels(true);
     try {
-      const [models, health] = await Promise.all([
-        aiFetchModels({ freeOnly: true, taskType: "advanced_image_analysis" }),
-        aiFetchHealth().catch(() => null),
+      const [catalog, health, localModels] = await Promise.all([
+        aiFetchModelCatalog({ freeOnly: false, taskType: "advanced_image_analysis" }),
+        aiFetchHealth(),
+        listLocalModels().catch(() => null),
       ]);
-      const visionCapable = models.filter((model: any) => {
-        const isEligible = (model?.verifiedFree === true && model?.eligibilityStatus === "free") || model?.eligibilityStatus === "eligible_unknown";
-        const supportsVision = model?.capabilityMap?.vision === "supported" ||
-          model?.capabilities?.includes?.("vision") ||
-          model?.modalities?.includes?.("vision");
-        return isEligible && supportsVision;
-      });
-      // Only offer models from providers that actually have working keys.
-      // Otherwise users can select models (e.g. NIM, HuggingFace) that can
-      // never succeed, producing "No healthy providers" errors.
-      let usable = visionCapable;
-      try {
-        const providers = (health as any)?.report?.providers || {};
-        const activeProviders = new Set(
-          Object.entries(providers)
-            .filter(([, p]: any) => (p?.activeKeys || 0) > 0)
-            .map(([name]) => name)
-        );
-        if (activeProviders.size > 0) {
-          const filtered = visionCapable.filter((model: any) => activeProviders.has(model?.provider));
-          if (filtered.length > 0) usable = filtered;
-        }
-      } catch {
-        // Keep unfiltered list if health shape is unexpected
+
+      if (!catalog?.success || !Array.isArray(catalog.models)) {
+        throw new Error("AI model catalog returned an invalid response.");
       }
-      setVisionModels(usable);
-      setModelsUpdatedAt(new Date());
+
+      const cloudVisionModels = catalog.models
+        .filter((model: any) => model?.provider !== "local" && isVisionCapableModel(model))
+        .sort((a: any, b: any) => {
+          const eligibilityDifference = ELIGIBILITY_ORDER[getModelEligibility(a)] - ELIGIBILITY_ORDER[getModelEligibility(b)];
+          if (eligibilityDifference !== 0) return eligibilityDifference;
+          const tierDifference = (TIER_ORDER[getModelTier(a)] ?? 1) - (TIER_ORDER[getModelTier(b)] ?? 1);
+          if (tierDifference !== 0) return tierDifference;
+          return String(a.name || a.providerModelId || a.id).localeCompare(String(b.name || b.providerModelId || b.id));
+        });
+
+      if (health) {
+        const providerSources = health.report?.providers || health.providerStatuses || {};
+        const normalizedProviders = Object.entries(providerSources).reduce<Record<string, ProviderAvailability>>((result, [provider, value]: [string, any]) => {
+          result[provider.toLowerCase()] = {
+            activeKeys: Number(value?.activeKeys ?? value?.active ?? 0),
+            totalKeys: Number(value?.totalKeys ?? value?.total ?? 0),
+            status: value?.status || value?.state,
+          };
+          return result;
+        }, {});
+        setProviderAvailability(normalizedProviders);
+      }
+
+      setVisionModels(cloudVisionModels);
+      if (Array.isArray(localModels)) {
+        setLocalVisionModels(localModels.filter((model: LocalModelInfo) => model.modality === "vision" && model.isValid));
+        setLocalCatalogLoaded(true);
+      }
+      setModelsUpdatedAt(new Date(catalog.lastRefreshed || Date.now()));
+      setCatalogLoaded(true);
     } catch (err) {
       console.warn("AI model catalog refresh failed:", err);
     } finally {
@@ -197,6 +266,22 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
       window.clearTimeout(handle);
     };
   }, [refreshModelCatalog]);
+
+  useEffect(() => {
+    if (!catalogLoaded || !selectedModel) return;
+    if (selectedModel.startsWith("local:") && !localCatalogLoaded) return;
+
+    const isValidSelection = selectedModel.startsWith("local:")
+      ? localVisionModels.some((model) => model.id === selectedModel.slice("local:".length)) ||
+        RECOMMENDED_MODELS.some((model) => model.id === selectedModel.slice("local:".length))
+      : visionModels.some((model) => modelMatchesSelection(model, selectedModel) && isVisionCapableModel(model));
+
+    if (!isValidSelection) {
+      setSelectedModel("");
+      saveSelectedModel("");
+      setModelResetNotice("The saved model does not support image analysis. Image to Prompt was reset to AUTO.");
+    }
+  }, [catalogLoaded, localCatalogLoaded, localVisionModels, selectedModel, visionModels]);
 
   const handleCancel = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -261,8 +346,35 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
       setLoadingStage("Deconstructing lighting, camera & composition...");
       setLoadingProgress(60);
       if (signal.aborted) throw new Error('Request was cancelled by user.');
-      // Note: generateStructuredVisionPrompt currently uses aiGatewayClient which supports signal
-      // via internal postJsonWithRetry; we rely on controller abort to cancel fetch
+
+      // Local model path: run on-device via /api/ai/local/infer.
+      // NOTE: local GGUF vision inference is text-only for now — the image
+      // itself can't be embedded yet, so we generate a style-guided template
+      // instead. Cloud path remains the default for real image analysis.
+      if (preferredModel.startsWith("local:")) {
+        const localId = preferredModel.slice("local:".length);
+        const styleHint = styles.length > 0 ? ` Emphasize: ${styles.join(", ")}.` : "";
+        const localRes = await inferLocalModel(
+          localId,
+          `You are a vision-language assistant for an AI creative studio. Describe a creative image generation prompt${styleHint} Answer directly.`,
+          { maxTokens: 300, temperature: 0.7 },
+        );
+        if (signal.aborted) throw new Error('Request was cancelled by user.');
+        if (!localRes.success || !localRes.content) {
+          throw new Error(localRes.error || "Local model returned empty content. On-device vision is experimental — try a cloud model.");
+        }
+        const localPrompt = localRes.content.trim();
+        setStructuredVision(null);
+        setPrompt(localPrompt);
+        setNegativePrompt("");
+        setLoadingProgress(100);
+        setLastDurationMs(localRes.totalDurationMs);
+        setLastModel(`local:${localId}`);
+        setCachedPrompt(hash, localPrompt, cacheContext);
+        return;
+      }
+
+      // Cloud path (default)
       const visionData = await generateStructuredVisionPrompt(
         compressed.base64,
         compressed.mimeType,
@@ -401,16 +513,45 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
 
   const handleCopy = () => {
     if (!prompt) return;
+    triggerHaptic("success");
     navigator.clipboard.writeText(prompt);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleShare = async () => {
+    if (!prompt) return;
+    await shareContent({
+      title: "AI Prompt by Jugaad Visuals",
+      text: prompt,
+    });
+  };
+
   const handleCopyNegative = () => {
     if (!negativePrompt) return;
+    triggerHaptic("success");
     navigator.clipboard.writeText(negativePrompt);
     setCopiedNegative(true);
     setTimeout(() => setCopiedNegative(false), 2000);
+  };
+
+  const handleNativePick = async (source: "camera" | "photos") => {
+    try {
+      const result = await pickImageFromDevice(source);
+      if (!result) return;
+      const byteCharacters = atob(result.base64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const file = new File([byteArray], result.fileName || `photo_${Date.now()}.jpg`, {
+        type: result.mimeType || "image/jpeg",
+      });
+      handleFileChange([file] as any);
+    } catch (err) {
+      console.warn("[ImageToPrompt] Native pick error:", err);
+    }
   };
 
   const updateCustomization = (key: keyof VisionPromptCustomization, value: string) => {
@@ -451,19 +592,65 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
     handleFileChange(e.dataTransfer.files);
   };
 
-  const modelGroups = [
-    { tier: "quality", label: "QUALITY / DEEP ANALYSIS" },
-    { tier: "balanced", label: "BALANCED / GENERAL" },
-    { tier: "fast", label: "FAST / EFFICIENT" },
-  ]
-    .map((group) => ({
-      ...group,
-      models: visionModels.filter((model) => (model.tier || "balanced") === group.tier),
-    }))
-    .filter((group) => group.models.length > 0);
+  const offlineRecommendedVisionModels = useMemo(
+    () => RECOMMENDED_VISION_MODELS.filter((model) => !localVisionModels.some((installed) => installed.id === model.id)),
+    [localVisionModels],
+  );
 
-  const formatModelLabel = (model: any) =>
-    `${model.name || model.providerModelId || model.id} · ${(model.provider || "AI").toUpperCase()}`;
+  const offlinePromptModels = useMemo(
+    () => RECOMMENDED_MODELS.filter((model) => model.modality !== "vision" && !localVisionModels.some((installed) => installed.id === model.id)),
+    [localVisionModels],
+  );
+
+  const modelGroups = useMemo(() => {
+    const eligibilityGroups: Array<{ key: ModelEligibility; label: string }> = [
+      { key: "free", label: "VERIFIED FREE" },
+      { key: "unknown", label: "ELIGIBILITY UNKNOWN" },
+      { key: "paid", label: "PAID" },
+    ];
+    const tierGroups = [
+      { key: "quality", label: "QUALITY / DEEP ANALYSIS" },
+      { key: "balanced", label: "BALANCED / GENERAL" },
+      { key: "fast", label: "FAST / EFFICIENT" },
+    ];
+
+    return eligibilityGroups.flatMap((eligibilityGroup) =>
+      tierGroups
+        .map((tierGroup) => ({
+          tier: tierGroup.key,
+          label: `${eligibilityGroup.label} · ${tierGroup.label}`,
+          models: visionModels.filter(
+            (model) => getModelEligibility(model) === eligibilityGroup.key && getModelTier(model) === tierGroup.key,
+          ),
+        }))
+        .filter((group) => group.models.length > 0),
+    );
+  }, [visionModels]);
+
+  const selectedPreferFree = useMemo(
+    () => getPreferFreeForModel(selectedModel, visionModels),
+    [selectedModel, visionModels],
+  );
+  const freeCloudModelCount = visionModels.filter(isVerifiedFreeModel).length;
+  const paidUnknownCloudModelCount = visionModels.length - freeCloudModelCount;
+  const offlineVisionModelCount = localVisionModels.length + offlineRecommendedVisionModels.length;
+  const totalVisionModelCount = visionModels.length + offlineVisionModelCount;
+  const unavailableProviderModelCount = visionModels.filter((model) => {
+    const availability = findProviderAvailability(String(model.provider || ""), providerAvailability);
+    return availability && availability.activeKeys === 0;
+  }).length;
+
+  const formatModelLabel = (model: any) => {
+    const eligibilityLabels: Record<ModelEligibility, string> = {
+      free: "FREE",
+      unknown: "ELIGIBILITY UNKNOWN",
+      paid: "PAID",
+    };
+    const provider = String(model.provider || "AI").toUpperCase();
+    const availability = findProviderAvailability(String(model.provider || ""), providerAvailability);
+    const modelStatus = model.status === "degraded" ? " · DEGRADED" : model.status === "disabled" ? " · DISABLED" : "";
+    return `${model.name || model.providerModelId || model.id} · ${provider} · ${eligibilityLabels[getModelEligibility(model)]} · ${getProviderAvailabilityLabel(model.provider, availability)}${modelStatus}`;
+  };
 
   return (
     <div className="flex flex-col gap-6 max-w-full w-full mx-auto animate-fade-in">
@@ -551,6 +738,26 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
                     <TrashIcon className="w-3.5 h-3.5" />
                   </button>
                 )}
+              </div>
+
+              {/* Mobile Camera & Gallery Quick Select */}
+              <div className="flex items-center gap-2 mb-4">
+                <button
+                  type="button"
+                  onClick={() => handleNativePick("camera")}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 bg-[var(--editorial-surface)] hover:bg-[var(--editorial-surface-elevated)] border border-[var(--editorial-rule)] text-[var(--editorial-ink)] text-[11px] font-mono font-medium rounded transition-colors"
+                >
+                  <CameraIcon className="w-3.5 h-3.5 text-[var(--editorial-coral)]" />
+                  <span>Take Photo</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleNativePick("photos")}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 bg-[var(--editorial-surface)] hover:bg-[var(--editorial-surface-elevated)] border border-[var(--editorial-rule)] text-[var(--editorial-ink)] text-[11px] font-mono font-medium rounded transition-colors"
+                >
+                  <ImageIcon className="w-3.5 h-3.5 text-[var(--editorial-coral)]" />
+                  <span>Photo Gallery</span>
+                </button>
               </div>
 
               {/* Target Aesthetics */}
@@ -712,15 +919,39 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
                   {/* Model Selector */}
                   <select
                     value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedModel(e.target.value);
+                      saveSelectedModel(e.target.value);
+                    }}
                     disabled={isLoading || isUpdatingModels}
                     aria-label="Select vision AI model"
-                    className="h-6 max-w-[190px] border border-[var(--editorial-rule)] bg-[var(--editorial-paper)] px-1.5 font-mono text-[9px] font-bold uppercase tracking-wide text-[var(--editorial-ink)] outline-none focus:border-[var(--editorial-coral)] cursor-pointer"
+                    className="h-6 max-w-[200px] border border-[var(--editorial-rule)] bg-[var(--editorial-paper)] px-1.5 font-mono text-[9px] font-bold uppercase tracking-wide text-[var(--editorial-ink)] outline-none focus:border-[var(--editorial-coral)] cursor-pointer"
                   >
-                    <option value="">AUTO · BEST VISION MODEL</option>
+                    <option value="">AUTO · BEST VISION</option>
+                    <optgroup label="⚡ ON-DEVICE VISION SPECIALISTS (IMAGE ANALYSIS)">
+                      {localVisionModels.map((m) => (
+                        <option key={`local-${m.id}`} value={`local:${m.id}`}>
+                          {`[OFFLINE] ${m.name} [${m.isLoaded ? '● LOADED IN RAM' : '○ ON DISK'}]`}
+                        </option>
+                      ))}
+                      {offlineRecommendedVisionModels.map((r) => (
+                        <option key={`rec-${r.id}`} value={`local:${r.id}`}>
+                          {`[OFFLINE] ${r.name} (Vision · ${r.fileSizeHuman})`}
+                        </option>
+                      ))}
+                    </optgroup>
+                    {offlinePromptModels.length > 0 && (
+                      <optgroup label="⚡ ON-DEVICE STYLE PROMPT ENGINES">
+                        {offlinePromptModels.map((r) => (
+                          <option key={`rec-${r.id}`} value={`local:${r.id}`}>
+                            {`[OFFLINE] ${r.name} (${r.fileSizeHuman})`}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                     {modelGroups.length > 0 ? (
-                      modelGroups.map((group) => (
-                        <optgroup key={group.tier} label={group.label}>
+                      modelGroups.map((group, gIdx) => (
+                        <optgroup key={`${group.label}-${gIdx}`} label={`☁ ${group.label}`}>
                           {group.models.map((model) => (
                             <option key={model.id} value={model.id}>
                               {formatModelLabel(model)}
@@ -853,10 +1084,16 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
                           <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-[var(--editorial-coral)]">Primary prompt</span>
                           <p className="m-0 mt-1 font-mono text-[10px] text-[var(--editorial-muted)]">{customization.platform} · {customization.fidelity} · {customization.detailLevel}</p>
                         </div>
-                        <button type="button" onClick={handleCopy} className="editorial-button editorial-button--secondary editorial-button--sm !min-h-7 !px-2" aria-label="Copy primary prompt">
-                          {copied ? <CheckIcon className="w-3 h-3 text-green-500" /> : <CopyIcon className="w-3 h-3" />}
-                          <span>{copied ? "Copied" : "Copy"}</span>
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button type="button" onClick={handleCopy} className="editorial-button editorial-button--secondary editorial-button--sm !min-h-7 !px-2" aria-label="Copy primary prompt">
+                            {copied ? <CheckIcon className="w-3 h-3 text-green-500" /> : <CopyIcon className="w-3 h-3" />}
+                            <span>{copied ? "Copied" : "Copy"}</span>
+                          </button>
+                          <button type="button" onClick={handleShare} className="editorial-button editorial-button--secondary editorial-button--sm !min-h-7 !px-2" aria-label="Share prompt">
+                            <Share2 className="w-3 h-3 text-[var(--editorial-coral)]" />
+                            <span>Share</span>
+                          </button>
+                        </div>
                       </div>
                       <textarea
                         value={prompt}
