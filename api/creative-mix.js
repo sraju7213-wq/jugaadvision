@@ -1848,13 +1848,38 @@ var init_localDownloader = __esm({
   }
 });
 
+// scripts/node-llama-cpp.serverless.stub.js
+var node_llama_cpp_serverless_stub_exports = {};
+__export(node_llama_cpp_serverless_stub_exports, {
+  LlamaChatSession: () => LlamaChatSession,
+  default: () => node_llama_cpp_serverless_stub_default,
+  getLlama: () => getLlama
+});
+function getLlama() {
+  throw new Error(MESSAGE);
+}
+var MESSAGE, LlamaChatSession, node_llama_cpp_serverless_stub_default;
+var init_node_llama_cpp_serverless_stub = __esm({
+  "scripts/node-llama-cpp.serverless.stub.js"() {
+    "use strict";
+    MESSAGE = "node-llama-cpp is unavailable in this serverless build: local GGUF inference requires a self-hosted Node runtime.";
+    throw new Error(MESSAGE);
+    LlamaChatSession = class {
+      constructor() {
+        throw new Error(MESSAGE);
+      }
+    };
+    node_llama_cpp_serverless_stub_default = { getLlama, LlamaChatSession };
+  }
+});
+
 // server/ai/local/localRunner.ts
 import fs4 from "node:fs";
 import path4 from "node:path";
 async function getLlamaRuntime() {
   if (!_llamaPromise) {
     _llamaPromise = (async () => {
-      const llm = await import("node-llama-cpp");
+      const llm = await Promise.resolve().then(() => (init_node_llama_cpp_serverless_stub(), node_llama_cpp_serverless_stub_exports));
       let llama;
       try {
         llama = await llm.getLlama();
@@ -1896,7 +1921,7 @@ async function loadModel(modelFile) {
     evictOldest();
   }
   const t0 = Date.now();
-  const llm = await import("node-llama-cpp");
+  const llm = await Promise.resolve().then(() => (init_node_llama_cpp_serverless_stub(), node_llama_cpp_serverless_stub_exports));
   const llama = await getLlamaRuntime();
   const model = await llama.loadModel({ modelPath: absPath });
   const context = await model.createContext({});
@@ -2076,7 +2101,7 @@ async function ensureLocalAdapterRegistered() {
 }
 async function checkLocalInferenceReady() {
   try {
-    await import("node-llama-cpp");
+    await Promise.resolve().then(() => (init_node_llama_cpp_serverless_stub(), node_llama_cpp_serverless_stub_exports));
   } catch (err) {
     return { ok: false, reason: `node-llama-cpp unavailable: ${err.message || err}`, modelsAvailable: 0 };
   }

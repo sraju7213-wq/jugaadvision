@@ -43,6 +43,14 @@ async function bundleAll() {
       outfile: outFile,
       minify: false,
       sourcemap: false,
+      alias: {
+        // Local GGUF inference cannot run on Vercel (read-only/ephemeral disk),
+        // and @vercel/nft would otherwise trace node-llama-cpp + every
+        // @node-llama-cpp/* platform binary (~1 GB) into each of the functions,
+        // OOM-killing the build container. The stub throws only when local
+        // inference is actually attempted.
+        'node-llama-cpp': path.resolve('scripts/node-llama-cpp.serverless.stub.js'),
+      },
       external: [
         'node:*',
         'fs',
