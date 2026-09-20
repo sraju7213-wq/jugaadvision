@@ -1,0 +1,11 @@
+node_modules
+.local-models
+dist
+android
+.vercel
+*.local
+.cache
+.env
+.env.*
+api/*.js
+public/styles.css
