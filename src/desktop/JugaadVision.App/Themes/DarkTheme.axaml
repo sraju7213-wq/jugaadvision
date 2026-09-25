@@ -1,0 +1,48 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    Dark premium palette (PRODUCT_SPEC.md: charcoal, deep neutral, green accent).
+    Kept in one file so the whole shell re-themes from a single edit.
+  -->
+
+  <!-- Surfaces -->
+  <Color x:Key="JgBackgroundColor">#141414</Color>
+  <Color x:Key="JgSurfaceColor">#1E1E1E</Color>
+  <Color x:Key="JgSurfaceRaisedColor">#262626</Color>
+  <Color x:Key="JgBorderColor">#333333</Color>
+
+  <!-- Text -->
+  <Color x:Key="JgTextPrimaryColor">#ECECEC</Color>
+  <Color x:Key="JgTextSecondaryColor">#9E9E9E</Color>
+  <Color x:Key="JgTextDisabledColor">#5A5A5A</Color>
+
+  <!-- Accent -->
+  <Color x:Key="JgAccentColor">#3DDC84</Color>
+  <Color x:Key="JgAccentMutedColor">#1F7A4D</Color>
+
+  <!-- Status -->
+  <Color x:Key="JgSuccessColor">#3DDC84</Color>
+  <Color x:Key="JgWarningColor">#E8B84B</Color>
+  <Color x:Key="JgErrorColor">#E85A5A</Color>
+
+  <SolidColorBrush x:Key="JgBackgroundBrush" Color="{StaticResource JgBackgroundColor}" />
+  <SolidColorBrush x:Key="JgSurfaceBrush" Color="{StaticResource JgSurfaceColor}" />
+  <SolidColorBrush x:Key="JgSurfaceRaisedBrush" Color="{StaticResource JgSurfaceRaisedColor}" />
+  <SolidColorBrush x:Key="JgBorderBrush" Color="{StaticResource JgBorderColor}" />
+  <SolidColorBrush x:Key="JgTextPrimaryBrush" Color="{StaticResource JgTextPrimaryColor}" />
+  <SolidColorBrush x:Key="JgTextSecondaryBrush" Color="{StaticResource JgTextSecondaryColor}" />
+  <SolidColorBrush x:Key="JgTextDisabledBrush" Color="{StaticResource JgTextDisabledColor}" />
+  <SolidColorBrush x:Key="JgAccentBrush" Color="{StaticResource JgAccentColor}" />
+  <SolidColorBrush x:Key="JgAccentMutedBrush" Color="{StaticResource JgAccentMutedColor}" />
+  <SolidColorBrush x:Key="JgSuccessBrush" Color="{StaticResource JgSuccessColor}" />
+  <SolidColorBrush x:Key="JgWarningBrush" Color="{StaticResource JgWarningColor}" />
+  <SolidColorBrush x:Key="JgErrorBrush" Color="{StaticResource JgErrorColor}" />
+
+  <!-- Metrics -->
+  <x:Double x:Key="JgSidebarWidth">232</x:Double>
+  <x:Double x:Key="JgTopBarHeight">48</x:Double>
+  <x:Double x:Key="JgStatusBarHeight">26</x:Double>
+  <CornerRadius x:Key="JgCornerRadius">6</CornerRadius>
+
+</ResourceDictionary>

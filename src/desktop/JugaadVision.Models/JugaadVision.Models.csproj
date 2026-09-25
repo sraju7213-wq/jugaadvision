@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>JugaadVision.Models</RootNamespace>
+    <AssemblyName>JugaadVision.Models</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Models -> Core, AI (local runtime interface + provider discovery) -->
+    <ProjectReference Include="..\JugaadVision.Core\JugaadVision.Core.csproj" />
+    <ProjectReference Include="..\JugaadVision.AI\JugaadVision.AI.csproj" />
+  </ItemGroup>
+
+</Project>

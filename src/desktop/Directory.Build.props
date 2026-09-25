@@ -1,0 +1,30 @@
+<Project>
+
+  <!-- Shared build settings for every project in the JugaadVision desktop solution.
+       Individual projects may override TargetFramework (e.g. the App project). -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <!-- Central Package Management: versions live in Directory.Packages.props only. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <!-- PRODUCT_SPEC.md §5 NFR: "Build | Remains compilable throughout development". -->
+  <PropertyGroup>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Test projects produce an executable; everything else is a library or GUI app. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

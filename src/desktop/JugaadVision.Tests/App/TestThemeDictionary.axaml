@@ -1,0 +1,15 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    x:Class="JugaadVision.Tests.App.TestThemeDictionary">
+
+    <!--
+      Compiled include of the production theme. This gives the tests a real, compiled
+      resource dictionary to query, without depending on Application.Current — the Avalonia
+      12.1.3 headless xunit harness supplies a bare Application whose resources the shell's
+      StaticResource lookups do not resolve against.
+    -->
+    <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://JugaadVision.App/Themes/DarkTheme.axaml" />
+    </ResourceDictionary.MergedDictionaries>
+
+</ResourceDictionary>

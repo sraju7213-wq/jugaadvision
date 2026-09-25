@@ -1,0 +1,35 @@
+# .NET build output
+bin/
+obj/
+artifacts/
+
+# Test results
+TestResults/
+*.trx
+*.coverage
+coverage*.xml
+coverage*.json
+
+# IDE
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+
+# The repository-root .gitignore excludes *.sln (a legacy rule from the Node/VS Code era).
+# A .gitignore in a deeper directory takes precedence, so the solution is un-ignored here
+# rather than by editing the root file, which carries unrelated uncommitted changes.
+!JugaadVision.sln
+
+# Rider / Visual Studio build artefacts
+[Bb]in/
+[Oo]bj/
+*.DotSettings.user
+
+# Publish output for AppImage / tar.gz distributions
+publish/
+*.AppImage
+*.tar.gz

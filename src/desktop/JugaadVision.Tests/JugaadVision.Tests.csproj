@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>JugaadVision.Tests</RootNamespace>
+    <AssemblyName>JugaadVision.Tests</AssemblyName>
+    <!-- xunit.v3 test projects are executables, not libraries. -->
+    <OutputType>Exe</OutputType>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      NOTE: Avalonia.Headless.XUnit 12.1.3 depends on xunit.v3.extensibility.core 3.2.2.
+      The `dotnet new xunit` template in the .NET 10 SDK still generates xunit 2.9.3 (v2),
+      which is INCOMPATIBLE with it. This project is deliberately on the v3 line and
+      pins xunit.v3 to 3.2.2 to match Avalonia's tested combination.
+    -->
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Avalonia.Headless.XUnit" />
+    <!--
+      Referenced directly (not only transitively via the App project) so Avalonia's build
+      props are imported here. Those props auto-glob **/*.axaml into the AvaloniaXaml item,
+      which is what compiles this project's resource dictionaries.
+    -->
+    <PackageReference Include="Avalonia" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\JugaadVision.Core\JugaadVision.Core.csproj" />
+    <ProjectReference Include="..\JugaadVision.AI\JugaadVision.AI.csproj" />
+    <ProjectReference Include="..\JugaadVision.Models\JugaadVision.Models.csproj" />
+    <ProjectReference Include="..\JugaadVision.Storage\JugaadVision.Storage.csproj" />
+    <ProjectReference Include="..\JugaadVision.Platform\JugaadVision.Platform.csproj" />
+    <ProjectReference Include="..\JugaadVision.App\JugaadVision.App.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>
