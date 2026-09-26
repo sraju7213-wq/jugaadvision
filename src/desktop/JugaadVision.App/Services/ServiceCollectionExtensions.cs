@@ -1,3 +1,4 @@
+using JugaadVision.Storage;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace JugaadVision.App.Services;
@@ -6,14 +7,18 @@ namespace JugaadVision.App.Services;
 /// Central DI registration for the desktop app (spec §2).
 /// </summary>
 /// <remarks>
-/// Intentionally near-empty in this phase: the Storage, AI, Models and Platform layers have no
-/// concrete services yet. Registrations are added here as each layer lands, so the composition
-/// root is the single place that knows the whole graph.
+/// The single place that knows the whole service graph. Registrations land here as each layer
+/// is built, so no view model has to be rewritten when the graph grows.
 /// </remarks>
 public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddJugaadVisionServices(this IServiceCollection services)
     {
+        ArgumentNullException.ThrowIfNull(services);
+
+        // Storage: AppDbContext (scoped) + the repository implementations.
+        services.AddJugaadVisionStorage();
+
         _ = services.AddSingleton<AppState>();
         return services;
     }

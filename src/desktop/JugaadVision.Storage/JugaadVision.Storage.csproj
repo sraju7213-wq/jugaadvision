@@ -8,6 +8,17 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <!-- Used directly (SqliteConnection, SqliteConnectionStringBuilder), not only transitively. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <!--
+        Needed at runtime as well as design time: DesignTimeDbContextFactory implements
+        IDesignTimeDbContextFactory<T>, which lives in the Design package. PrivateAssets
+        keeps it from flowing to consumers of this project.
+      -->
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 

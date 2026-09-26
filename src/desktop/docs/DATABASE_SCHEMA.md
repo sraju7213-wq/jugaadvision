@@ -747,6 +747,15 @@ WAL (§8) makes the concurrent-writer case safe at the storage layer even if the
 bypassed: writers serialise, readers do not block, and a second process gets `SQLITE_BUSY` on
 write rather than silent corruption. The `busy_timeout` below converts that into a short wait.
 
+**Raw SQL and the `Guid` key format.** EF Core's SQLite provider stores `Guid` primary keys as
+TEXT in **uppercase** dash form (`Guid.ToString("D").ToUpperInvariant()`), not the lowercase form
+`Guid.ToString()` returns. `WHERE Id = @id` bound with `someGuid.ToString()` therefore matches
+**zero rows** — silently, because an `UPDATE` that affects nothing and an `UPDATE` that worked
+look identical unless the affected-row count is checked. Any hand-written SQL against these
+tables must use the uppercase form (or better, go through EF), and must assert
+`ExecuteNonQuery()` returned the expected number of rows. This is asserted by
+`ReferentialIntegrityTests.GuidKeys_AreStoredAsUppercaseDashText`.
+
 **Where a token would be justified.** The one genuinely concurrent case is `BackgroundTask`:
 the download manager writes progress from a background thread while the UI reads the same row. That
 is intra-process, so the change tracker already covers it, provided each writer uses its own
@@ -1242,3 +1251,32 @@ real domain types from `JugaadVision.Core` against EF Core 10.0.12 and executing
 | `ModelFile` has no back-reference | `WithOne(f => f.Model)` does not compile. |
 | Migration tooling works end to end | `migrations add` → `database update` → `migrations list`. |
 | `migrations script --idempotent` is unsupported on SQLite | Tool errors out. |
+
+## Appendix A. Implementation note — settings are file-backed, not a table
+
+**This supersedes the `Settings` table described in §6.9.** The design of a single JSON document
+was kept; the storage location was not.
+
+`AppSettings` is persisted by `JsonFileSettingsStore` to
+`$XDG_CONFIG_HOME/jugaadvision/settings.json` (falling back to
+`~/.config/jugaadvision/settings.json`), **not** to a `Settings` table in SQLite.
+
+Why the change:
+
+- The reason for a JSON document was to avoid a migration per settings section. That goal is met
+  more directly by a file: there is no schema to migrate at all, so the `SchemaVersion` /
+  in-place-upgrade machinery becomes unnecessary.
+- Settings are configuration, not application data. Putting them beside the database conflates
+  "the user can delete their history" with "the user can delete their preferences".
+- Writes are atomic (temp file plus `File.Move(overwrite: true)`), so a crash mid-save cannot
+  truncate the file and reset the user's configuration — the failure mode a `Settings` table
+  would have had to solve differently.
+
+The trade-off accepted: settings are no longer covered by the database backup story, and a
+settings file that is deleted or corrupted falls back to defaults rather than being recoverable.
+`LoadAsync` catches `JsonException` and returns defaults so a corrupt file cannot prevent the app
+from starting.
+
+There is deliberately **no** `SettingsDocument` entity in Core, since nothing persists one.
+`AppSettings.SchemaVersion` is retained for in-place upgrades of the JSON document itself.
+
