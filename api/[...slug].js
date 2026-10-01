@@ -5797,12 +5797,22 @@ async function forwardToHandler(defaultPath, req, res) {
   }
 }
 
-// api-src/settings/appearance.ts
+// api-src/[...slug].ts
 var config2 = {
-  maxDuration: 60
+  maxDuration: 60,
+  api: {
+    bodyParser: {
+      sizeLimit: "15mb"
+    }
+  }
 };
 async function handler(req, res) {
-  return forwardToHandler("/api/settings/appearance", req, res);
+  let path5 = "/api";
+  if (req.query?.slug) {
+    const slugStr = Array.isArray(req.query.slug) ? req.query.slug.join("/") : req.query.slug;
+    path5 = `/api/${slugStr}`;
+  }
+  return forwardToHandler(path5, req, res);
 }
 export {
   config2 as config,

@@ -10,5 +10,10 @@ export const config = {
 };
 
 export default async function handler(req: any, res: any) {
-  return forwardToHandler('/api/remove-bg', req, res);
+  let path = '/api';
+  if (req.query?.slug) {
+    const slugStr = Array.isArray(req.query.slug) ? req.query.slug.join('/') : req.query.slug;
+    path = `/api/${slugStr}`;
+  }
+  return forwardToHandler(path, req, res);
 }
