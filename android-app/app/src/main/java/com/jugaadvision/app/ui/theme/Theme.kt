@@ -38,7 +38,7 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
-            application.dataStore.data.map { prefs: Preferences ->
+            getApplication<Application>().dataStore.data.map { prefs: Preferences ->
                 prefs[key]?.let { name ->
                     runCatching { ThemeMode.valueOf(name) }.getOrNull()
                 } ?: ThemeMode.SYSTEM
@@ -48,7 +48,7 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch {
-            application.dataStore.edit { it[key] = mode.name }
+            getApplication<Application>().dataStore.edit { it[key] = mode.name }
         }
     }
 }
