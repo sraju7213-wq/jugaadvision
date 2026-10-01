@@ -43,3 +43,34 @@ public/styles.css
 .kilo
 .local-models
 .env*
+
+# Abacus AI local config
+.abacusai/
+
+# Root-level generated CSS (output goes to public/styles.css)
+/styles.css
+
+# === Native Android App (android-app/) ===
+# Gradle build artifacts
+android-app/.gradle/
+android-app/build/
+android-app/app/build/
+android-app/local.properties
+android-app/gradle.properties.local
+# Android Studio / IntelliJ
+android-app/.idea/
+android-app/*.iml
+android-app/app/*.iml
+android-app/captures/
+android-app/.captures/
+# Keystore files (never commit signing keys)
+android-app/*.jks
+android-app/*.keystore
+android-app/app/*.jks
+android-app/app/*.keystore
+android-app/keystore/
+# Native build outputs
+android-app/app/.cxx/
+android-app/app/release/
+# Gradle wrapper jar is NOT ignored — it must be committed for reproducible builds
+
