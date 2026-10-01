@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.jugaadvision.app.data.models.VisionAnalysis
 import com.jugaadvision.app.ui.components.ErrorMessage
 import com.jugaadvision.app.ui.components.LoadingBar
 import com.jugaadvision.app.ui.components.SectionHeader
@@ -293,7 +294,7 @@ private fun VisionDetailRow(label: String, value: String) {
     }
 }
 
-private fun encodeImage(context: android.content.Context, uri: Uri): String {
+private fun encodeImage(context: android.content.Context, uri: android.net.Uri): String {
     val inputStream = context.contentResolver.openInputStream(uri)
     val bytes = inputStream?.readBytes() ?: ByteArray(0)
     inputStream?.close()

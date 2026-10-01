@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,6 +42,7 @@ import com.jugaadvision.app.ui.components.QualityScoreBadge
 import com.jugaadvision.app.ui.components.SectionHeader
 import com.jugaadvision.app.ui.theme.IndigoPrimary
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PromptBuilderScreen(
     viewModel: PromptBuilderViewModel = viewModel()

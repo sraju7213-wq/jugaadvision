@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.jugaadvision.app.data.models.ProviderHealth
 import com.jugaadvision.app.ui.components.ErrorMessage
 import com.jugaadvision.app.ui.components.LoadingBar
 import com.jugaadvision.app.ui.components.SectionHeader
