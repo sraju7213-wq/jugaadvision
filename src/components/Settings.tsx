@@ -537,28 +537,53 @@ export const Settings: React.FC<SettingsProps> = () => {
 
               {/* Accent Color Presets */}
               <div>
-                <label className="block font-mono text-xs font-bold uppercase tracking-wider text-[var(--editorial-muted)] mb-2">
+                <label className="block font-mono text-xs font-bold uppercase tracking-wider text-[var(--editorial-muted)] mb-3">
                   Accent Color
                 </label>
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-x-2 gap-y-4">
                   {ACCENT_COLOR_PRESETS.map((preset) => {
                     const isSelected = appearance.accentColor === preset.value;
                     return (
                       <button
                         key={preset.value}
                         type="button"
+                        title={preset.name}
+                        aria-label={`Accent color: ${preset.name}`}
+                        aria-pressed={isSelected}
                         onClick={() => handleUpdateAppearance({ accentColor: preset.value })}
-                        className={`flex flex-col items-center gap-1.5 p-2 border transition-all ${
-                          isSelected
-                            ? 'border-[var(--editorial-coral)] bg-[var(--editorial-surface)] ring-1 ring-[var(--editorial-coral)]'
-                            : 'border-[var(--editorial-rule)] bg-[var(--editorial-paper)] hover:border-[var(--editorial-coral)]'
-                        }`}
+                        className="group flex flex-col items-center gap-2 focus:outline-none"
                       >
-                        <div
-                          className="w-5 h-5 rounded-full border border-black/20"
-                          style={{ backgroundColor: preset.value }}
-                        />
-                        <span className="font-mono text-[9px] text-[var(--editorial-muted)] truncate w-full text-center">
+                        <span
+                          className="relative flex h-11 w-11 items-center justify-center rounded-full border border-black/10 transition-transform duration-200 ease-out group-hover:scale-110 group-active:scale-95"
+                          style={{
+                            backgroundColor: preset.value,
+                            boxShadow: isSelected
+                              ? `0 0 0 2px var(--editorial-paper), 0 0 0 4px ${preset.value}`
+                              : '0 1px 2px rgba(0,0,0,0.15)',
+                          }}
+                        >
+                          {isSelected && (
+                            <svg
+                              className="h-4 w-4 text-white drop-shadow-sm"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth={3}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <path d="M20 6 9 17l-5-5" />
+                            </svg>
+                          )}
+                        </span>
+                        <span
+                          className={`font-mono text-[10px] uppercase tracking-wider transition-colors ${
+                            isSelected
+                              ? 'text-[var(--editorial-ink)] font-bold'
+                              : 'text-[var(--editorial-muted)]'
+                          }`}
+                        >
                           {preset.name.split(' ')[0]}
                         </span>
                       </button>

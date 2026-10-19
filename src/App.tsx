@@ -147,15 +147,12 @@ const AppContent: React.FC = () => {
     } catch {}
   }, [theme]);
 
+  // Pure updater — persistence (dark class, localStorage, settings, and the
+  // broadcast event) is owned by the theme-change effect below. Doing side
+  // effects inside the updater breaks under React StrictMode (updaters are
+  // double-invoked), which made the toggle flicker and sometimes revert.
   const toggleTheme = () =>
-    setTheme((prev) => {
-      const next = prev === "light" ? "dark" : "light";
-      try {
-        saveAppearanceSettings({ theme: next });
-      } catch {}
-      localStorage.setItem("theme", next);
-      return next;
-    });
+    setTheme((prev) => (prev === "light" ? "dark" : "light"));
 
   const handleSaveToLibrary = useCallback(
     (
