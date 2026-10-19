@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- JugaadVision Brand Colors -->
+    <color name="brand_primary">#4F46E5</color>
+    <color name="brand_primary_light">#6366F1</color>
+    <color name="brand_primary_dark">#4338CA</color>
+    <color name="brand_background">#FFFFFF</color>
+    <color name="brand_surface">#FFFFFF</color>
+    <color name="brand_text_primary">#1F2937</color>
+    <color name="brand_text_muted">#6B7280</color>
+    <color name="brand_border">#08000000</color>
+
+    <color name="brand_success">#2EA44F</color>
+    <color name="brand_warning">#D29922</color>
+    <color name="brand_error">#DA3633</color>
+    <color name="brand_info">#2563EB</color>
+    <color name="brand_teal">#0D9488</color>
+    <color name="brand_pink">#EC4899</color>
+
+    <!-- Dark Mode -->
+    <color name="brand_background_dark">#0F1117</color>
+    <color name="brand_surface_dark">#0F1117</color>
+    <color name="brand_text_primary_dark">#F0F4F8</color>
+    <color name="brand_text_muted_dark">#8B949E</color>
+    <color name="brand_border_dark">#1AFFFFFF</color>
+
+    <!-- Splash -->
+    <color name="splash_background">#4F46E5</color>
+</resources>

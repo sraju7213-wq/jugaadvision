@@ -1,0 +1,43 @@
+name: Deploy to Vercel
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'api-src/**'
+      - 'api/**'
+      - 'server/**'
+      - 'public/**'
+      - 'scripts/**'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vercel.json'
+      - 'tailwind.config.cjs'
+      - 'vite.config.ts'
+      - 'tsconfig.json'
+
+jobs:
+  deploy:
+    name: Trigger Vercel Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify API bundles exist
+        run: |
+          if [ ! -f "api/ai/generate.js" ]; then
+            echo "::warning::API bundle missing. Run 'npm run bundle:api' locally and commit."
+          fi
+          ls -la api/ai/ || true
+
+      - name: Trigger Vercel Deploy via Git
+        run: |
+          echo "Vercel auto-deploys on push to main."
+          echo "If deployment hasn't triggered, check the Vercel project settings"
+          echo "at https://vercel.com/dashboard to ensure the GitHub integration is active."
+          echo ""
+          echo "Production URL: https://jugaadvision.vercel.app"
+          echo "API Health: https://jugaadvision.vercel.app/api/ai/health"

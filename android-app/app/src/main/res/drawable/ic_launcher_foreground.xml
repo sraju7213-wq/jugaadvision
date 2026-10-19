@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Eye/vision icon representing JugaadVision -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,38 C42,38 32,46 28,54 C32,62 42,70 54,70 C66,70 76,62 80,54 C76,46 66,38 54,38 Z M54,44 C58,44 62,48 62,54 C62,60 58,64 54,64 C50,64 46,60 46,54 C46,48 50,44 54,44 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.6"
+        android:pathData="M54,50 C56,50 58,52 58,54 C58,56 56,58 54,58 C52,58 50,56 50,54 C50,52 52,50 54,50 Z" />
+</vector>
