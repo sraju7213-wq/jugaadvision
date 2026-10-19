@@ -3,6 +3,7 @@ import { CustomEndpointAdapter } from '../adapters/customEndpointAdapter';
 import { OpenRouterAdapter } from '../adapters/openrouterAdapter';
 import { getCustomEndpoint } from '../customEndpoint';
 import { keyPoolManager, redactSecrets } from '../pools/keyPool';
+import { isZdrViolationError, resolveZdrFallbackModel } from '../openrouterZdr';
 import type { AIRequest, AIResponse, ProviderName } from '@jugaad/core/types';
 
 /**
@@ -84,6 +85,7 @@ export class AIRouter {
   private async performRouting(request: AIRequest): Promise<AIResponse> {
     const providers = this.getProviderOrder(request);
     const errors: Array<{ provider: ProviderName; error: string }> = [];
+    const isVisionTask = request.taskType === 'vision' || request.taskType === 'advanced_image_analysis';
 
     if (providers.length === 0) {
       throw new Error(
@@ -93,8 +95,9 @@ export class AIRouter {
 
     for (const provider of providers) {
       const adapter = this.adapters[provider];
-      const modelId = this.resolveModel(provider, request);
+      let modelId = this.resolveModel(provider, request);
       const attemptedKeys: string[] = [];
+      let zdrFallbackTried = false;
 
       for (let attempt = 0; attempt < this.maxAttemptsPerProvider; attempt++) {
         const apiKey = keyPoolManager.getAvailableKey(provider, attemptedKeys);
@@ -121,11 +124,62 @@ export class AIRouter {
           keyPoolManager.reportError(provider, apiKey, statusCode, errMsg);
           errors.push({ provider, error: errMsg });
 
+          // Zero Data Retention accounts reject every non-ZDR endpoint. Free
+          // models usually have none, so retry once with the closest
+          // ZDR-compatible model (paid twin first, then cheapest capable one).
+          if (provider === 'openrouter' && !zdrFallbackTried && isZdrViolationError(errMsg)) {
+            zdrFallbackTried = true;
+            const fallbackModel = await resolveZdrFallbackModel({
+              apiKey,
+              preferredModel: request.preferredModel || modelId,
+              vision: isVisionTask,
+            });
+
+            if (fallbackModel && fallbackModel !== modelId) {
+              const fallbackStart = Date.now();
+              try {
+                const fallbackResponse = await adapter.generate(request, apiKey, fallbackModel);
+                keyPoolManager.reportSuccess(
+                  provider,
+                  apiKey,
+                  fallbackResponse.durationMs || Date.now() - fallbackStart,
+                );
+                return {
+                  content: fallbackResponse.content,
+                  parsedJson: fallbackResponse.parsedJson,
+                  model: fallbackResponse.model,
+                  provider: fallbackResponse.provider,
+                  taskType: request.taskType,
+                  usage: fallbackResponse.usage,
+                  durationMs: fallbackResponse.durationMs,
+                  fallbackCount: errors.length,
+                };
+              } catch (fallbackErr: any) {
+                const fallbackMsg = fallbackErr.message || 'ZDR fallback failed';
+                keyPoolManager.reportError(
+                  provider,
+                  apiKey,
+                  fallbackErr instanceof AdapterError ? fallbackErr.statusCode : undefined,
+                  fallbackMsg,
+                );
+                errors.push({ provider, error: `ZDR fallback (${fallbackModel}): ${fallbackMsg}` });
+              }
+            }
+          }
+
           // Auth / quota / invalid-key failures must not burn the remaining
           // keys on the same provider.
           if (statusCode === 401 || statusCode === 402 || statusCode === 403) break;
         }
       }
+    }
+
+    if (errors.some(entry => isZdrViolationError(entry.error))) {
+      throw new Error(
+        "OpenRouter is blocking this request under your account's Zero Data Retention (ZDR) privacy setting. " +
+          'Free vision models have no ZDR-compatible endpoints, and the automatic fallback could not complete the analysis. ' +
+          'Disable ZDR at https://openrouter.ai/settings/privacy (or configure a custom endpoint) and retry.',
+      );
     }
 
     const summary = redactSecrets(errors.map(e => `[${e.provider}] ${e.error}`).join('; '));

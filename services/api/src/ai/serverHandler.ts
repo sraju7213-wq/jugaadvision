@@ -26,6 +26,7 @@ import type {
 } from './types';
 import { keyPoolManager, redactSecrets, SUPPORTED_PROVIDERS } from './pools/keyPool';
 import { aiRouter } from './router/router';
+import { getModelCatalog, refreshModelCatalog, invalidateModelCatalog } from './modelCatalog';
 import { getCustomEndpoint, setCustomEndpoint } from './customEndpoint';
 import { CustomEndpointAdapter } from './adapters/customEndpointAdapter';
 import { OpenRouterAdapter } from './adapters/openrouterAdapter';
@@ -167,12 +168,57 @@ async function internalHandleAIRequest(
   }
 
   try {
-    // 1. GET /api/ai/health or GET /api/health — lightweight liveness probe
+    // 1. GET /api/ai/models — live catalog of vision-capable free models
+    if ((rawPathname === 'ai/models' || rawPathname === 'models') && method === 'GET') {
+      const catalog = await getModelCatalog({
+        taskType: requestUrl.searchParams.get('taskType') || undefined,
+        freeOnly: requestUrl.searchParams.get('freeOnly') !== 'false',
+      });
+      return { status: 200, headers: SECURITY_HEADERS, data: catalog };
+    }
+
+    // 2. POST /api/ai/models/refresh — force re-discovery from providers
+    if ((rawPathname === 'ai/models/refresh' || rawPathname === 'models/refresh') && method === 'POST') {
+      invalidateModelCatalog();
+      await refreshModelCatalog();
+      const catalog = await getModelCatalog({
+        taskType: body?.taskType || undefined,
+        freeOnly: body?.freeOnly !== false,
+      });
+      return {
+        status: 200,
+        headers: SECURITY_HEADERS,
+        data: { ...catalog, message: 'Model catalog refreshed successfully' },
+      };
+    }
+
+    // 3. GET /api/ai/health or GET /api/health — lightweight liveness probe
     if (rawPathname === 'ai/health' || rawPathname === 'health') {
       const providers: Record<string, { configured: boolean; activeKeys: number; totalKeys: number }> = {};
+      const providerStatuses: Record<string, {
+        status: 'configured' | 'healthy' | 'degraded' | 'invalid_key' | 'no_models';
+        activeKeys: number;
+        totalKeys: number;
+        modelCount: number;
+        maskedKeys: string[];
+      }> = {};
       for (const p of SUPPORTED_PROVIDERS) {
         const stat = keyPoolManager.getPoolStats(p);
         providers[p] = { configured: stat.total > 0, activeKeys: stat.active, totalKeys: stat.total };
+
+        let status: 'configured' | 'healthy' | 'degraded' | 'invalid_key' | 'no_models' = 'configured';
+        if (stat.total === 0) status = 'no_models';
+        else if (stat.active === 0 && stat.exhausted > 0) status = 'invalid_key';
+        else if (stat.inCooldown > 0) status = 'degraded';
+        else if (stat.active > 0) status = 'healthy';
+
+        providerStatuses[p] = {
+          status,
+          activeKeys: stat.active,
+          totalKeys: stat.total,
+          modelCount: 0,
+          maskedKeys: stat.keys.map(k => k.maskedKey),
+        };
       }
       const anyConfigured = SUPPORTED_PROVIDERS.some(p => providers[p].configured);
       return {
@@ -182,12 +228,13 @@ async function internalHandleAIRequest(
           success: true,
           status: anyConfigured ? 'online' : 'unconfigured',
           providers,
+          providerStatuses,
           message: anyConfigured ? 'AI backend online' : 'No AI provider configured',
         },
       };
     }
 
-    // 2. POST /api/ai/provider/test or POST /api/settings/providers/:provider/test
+    // 4. POST /api/ai/provider/test or POST /api/settings/providers/:provider/test
     const providerTestMatch = rawPathname.match(/^(?:ai\/providers?\/test|settings\/providers\/(.+)\/test)$/);
     if (providerTestMatch && method === 'POST') {
       const urlProvider = providerTestMatch[1];
@@ -276,6 +323,7 @@ async function internalHandleAIRequest(
       if (isClearAction) {
         keyPoolManager.clearProviderKeys(targetProvider);
         if (targetProvider === 'custom') setCustomEndpoint(null);
+        invalidateModelCatalog();
 
         return {
           status: 200,
@@ -292,6 +340,7 @@ async function internalHandleAIRequest(
 
       const keys = body.keys !== undefined ? body.keys : (body.key !== undefined ? body.key : '');
       const updateResult = keyPoolManager.setProviderKeys(targetProvider, keys);
+      invalidateModelCatalog();
 
       return {
         status: 200,

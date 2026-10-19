@@ -50,11 +50,18 @@ export class OpenRouterAdapter implements IProviderAdapter {
         const modalities: ModelModality[] = ['text'];
 
         const modStr = (m.architecture?.modality || '').toLowerCase();
+        const inputModalities = Array.isArray(m.architecture?.input_modalities)
+          ? m.architecture.input_modalities.map((value: string) => String(value).toLowerCase())
+          : [];
         const desc = (m.description || '').toLowerCase();
         const lowerId = m.id.toLowerCase();
 
+        // OpenRouter publishes the exact input modalities; prefer that over
+        // name/description heuristics so every vision-capable model is found
+        // even when its name gives no hint.
+        const acceptsImageInput = inputModalities.includes('image') || inputModalities.includes('video');
         const isExplicitNonVision = modStr === 'text->text' || modStr === 'text->image';
-        if (!isExplicitNonVision && (
+        if (acceptsImageInput || (!isExplicitNonVision && (
           modStr.includes('multimodal') ||
           modStr.includes('image->') ||
           modStr.includes('text+image') ||
@@ -78,7 +85,7 @@ export class OpenRouterAdapter implements IProviderAdapter {
           desc.includes('vision model') ||
           desc.includes('visual reasoning') ||
           desc.includes('multimodal')
-        )) {
+        ))) {
           capabilities.push('vision');
           modalities.push('vision');
         }

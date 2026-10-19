@@ -194,7 +194,10 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
         });
 
       if (health) {
-        const providerSources = health.report?.providers || health.providerStatuses || {};
+        const providerSources = (health as any).report?.providers
+          || (health as any).providerStatuses
+          || (health as any).providers
+          || {};
         const normalizedProviders = Object.entries(providerSources).reduce<Record<string, ProviderAvailability>>((result, [provider, value]: [string, any]) => {
           result[provider.toLowerCase()] = {
             activeKeys: Number(value?.activeKeys ?? value?.active ?? 0),
@@ -206,7 +209,6 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
         setProviderAvailability(normalizedProviders);
       }
 
-      setVisionModels(cloudVisionModels);
       setVisionModels(cloudVisionModels);
       setModelsUpdatedAt(new Date(catalog.lastRefreshed || Date.now()));
       setCatalogLoaded(true);
