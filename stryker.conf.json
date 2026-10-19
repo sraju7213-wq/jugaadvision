@@ -1,0 +1,40 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "packageManager": "npm",
+  "testRunner": "vitest",
+  "tsconfigFile": "tsconfig.base.json",
+  "reporters": [
+    "html",
+    "clear-text",
+    "progress"
+  ],
+  "clearTextReporter": {
+    "allowColor": true,
+    "allowEmojis": true,
+    "reportTests": true,
+    "reportMutants": true,
+    "maxTestsToLog": 3
+  },
+  "htmlReporter": {
+    "fileName": "reports/mutation/index.html"
+  },
+  "jsonReporter": {
+    "fileName": "reports/mutation/mutation.json"
+  },
+  "mutate": [
+    "services/api/src/ai/classification/capabilityClassifier.ts",
+    "services/api/src/ai/pools/keyPool.ts"
+  ],
+  "coverageAnalysis": "perTest",
+  "thresholds": {
+    "high": 80,
+    "low": 60,
+    "break": null
+  },
+  "checkers": [],
+  "timeoutMS": 20000,
+  "timeoutFactor": 2,
+  "concurrency": 4,
+  "disableBail": false,
+  "allowConsoleColors": true
+}

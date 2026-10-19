@@ -5,7 +5,7 @@ import {
     generateBannerPrompt,
     generateBannerFromImages,
     BannerBackendResult
-} from "../services/neuralBackendService";
+} from "@jugaad/services/neuralBackendService";
 import {
     BannerPrompt,
     ENVIRONMENT_LABELS,
@@ -16,7 +16,7 @@ import {
     NEGATIVE_SPACE_LABELS,
     ASPECT_RATIO_INFO,
     getBannerPromptSummary
-} from "../lib/schemas/bannerPrompt";
+} from "@jugaad/core/schemas/bannerPrompt";
 import {
     CopyIcon,
     CheckIcon,

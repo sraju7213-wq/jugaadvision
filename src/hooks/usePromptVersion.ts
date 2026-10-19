@@ -7,7 +7,7 @@ import {
   exportPatch as serviceExportPatch,
   type VersionEntry,
   type DiffLine,
-} from "../services/promptVersionService";
+} from "@jugaad/services/promptVersionService";
 
 export type { VersionEntry, DiffLine };
 

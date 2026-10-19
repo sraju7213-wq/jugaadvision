@@ -4,24 +4,10 @@ import {
   generateStructuredVisionPrompt,
   StructuredVisionPrompt,
   VisionPromptCustomization,
-} from "../services/geminiService";
-import { aiFetchModelCatalog, aiFetchHealth } from "../services/aiGatewayClient";
-import {
-  listLocalModels,
-  inferLocalModel,
-  downloadLocalModel,
-  loadLocalModel,
-  unloadLocalModel,
-  isModelLoadedInRam,
-  isModelInstalledOnDisk,
-  subscribeDownloadProgress,
-  formatBytes,
-  RECOMMENDED_MODELS,
-  type LocalModelInfo,
-  type DownloadTaskState,
-} from "../services/localAiService";
-import { loadSelectedModel, saveSelectedModel } from "../services/settingsStorage";
-import { DESCRIPTION_TYPES } from "../constants";
+} from "@jugaad/services/geminiService";
+import { aiFetchModelCatalog, aiFetchHealth } from "@jugaad/services/aiGatewayClient";
+import { loadSelectedModel, saveSelectedModel } from "@jugaad/services/settingsStorage";
+import { DESCRIPTION_TYPES } from "@jugaad/core/constants";
 import {
   compressImage,
   generateThumbnail,
@@ -32,7 +18,7 @@ import {
   setCachedVisionPrompt,
   FAST_VISION_PRESET,
   safeRevokeObjectURL,
-} from "../utils/imageOptimizer";
+} from "@jugaad/services/image";
 import {
   ImageIcon,
   MagicWandIcon,
@@ -45,8 +31,8 @@ import {
   TrashIcon,
   XIcon,
 } from "./icons";
-import { Loader2, Camera as CameraIcon, Share2, Download, Cpu, Layers } from "lucide-react";
-import { pickImageFromDevice, shareContent, triggerHaptic } from "../services/nativeMedia";
+import { Loader2, Camera as CameraIcon, Share2 } from "lucide-react";
+import { pickImageFromDevice, shareContent, triggerHaptic } from "@jugaad/services/nativeMedia";
 import QuickImageGenerators from "./QuickImageGenerators";
 
 interface ImageToPromptProps {
@@ -78,7 +64,6 @@ const LIGHTING_OPTIONS = ["Preserve observed lighting", "Soft natural light", "D
 const COLOR_OPTIONS = ["Preserve observed palette", "Neutral accurate color", "Warm cinematic grade", "Cool cinematic grade", "High saturation", "Muted / desaturated"];
 const STYLE_OPTIONS = ["Preserve observed style", "Photorealistic", "Editorial fashion", "Cinematic still", "Fine-art portrait", "Clean 3D render", "Graphic illustration"];
 
-type ModelEligibility = "free" | "unknown" | "paid";
 
 interface ProviderAvailability {
   activeKeys: number;
@@ -87,22 +72,12 @@ interface ProviderAvailability {
 }
 
 const TIER_ORDER: Record<string, number> = { quality: 0, balanced: 1, fast: 2 };
-const ELIGIBILITY_ORDER: Record<ModelEligibility, number> = { free: 0, unknown: 1, paid: 2 };
-const RECOMMENDED_VISION_MODELS = RECOMMENDED_MODELS.filter((model) => model.modality === "vision");
 
 const isVisionCapableModel = (model: any) =>
   model?.capabilityMap?.vision === "supported" ||
   (Array.isArray(model?.capabilities) && model.capabilities.includes("vision")) ||
   (Array.isArray(model?.modalities) && model.modalities.includes("vision"));
 
-const isVerifiedFreeModel = (model: any) =>
-  model?.verifiedFree === true && model?.eligibilityStatus === "free";
-
-const getModelEligibility = (model: any): ModelEligibility => {
-  if (isVerifiedFreeModel(model) || model?.eligibilityStatus === "free") return "free";
-  if (model?.eligibilityStatus === "eligible_unknown") return "unknown";
-  return "paid";
-};
 
 const getModelTier = (model: any) => {
   const tier = String(model?.tier || "balanced").toLowerCase();
@@ -114,11 +89,6 @@ const modelMatchesSelection = (model: any, modelId: string) =>
   model?.providerModelId === modelId ||
   `${model?.provider || ""}:${model?.providerModelId || ""}` === modelId;
 
-const getPreferFreeForModel = (modelId: string, models: any[]) => {
-  if (!modelId || modelId.startsWith("local:")) return true;
-  const model = models.find((candidate) => modelMatchesSelection(candidate, modelId));
-  return model ? getModelEligibility(model) === "free" : false;
-};
 
 const getProviderAvailabilityLabel = (provider: string, availability: ProviderAvailability | undefined) => {
   if (!availability) return "KEY STATUS UNKNOWN";
@@ -160,10 +130,8 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
   const [isConverting, setIsConverting] = useState(false);
   const [isCached, setIsCached] = useState(false);
   const [visionModels, setVisionModels] = useState<any[]>([]);
-  const [localVisionModels, setLocalVisionModels] = useState<LocalModelInfo[]>([]);
   const [providerAvailability, setProviderAvailability] = useState<Record<string, ProviderAvailability>>({});
   const [catalogLoaded, setCatalogLoaded] = useState(false);
-  const [localCatalogLoaded, setLocalCatalogLoaded] = useState(false);
   const [modelResetNotice, setModelResetNotice] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState(() => loadSelectedModel());
   const [isUpdatingModels, setIsUpdatingModels] = useState(false);
@@ -208,10 +176,9 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
   const refreshModelCatalog = useCallback(async () => {
     setIsUpdatingModels(true);
     try {
-      const [catalog, health, localModels] = await Promise.all([
-        aiFetchModelCatalog({ freeOnly: false, taskType: "advanced_image_analysis" }),
+      const [catalog, health] = await Promise.all([
+        aiFetchModelCatalog({ taskType: "advanced_image_analysis" }),
         aiFetchHealth(),
-        listLocalModels().catch(() => null),
       ]);
 
       if (!catalog?.success || !Array.isArray(catalog.models)) {
@@ -219,10 +186,8 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
       }
 
       const cloudVisionModels = catalog.models
-        .filter((model: any) => model?.provider !== "local" && isVisionCapableModel(model))
+        .filter((model: any) => isVisionCapableModel(model))
         .sort((a: any, b: any) => {
-          const eligibilityDifference = ELIGIBILITY_ORDER[getModelEligibility(a)] - ELIGIBILITY_ORDER[getModelEligibility(b)];
-          if (eligibilityDifference !== 0) return eligibilityDifference;
           const tierDifference = (TIER_ORDER[getModelTier(a)] ?? 1) - (TIER_ORDER[getModelTier(b)] ?? 1);
           if (tierDifference !== 0) return tierDifference;
           return String(a.name || a.providerModelId || a.id).localeCompare(String(b.name || b.providerModelId || b.id));
@@ -242,10 +207,7 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
       }
 
       setVisionModels(cloudVisionModels);
-      if (Array.isArray(localModels)) {
-        setLocalVisionModels(localModels.filter((model: LocalModelInfo) => model.modality === "vision" && model.isValid));
-        setLocalCatalogLoaded(true);
-      }
+      setVisionModels(cloudVisionModels);
       setModelsUpdatedAt(new Date(catalog.lastRefreshed || Date.now()));
       setCatalogLoaded(true);
     } catch (err) {
@@ -255,73 +217,6 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
     }
   }, []);
 
-  const [offlineDownloadTask, setOfflineDownloadTask] = useState<DownloadTaskState | null>(null);
-  const [isOperatingOfflineModel, setIsOperatingOfflineModel] = useState(false);
-
-  useEffect(() => {
-    const unsub = subscribeDownloadProgress((task) => {
-      if (selectedModel.startsWith("local:")) {
-        const cleanId = selectedModel.replace(/^local:/, "").toLowerCase();
-        if (
-          task.id.toLowerCase().includes(cleanId) ||
-          task.fileName.toLowerCase().includes(cleanId) ||
-          task.repoId.toLowerCase().includes(cleanId)
-        ) {
-          setOfflineDownloadTask(task);
-          if (task.status === "completed") {
-            refreshModelCatalog();
-          }
-        }
-      }
-    });
-
-    const handleModelChange = () => refreshModelCatalog();
-    window.addEventListener("jugaad:localmodelchange", handleModelChange);
-
-    return () => {
-      unsub();
-      window.removeEventListener("jugaad:localmodelchange", handleModelChange);
-    };
-  }, [selectedModel, refreshModelCatalog]);
-
-  const handleDownloadSelectedOfflineModel = async (repoId: string, fileName: string) => {
-    triggerHaptic('medium');
-    try {
-      await downloadLocalModel(repoId, fileName);
-      triggerHaptic('success');
-      refreshModelCatalog();
-    } catch {
-      triggerHaptic('error');
-    }
-  };
-
-  const handleLoadSelectedOfflineModel = async (modelId: string) => {
-    setIsOperatingOfflineModel(true);
-    triggerHaptic('selection');
-    try {
-      await loadLocalModel(modelId);
-      triggerHaptic('success');
-      refreshModelCatalog();
-    } catch {
-      triggerHaptic('error');
-    } finally {
-      setIsOperatingOfflineModel(false);
-    }
-  };
-
-  const handleUnloadSelectedOfflineModel = async (modelId: string) => {
-    setIsOperatingOfflineModel(true);
-    triggerHaptic('light');
-    try {
-      await unloadLocalModel(modelId);
-      triggerHaptic('success');
-      refreshModelCatalog();
-    } catch {
-      triggerHaptic('error');
-    } finally {
-      setIsOperatingOfflineModel(false);
-    }
-  };
 
   useEffect(() => {
     let cancelled = false;
@@ -350,19 +245,15 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
 
   useEffect(() => {
     if (!catalogLoaded || !selectedModel) return;
-    if (selectedModel.startsWith("local:") && !localCatalogLoaded) return;
 
-    const isValidSelection = selectedModel.startsWith("local:")
-      ? localVisionModels.some((model) => model.id === selectedModel.slice("local:".length)) ||
-        RECOMMENDED_MODELS.some((model) => model.id === selectedModel.slice("local:".length))
-      : visionModels.some((model) => modelMatchesSelection(model, selectedModel) && isVisionCapableModel(model));
+    const isValidSelection = visionModels.some((model) => modelMatchesSelection(model, selectedModel) && isVisionCapableModel(model));
 
     if (!isValidSelection) {
       setSelectedModel("");
       saveSelectedModel("");
       setModelResetNotice("The saved model does not support image analysis. Image to Prompt was reset to AUTO.");
     }
-  }, [catalogLoaded, localCatalogLoaded, localVisionModels, selectedModel, visionModels]);
+  }, [catalogLoaded, selectedModel, visionModels]);
 
   const handleCancel = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -371,7 +262,7 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
     setLoadingProgress(0);
   }, []);
 
-  const generatePrompt = useCallback(async (file: File, styles: string[], preferredModel = "", preferFree = true, guidance: VisionPromptCustomization = DEFAULT_CUSTOMIZATION) => {
+  const generatePrompt = useCallback(async (file: File, styles: string[], preferredModel = "", guidance: VisionPromptCustomization = DEFAULT_CUSTOMIZATION) => {
     // Cancel any in-flight request
     abortControllerRef.current?.abort();
     const controller = new AbortController();
@@ -392,8 +283,8 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
       setLoadingProgress(10);
       const guidanceContext = Object.entries(guidance).map(([key, value]) => `${key}:${value || ""}`);
       const cacheContext = preferredModel
-        ? [...styles, ...guidanceContext, `model:${preferredModel}`, `free:${preferFree}`]
-        : [...styles, ...guidanceContext, `free:${preferFree}`];
+        ? [...styles, ...guidanceContext, `model:${preferredModel}`]
+        : [...styles, ...guidanceContext];
       const hash = await generateImageHash(file, cacheContext);
       if (signal.aborted) throw new Error('Request was cancelled by user.');
       // Try async cache first (IndexedDB), fallback to sync
@@ -428,40 +319,13 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
       setLoadingProgress(60);
       if (signal.aborted) throw new Error('Request was cancelled by user.');
 
-      // Local model path: run on-device via /api/ai/local/infer.
-      // NOTE: local GGUF vision inference is text-only for now — the image
-      // itself can't be embedded yet, so we generate a style-guided template
-      // instead. Cloud path remains the default for real image analysis.
-      if (preferredModel.startsWith("local:")) {
-        const localId = preferredModel.slice("local:".length);
-        const styleHint = styles.length > 0 ? ` Emphasize: ${styles.join(", ")}.` : "";
-        const localRes = await inferLocalModel(
-          localId,
-          `You are a vision-language assistant for an AI creative studio. Describe a creative image generation prompt${styleHint} Answer directly.`,
-          { maxTokens: 300, temperature: 0.7 },
-        );
-        if (signal.aborted) throw new Error('Request was cancelled by user.');
-        if (!localRes.success || !localRes.content) {
-          throw new Error(localRes.error || "Local model returned empty content. On-device vision is experimental — try a cloud model.");
-        }
-        const localPrompt = localRes.content.trim();
-        setStructuredVision(null);
-        setPrompt(localPrompt);
-        setNegativePrompt("");
-        setLoadingProgress(100);
-        setLastDurationMs(localRes.totalDurationMs);
-        setLastModel(`local:${localId}`);
-        setCachedPrompt(hash, localPrompt, cacheContext);
-        return;
-      }
 
-      // Cloud path (default)
+      // Cloud path
       const visionData = await generateStructuredVisionPrompt(
         compressed.base64,
         compressed.mimeType,
         styles,
         preferredModel,
-        preferFree,
         guidance,
         { signal },
       );
@@ -533,7 +397,7 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
         }
 
         debounceTimerRef.current = setTimeout(() => {
-          generatePrompt(file, activeStyles, selectedModel, true, customization);
+          generatePrompt(file, activeStyles, selectedModel, customization);
         }, 300);
       } catch (err: any) {
         setError(err.message || "Invalid image file.");
@@ -587,7 +451,7 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
     if (image) {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = setTimeout(() => {
-        generatePrompt(image, newStyles, selectedModel, true, customization);
+        generatePrompt(image, newStyles, selectedModel, customization);
       }, 400);
     }
   };
@@ -641,7 +505,7 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
 
   const handleApplyGuidance = () => {
     if (!image || isLoading) return;
-    generatePrompt(image, activeStyles, selectedModel, true, customization);
+    generatePrompt(image, activeStyles, selectedModel, customization);
   };
 
   const handleSave = async () => {
@@ -673,64 +537,33 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
     handleFileChange(e.dataTransfer.files);
   };
 
-  const offlineRecommendedVisionModels = useMemo(
-    () => RECOMMENDED_VISION_MODELS.filter((model) => !localVisionModels.some((installed) => installed.id === model.id)),
-    [localVisionModels],
-  );
-
-  const offlinePromptModels = useMemo(
-    () => RECOMMENDED_MODELS.filter((model) => model.modality !== "vision" && !localVisionModels.some((installed) => installed.id === model.id)),
-    [localVisionModels],
-  );
 
   const modelGroups = useMemo(() => {
-    const eligibilityGroups: Array<{ key: ModelEligibility; label: string }> = [
-      { key: "free", label: "VERIFIED FREE" },
-      { key: "unknown", label: "ELIGIBILITY UNKNOWN" },
-      { key: "paid", label: "PAID" },
-    ];
     const tierGroups = [
       { key: "quality", label: "QUALITY / DEEP ANALYSIS" },
       { key: "balanced", label: "BALANCED / GENERAL" },
       { key: "fast", label: "FAST / EFFICIENT" },
     ];
 
-    return eligibilityGroups.flatMap((eligibilityGroup) =>
-      tierGroups
-        .map((tierGroup) => ({
-          tier: tierGroup.key,
-          label: `${eligibilityGroup.label} · ${tierGroup.label}`,
-          models: visionModels.filter(
-            (model) => getModelEligibility(model) === eligibilityGroup.key && getModelTier(model) === tierGroup.key,
-          ),
-        }))
-        .filter((group) => group.models.length > 0),
-    );
+    return tierGroups
+      .map((tierGroup) => ({
+        tier: tierGroup.key,
+        label: tierGroup.label,
+        models: visionModels.filter((model) => getModelTier(model) === tierGroup.key),
+      }))
+      .filter((group) => group.models.length > 0);
   }, [visionModels]);
 
-  const selectedPreferFree = useMemo(
-    () => getPreferFreeForModel(selectedModel, visionModels),
-    [selectedModel, visionModels],
-  );
-  const freeCloudModelCount = visionModels.filter(isVerifiedFreeModel).length;
-  const paidUnknownCloudModelCount = visionModels.length - freeCloudModelCount;
-  const offlineVisionModelCount = localVisionModels.length + offlineRecommendedVisionModels.length;
-  const totalVisionModelCount = visionModels.length + offlineVisionModelCount;
   const unavailableProviderModelCount = visionModels.filter((model) => {
     const availability = findProviderAvailability(String(model.provider || ""), providerAvailability);
     return availability && availability.activeKeys === 0;
   }).length;
 
   const formatModelLabel = (model: any) => {
-    const eligibilityLabels: Record<ModelEligibility, string> = {
-      free: "FREE",
-      unknown: "ELIGIBILITY UNKNOWN",
-      paid: "PAID",
-    };
     const provider = String(model.provider || "AI").toUpperCase();
     const availability = findProviderAvailability(String(model.provider || ""), providerAvailability);
     const modelStatus = model.status === "degraded" ? " · DEGRADED" : model.status === "disabled" ? " · DISABLED" : "";
-    return `${model.name || model.providerModelId || model.id} · ${provider} · ${eligibilityLabels[getModelEligibility(model)]} · ${getProviderAvailabilityLabel(model.provider, availability)}${modelStatus}`;
+    return `${model.name || model.providerModelId || model.id} · ${provider} · ${getProviderAvailabilityLabel(model.provider, availability)}${modelStatus}`;
   };
 
   return (
@@ -777,6 +610,8 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
                       <img
                         src={thumbnailUrl || imageUrl!}
                         alt="Uploaded preview"
+                        loading="lazy"
+                        decoding="async"
                         className="max-h-[280px] w-full object-contain transition-transform group-hover:scale-[1.01]"
                       />
                       <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
@@ -955,7 +790,7 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
               {image && (
                 <button
                   type="button"
-                  onClick={() => generatePrompt(image, activeStyles, selectedModel, true, customization)}
+                  onClick={() => generatePrompt(image, activeStyles, selectedModel, customization)}
                   disabled={isLoading}
                   className="editorial-button editorial-button--primary editorial-button--sm w-full justify-center"
                 >
@@ -992,10 +827,6 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
                     VISION / IMAGE ANALYSIS
                   </span>
 
-                  {/* Free-only Verified Pill */}
-                  <span className="hidden md:inline px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-                    FREE ONLY (VERIFIED)
-                  </span>
 
                   {/* Model Selector */}
                   <select
@@ -1009,27 +840,6 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
                     className="h-6 max-w-[200px] border border-[var(--editorial-rule)] bg-[var(--editorial-paper)] px-1.5 font-mono text-[9px] font-bold uppercase tracking-wide text-[var(--editorial-ink)] outline-none focus:border-[var(--editorial-coral)] cursor-pointer"
                   >
                     <option value="">AUTO · BEST VISION</option>
-                    <optgroup label="⚡ ON-DEVICE VISION SPECIALISTS (IMAGE ANALYSIS)">
-                      {localVisionModels.map((m) => (
-                        <option key={`local-${m.id}`} value={`local:${m.id}`}>
-                          {`[OFFLINE] ${m.name} [${m.isLoaded ? '● LOADED IN RAM' : '○ ON DISK'}]`}
-                        </option>
-                      ))}
-                      {offlineRecommendedVisionModels.map((r) => (
-                        <option key={`rec-${r.id}`} value={`local:${r.id}`}>
-                          {`[OFFLINE] ${r.name} (Vision · ${r.fileSizeHuman})`}
-                        </option>
-                      ))}
-                    </optgroup>
-                    {offlinePromptModels.length > 0 && (
-                      <optgroup label="⚡ ON-DEVICE STYLE PROMPT ENGINES">
-                        {offlinePromptModels.map((r) => (
-                          <option key={`rec-${r.id}`} value={`local:${r.id}`}>
-                            {`[OFFLINE] ${r.name} (${r.fileSizeHuman})`}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
                     {modelGroups.length > 0 ? (
                       modelGroups.map((group, gIdx) => (
                         <optgroup key={`${group.label}-${gIdx}`} label={`☁ ${group.label}`}>
@@ -1041,7 +851,7 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
                         </optgroup>
                       ))
                     ) : (
-                      <option disabled value="none">NO FREE VISION MODELS FOUND</option>
+                      <option disabled value="none">NO VISION MODELS AVAILABLE</option>
                     )}
                   </select>
 
@@ -1058,75 +868,6 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
                     <span className="hidden sm:inline">{isUpdatingModels ? "REFRESHING" : "REFRESH"}</span>
                   </button>
 
-                  {/* Offline Model Download & Load/Unload Controls */}
-                  {selectedModel.startsWith("local:") && (() => {
-                    const cleanId = selectedModel.replace(/^local:/, "");
-                    const rec = RECOMMENDED_MODELS.find(
-                      (r) =>
-                        r.id.toLowerCase() === cleanId.toLowerCase() ||
-                        r.fileName.toLowerCase() === cleanId.toLowerCase()
-                    );
-                    const installedModel = localVisionModels.find(
-                      (m) =>
-                        m.id.toLowerCase() === cleanId.toLowerCase() ||
-                        (rec && m.sourceRepo.toLowerCase() === rec.repoId.toLowerCase())
-                    );
-                    const isInstalled = !!installedModel || isModelInstalledOnDisk(cleanId);
-                    const isLoaded = (installedModel?.isLoaded ?? false) || isModelLoadedInRam(cleanId);
-                    const isDownloading =
-                      offlineDownloadTask &&
-                      (offlineDownloadTask.status === "downloading" || offlineDownloadTask.status === "pending");
-
-                    if (isDownloading && offlineDownloadTask) {
-                      return (
-                        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-cyan-500/10 border border-cyan-500/30 rounded font-mono text-[9px] text-cyan-300">
-                          <Loader2 className="w-2.5 h-2.5 animate-spin text-cyan-400" />
-                          <span>DOWNLOADING {offlineDownloadTask.progress}%</span>
-                        </div>
-                      );
-                    }
-
-                    if (!isInstalled && rec) {
-                      return (
-                        <button
-                          type="button"
-                          onClick={() => handleDownloadSelectedOfflineModel(rec.repoId, rec.fileName)}
-                          className="editorial-button editorial-button--xs bg-[var(--editorial-coral)] text-white hover:opacity-90 flex items-center gap-1 font-mono text-[9px] font-bold !py-0.5 !px-2 shadow-xs"
-                        >
-                          <Download className="w-2.5 h-2.5" />
-                          <span>DOWNLOAD ({rec.fileSizeHuman})</span>
-                        </button>
-                      );
-                    }
-
-                    if (isInstalled) {
-                      return isLoaded ? (
-                        <button
-                          type="button"
-                          onClick={() => handleUnloadSelectedOfflineModel(cleanId)}
-                          disabled={isOperatingOfflineModel}
-                          className="editorial-button editorial-button--xs bg-amber-500/15 text-amber-300 border border-amber-500/40 hover:bg-amber-500/25 flex items-center gap-1 font-mono text-[9px] font-bold !py-0.5 !px-1.5"
-                          title="Unload from RAM to free system memory"
-                        >
-                          {isOperatingOfflineModel ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Layers className="w-2.5 h-2.5" />}
-                          <span>UNLOAD (FREE RAM)</span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleLoadSelectedOfflineModel(cleanId)}
-                          disabled={isOperatingOfflineModel}
-                          className="editorial-button editorial-button--xs bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 flex items-center gap-1 font-mono text-[9px] font-bold !py-0.5 !px-1.5"
-                          title="Pre-warm model into RAM for instant inference"
-                        >
-                          {isOperatingOfflineModel ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Cpu className="w-2.5 h-2.5" />}
-                          <span>LOAD TO RAM</span>
-                        </button>
-                      );
-                    }
-
-                    return null;
-                  })()}
                 </div>
 
                 {structuredVision && (
@@ -1216,15 +957,6 @@ const ImageToPrompt: React.FC<ImageToPromptProps> = ({
                 <div className="p-6 bg-red-500/10 border border-red-500/30 text-center">
                   <p className="font-mono font-bold text-xs uppercase text-red-500 mb-1">Analysis Failed</p>
                   <p className="font-mono text-xs text-red-400 mb-3">{error}</p>
-                  {image && error.includes("No verified free AI models") && (
-                    <button
-                      type="button"
-                      onClick={() => generatePrompt(image, activeStyles, selectedModel, false, customization)}
-                      className="px-3 py-1.5 bg-[var(--editorial-coral)] text-white font-mono text-xs font-bold uppercase tracking-wider hover:opacity-90 transition-opacity"
-                    >
-                      Retry with Paid Models
-                    </button>
-                  )}
                 </div>
               ) : prompt ? (
                 <>

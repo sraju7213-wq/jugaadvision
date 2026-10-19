@@ -1,0 +1,14 @@
+{
+  "name": "@jugaad/services",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@jugaad/core": "1.0.0",
+    "ai": "^5.0.109"
+  }
+}

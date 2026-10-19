@@ -1,8 +1,8 @@
 import React, { useState, useCallback, memo, useRef, useEffect } from "react";
 import { ProcessingAnimation } from "./ProcessingAnimation";
-import { generateCreativeMix } from "../services/geminiService";
+import { generateCreativeMix } from "@jugaad/services/geminiService";
 import ModelSelector from "./ModelSelector";
-import { promptToJson, JsonPrompt } from "../lib/promptToJson";
+import { promptToJson, JsonPrompt } from "@jugaad/core/lib/promptToJson";
 import {
   generateCinematicPrompt,
   generateCinematicFromImages,
@@ -10,14 +10,14 @@ import {
   generateProfessionalPrompt,
   generateProfessionalFromImages,
   ProfessionalBackendResult
-} from "../services/neuralBackendService";
+} from "@jugaad/services/neuralBackendService";
 import {
   CinematicPrompt,
   constructPrompt,
   LIGHTING_LABELS,
   CAMERA_LABELS,
-} from "../lib/schemas/cinematicPrompt";
-import { detectCreativeConflicts } from "../../server/ai/qualityGates";
+} from "@jugaad/core/schemas/cinematicPrompt";
+import { detectCreativeConflicts } from "@jugaad/api/qualityGates";
 import {
   ProfessionalPrompt,
   PURPOSE_LABELS,
@@ -26,7 +26,7 @@ import {
   LIGHTING_TYPE_LABELS,
   OUTPUT_RATIO_LABELS,
   ARRANGEMENT_LABELS
-} from "../lib/schemas/professionalPrompt";
+} from "@jugaad/core/schemas/professionalPrompt";
 import {
   BrainCircuitIcon,
   CopyIcon,
@@ -47,11 +47,11 @@ import {
 } from "./icons";
 import QuickImageGenerators from "./QuickImageGenerators";
 import { Loader2, Share2 } from "lucide-react";
-import { shareContent, triggerHaptic } from "../services/nativeMedia";
-import useSpeechToText from "../hooks/useSpeechToText";
+import { shareContent, triggerHaptic } from "@jugaad/services/nativeMedia";
+import useSpeechToText from "@jugaad/services/useSpeechToText";
 import AdvancedSettingsPanel from "./creative-mixer/AdvancedSettingsPanel";
 import NodeModePanel from "./node-mode/NodeModePanel";
-import { compressImage, FAST_VISION_PRESET } from "../utils/imageOptimizer";
+import { compressImage, FAST_VISION_PRESET } from "@jugaad/services/image";
 
 
 interface CreativeMixerProps {

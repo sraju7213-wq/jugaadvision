@@ -44,52 +44,12 @@ import {
   NODE_CANVAS_PRESETS,
   type PresetAudience,
   type NodeCanvasPreset,
-} from "../../lib/nodeCanvasLibrary";
+} from "@jugaad/core/lib/nodeCanvasLibrary";
+import type { CanvasNodeKind, CanvasNode, CanvasEdge } from "@jugaad/core/types/canvas";
 
-export type CanvasNodeKind =
-  | "prompt"
-  | "style"
-  | "modifier"
-  | "lighting"
-  | "camera"
-  | "image"
-  | "gate"
-  | "weighting"
-  | "output";
-
-export interface CanvasNode {
-  id: string;
-  kind: CanvasNodeKind;
-  x: number;
-  y: number;
-  label: string;
-  text: string;
-  weight?: number;
-  color?: string;
-  icon?: string;
-  width?: number;
-  notes?: string;
-  imageUrl?: string;
-  imageName?: string;
-  imageStatus?: "idle" | "analyzing" | "ready" | "error";
-  imageAnalysis?: {
-    subject?: string;
-    composition?: string;
-    lighting?: string;
-    style?: string;
-    colors?: string;
-    negativePrompt?: string;
-  };
-}
-
-export interface CanvasEdge {
-  id: string;
-  from: string;
-  to: string;
-  label?: string;
-  style?: "solid" | "dashed" | "dotted";
-  color?: string;
-}
+// Re-export the shared canvas types for backwards compatibility with
+// importers that pull them from this component (now sourced from core).
+export type { CanvasNodeKind, CanvasNode, CanvasEdge };
 
 export interface CanvasSettings {
   gridSize: number;
@@ -1748,7 +1708,7 @@ const InteractiveCanvas: React.FC<Props> = ({
                             <div className="space-y-1.5">
                               {n.imageUrl ? (
                                 <div className="relative overflow-hidden rounded border border-[var(--editorial-rule)] bg-black/5">
-                                  <img src={n.imageUrl} alt={n.imageName || "Visual reference"} className="h-24 w-full object-cover" />
+                                  <img src={n.imageUrl} alt={n.imageName || "Visual reference"} loading="lazy" decoding="async" className="h-24 w-full object-cover" />
                                   <span className={`absolute bottom-1 left-1 rounded px-1.5 py-0.5 text-[7px] font-mono font-bold uppercase ${n.imageStatus === "analyzing" ? "bg-amber-500 text-white" : n.imageStatus === "error" ? "bg-red-500 text-white" : "bg-emerald-600 text-white"}`}>
                                     {n.imageStatus === "analyzing" ? "Analyzing" : n.imageStatus === "error" ? "Needs review" : "Reference ready"}
                                   </span>

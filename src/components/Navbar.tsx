@@ -167,7 +167,7 @@ const Navbar: React.FC<NavbarProps> = ({ theme, toggleTheme }) => {
             <Link
               to="/settings"
               aria-label="Open Settings"
-              className={`editorial-nav__icon-button ${
+              className={`editorial-nav__icon-button max-md:!hidden ${
                 activePath === "/settings" ? "!border-[var(--editorial-coral)] !text-[var(--editorial-coral)]" : ""
               }`}
             >

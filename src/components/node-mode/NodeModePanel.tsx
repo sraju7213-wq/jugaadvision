@@ -13,17 +13,17 @@ import {
   RefreshIcon,
 } from "../icons";
 import { Loader2, AlertCircle, Sparkles, ArrowRight, Wand2 } from "lucide-react";
-import { compileNodePrompt, NodeModePlatform } from "../../lib/nodeModeCompiler";
+import { compileNodePrompt, NodeModePlatform } from "@jugaad/core/lib/nodeModeCompiler";
 import {
   generateStructuredVisionPrompt,
   generateCreativeMix,
   aiElaboratePrompt,
-} from "../../services/geminiService";
+} from "@jugaad/services/geminiService";
 import {
   generateBannerPrompt,
   generateCinematicPrompt,
-} from "../../services/neuralBackendService";
-import { compressImage, FAST_VISION_PRESET } from "../../utils/imageOptimizer";
+} from "@jugaad/services/neuralBackendService";
+import { compressImage, FAST_VISION_PRESET } from "@jugaad/services/image";
 import QuickImageGenerators from "../QuickImageGenerators";
 import { ProcessingAnimation } from "../ProcessingAnimation";
 
@@ -202,7 +202,6 @@ const NodeModePanel: React.FC<NodeModePanelProps> = ({
         compressed.mimeType,
         selectedStyle ? [selectedStyle] : [],
         undefined,
-        true,
         {
           platform: selectedPlatform,
           useCase: feature === "pro-prompter" ? "Product / e-commerce" : "Concept art",

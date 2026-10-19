@@ -1,7 +1,6 @@
 node_modules
 .local-models
 dist
-android
 .vercel
 *.local
 .cache

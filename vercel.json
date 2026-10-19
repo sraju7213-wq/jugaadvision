@@ -36,5 +36,19 @@
         { "key": "Cache-Control", "value": "public, s-maxage=10, stale-while-revalidate=30" }
       ]
     }
-  ]
+  ],
+  "env": {
+    "OPENROUTER_API_KEY": "OpenRouter API key (required for cloud inference)",
+    "OPENROUTER_API_KEY_1": "OpenRouter API key (alias)",
+    "HUGGINGFACE_API_KEY": "HuggingFace API token (recommended for higher rate limits)",
+    "HF_TOKEN": "HuggingFace token (alias for HUGGINGFACE_API_KEY)",
+    "CLOUDFLARE_API_TOKEN": "Cloudflare API token (for Cloudflare AI)",
+    "NVIDIA_NIM_API_KEY": "NVIDIA NIM API key (for NVIDIA GPU inference)",
+    "CUSTOM_API_KEY": "Custom endpoint API key",
+    "CUSTOM_ENDPOINT_URL": "Custom endpoint base URL",
+    "GEMINI_WEB_BASE_URL": "gemini-web2api proxy base URL (local only, e.g. http://127.0.0.1:8081/v1)",
+    "GEMINI_WEB_API_KEY": "gemini-web2api proxy key (optional; anonymous access works without it)",
+    "FREELLMAPI_BASE_URL": "FreeLLMAPI router base URL (local only, e.g. http://127.0.0.1:3001/v1)",
+    "FREELLMAPI_API_KEY": "FreeLLMAPI unified key (freellmapi-...)"
+  }
 }

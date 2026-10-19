@@ -14,11 +14,7 @@ import useLocalStorage from "./hooks/useLocalStorage";
 import Loading from "./components/Loading";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { InstagramIcon } from "./components/icons";
-import { initializeSettingsStorage, loadAppearanceSettings, saveAppearanceSettings, applyAppearanceToDOM } from "./services/settingsStorage";
-import { Capacitor } from "@capacitor/core";
-import { App as CapApp } from "@capacitor/app";
-import { StatusBar, Style as StatusBarStyle } from "@capacitor/status-bar";
-import { SplashScreen } from "@capacitor/splash-screen";
+import { initializeSettingsStorage, loadAppearanceSettings, saveAppearanceSettings, applyAppearanceToDOM } from "@jugaad/services/settingsStorage";
 
 // Lazy load workflow components
 const Home = React.lazy(() => import("./components/Home"));
@@ -149,47 +145,7 @@ const AppContent: React.FC = () => {
         saveAppearanceSettings({ theme });
       }
     } catch {}
-    if (Capacitor.isNativePlatform()) {
-      try {
-        StatusBar.setStyle({
-          style: theme === "dark" ? StatusBarStyle.Dark : StatusBarStyle.Light,
-        }).catch(() => {});
-        StatusBar.setBackgroundColor({
-          color: theme === "dark" ? "#0c0d11" : "#f4f1ec",
-        }).catch(() => {});
-      } catch {}
-    }
   }, [theme]);
-
-  // Android native lifecycle: splash screen & hardware back button
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-
-    // Smoothly hide splash screen when React app mounts
-    try {
-      SplashScreen.hide().catch(() => {});
-    } catch {}
-
-    // Android hardware back button handler
-    let listenerHandle: any = null;
-    try {
-      CapApp.addListener("backButton", (event: { canGoBack: boolean }) => {
-        if (event.canGoBack) {
-          window.history.back();
-        } else {
-          CapApp.exitApp();
-        }
-      }).then((handle) => {
-        listenerHandle = handle;
-      }).catch(() => {});
-    } catch {}
-
-    return () => {
-      try {
-        listenerHandle?.remove?.();
-      } catch {}
-    };
-  }, []);
 
   const toggleTheme = () =>
     setTheme((prev) => {
@@ -386,7 +342,7 @@ const AppContent: React.FC = () => {
         </ErrorBoundary>
       </main>
 
-      <footer className="editorial-footer mb-16 md:mb-0">
+      <footer className="editorial-footer hidden md:block">
         <div className="editorial-footer__inner">
           <div className="editorial-footer__meta">
             <div className="editorial-footer__status-dot" aria-hidden="true" />

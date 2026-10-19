@@ -1,13 +1,13 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { ProcessingAnimation } from "./ProcessingAnimation";
-import { generateBatchPrompts } from "../services/geminiService";
-import { aiGenerateBatch } from "../services/aiGatewayClient";
+import { generateBatchPrompts } from "@jugaad/services/geminiService";
+import { aiGenerateBatch } from "@jugaad/services/aiGatewayClient";
 import ModelSelector from "./ModelSelector";
 import {
   LIGHTING_LABELS,
   CAMERA_LABELS,
-} from "../lib/schemas/cinematicPrompt";
-import { BATCH_PRESETS, BatchPreset } from "../lib/batchPresets";
+} from "@jugaad/core/schemas/cinematicPrompt";
+import { BATCH_PRESETS, BatchPreset } from "@jugaad/core/lib/batchPresets";
 import {
   BrainCircuitIcon,
   CopyIcon,

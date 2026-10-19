@@ -39,7 +39,7 @@ import {
     SaturationEnum,
     GrainEnum,
     OutputRatioEnum
-} from '../../lib/schemas/professionalPrompt';
+} from '@jugaad/core/schemas/professionalPrompt';
 import SliderInput from './SliderInput';
 import MultiTagInput from './MultiTagInput';
 

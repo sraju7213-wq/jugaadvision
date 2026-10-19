@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Platform, Prompt } from "../../types";
+import { Platform, Prompt } from "@jugaad/core/types";
 import PromptBuilder from "../PromptBuilder";
 const InteractiveCanvas = React.lazy(
   () => import("../prompt-builder/InteractiveCanvas")

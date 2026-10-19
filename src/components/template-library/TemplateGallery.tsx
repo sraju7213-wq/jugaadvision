@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { DOMAIN_PRESETS, BUILT_IN_TEMPLATES, listTemplates, saveTemplate, deleteTemplate, forkTemplate, interpolate, exportTemplate, importTemplate, PromptTemplate } from "../../services/templateLibrary";
+import { DOMAIN_PRESETS, BUILT_IN_TEMPLATES, listTemplates, saveTemplate, deleteTemplate, forkTemplate, interpolate, exportTemplate, importTemplate, PromptTemplate } from "@jugaad/services/templateLibrary";
 
 interface Props {
   onUse?: (filled: string) => void;

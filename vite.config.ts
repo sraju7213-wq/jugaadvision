@@ -13,7 +13,7 @@ function aiDevServerPlugin(): Plugin {
           const isVisionStream = req.url.startsWith('/api/ai/vision/stream');
           if (isVisionStream) {
             try {
-              const { handleVisionStreamRequest } = await server.ssrLoadModule('./server/ai/visionStreamHandler.ts');
+              const { handleVisionStreamRequest } = await server.ssrLoadModule('./services/api/src/ai/visionStreamHandler.ts');
               const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket?.remoteAddress || '127.0.0.1';
               let body: any = {};
               if (req.method === 'POST' || req.method === 'PUT') {
@@ -64,7 +64,7 @@ function aiDevServerPlugin(): Plugin {
           }
 
           try {
-            const { handleAIRequest } = await server.ssrLoadModule('./server/ai/serverHandler.ts');
+            const { handleAIRequest } = await server.ssrLoadModule('./services/api/src/ai/serverHandler.ts');
             const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket?.remoteAddress || '127.0.0.1';
 
             let body: any = {};
@@ -126,7 +126,7 @@ export default defineConfig(({ mode }) => {
   Object.assign(process.env, env);
 
   return {
-    base: process.env.CAPACITOR_BUILD ? "./" : "/",
+    base: "/",
     server: {
       port: 3000,
       host: "0.0.0.0",
@@ -184,9 +184,12 @@ export default defineConfig(({ mode }) => {
       })
     ],
     resolve: {
-      alias: {
-        "@": path.resolve(__dirname, "./src"),
-      },
+       alias: {
+         "@": path.resolve(__dirname, "./src"),
+         "@jugaad/core": path.resolve(__dirname, "packages/core/src"),
+         "@jugaad/services": path.resolve(__dirname, "packages/services/src"),
+         "@jugaad/api": path.resolve(__dirname, "services/api/src"),
+       },
     },
     build: {
       cssMinify: true,
@@ -194,9 +197,15 @@ export default defineConfig(({ mode }) => {
       minify: 'esbuild',
       rollupOptions: {
         output: {
-          manualChunks: {
-            vendor: ['react', 'react-dom', 'react-router-dom'],
-            'ui-heavy': ['lucide-react'],
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) {
+                return 'vendor';
+              }
+              if (id.includes('lucide-react')) {
+                return 'ui-heavy';
+              }
+            }
           },
           chunkFileNames: 'assets/[name]-[hash].js',
           entryFileNames: 'assets/[name]-[hash].js',

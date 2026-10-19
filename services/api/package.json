@@ -1,0 +1,11 @@
+{
+  "name": "@jugaad/api",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "bundle": "node ../../scripts/bundle-api.mjs",
+    "build": "node ../../scripts/bundle-api.mjs",
+    "test": "echo \"No tests yet\""
+  }
+}

@@ -12,13 +12,19 @@ import {
   EyeOff,
   RefreshCw,
   Trash2,
-  Cpu,
   Zap,
   Layers,
   Palette,
   CheckCircle2,
   XCircle,
   HelpCircle,
+  Globe,
+  Server,
+  Wifi,
+  Copy,
+  ExternalLink,
+  Shield,
+  X,
 } from 'lucide-react';
 import {
   loadAppearanceSettings,
@@ -28,19 +34,27 @@ import {
   saveModelPolicySettings,
   resetModelPolicySettings,
   ACCENT_COLOR_PRESETS,
-} from '../services/settingsStorage';
+} from '@jugaad/services/settingsStorage';
 import {
   aiFetchHealth,
   aiRefreshModels,
   aiTestProvider,
   aiSaveProviderKeys,
+  aiClearProviderKeys,
   aiSaveCustomEndpoint,
   aiFetchCustomEndpoint,
+  aiClearCustomEndpoint,
+  aiPingBackend,
   aiClearTelemetry,
   HealthResponse,
-} from '../services/aiGatewayClient';
-import type { AppearanceSettings, ModelPolicySettings, ProviderName } from '../../server/ai/types';
-import LocalModelsPanel from './settings/LocalModelsPanel';
+} from '@jugaad/services/aiGatewayClient';
+import {
+  apiBase,
+  getCustomBackendUrl,
+  setCustomBackendUrl,
+  resetCustomBackendUrl,
+} from '@jugaad/core/lib/apiBase';
+import type { AppearanceSettings, ModelPolicySettings, ProviderName } from '@jugaad/api/types';
 
 interface SettingsProps {
   currentTheme?: 'light' | 'dark';
@@ -48,7 +62,7 @@ interface SettingsProps {
 }
 
 export const Settings: React.FC<SettingsProps> = () => {
-  const [activeTab, setActiveTab] = useState<'appearance' | 'providers' | 'localModels' | 'policy' | 'diagnostics'>('appearance');
+  const [activeTab, setActiveTab] = useState<'appearance' | 'providers' | 'policy' | 'diagnostics'>('appearance');
 
   // Appearance State
   const [appearance, setAppearance] = useState<AppearanceSettings>(loadAppearanceSettings);
@@ -66,21 +80,36 @@ export const Settings: React.FC<SettingsProps> = () => {
   const [nimKeyInput, setNimKeyInput] = useState('');
   const [huggingfaceKeyInput, setHuggingfaceKeyInput] = useState('');
   const [cloudflareKeyInput, setCloudflareKeyInput] = useState('');
+  const [geminiWebKeyInput, setGeminiWebKeyInput] = useState('');
+  const [freellmapiKeyInput, setFreellmapiKeyInput] = useState('');
 
   // Show/Hide Key visibility toggles
   const [showOpenrouterKey, setShowOpenrouterKey] = useState(false);
   const [showNimKey, setShowNimKey] = useState(false);
   const [showHuggingfaceKey, setShowHuggingfaceKey] = useState(false);
   const [showCloudflareKey, setShowCloudflareKey] = useState(false);
+  const [showGeminiWebKey, setShowGeminiWebKey] = useState(false);
+  const [showFreellmapiKey, setShowFreellmapiKey] = useState(false);
 
   // Provider Save & Test Statuses
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
   const [testingProvider, setTestingProvider] = useState<string | null>(null);
+  const [clearingProvider, setClearingProvider] = useState<string | null>(null);
+  const [testingAllProviders, setTestingAllProviders] = useState(false);
   const [providerFeedback, setProviderFeedback] = useState<Record<string, { type: 'success' | 'error' | 'info'; message: string }>>({});
+  const [providerCheckTimes, setProviderCheckTimes] = useState<Record<string, number>>({});
+
+  // Backend URL & Connectivity State
+  const [backendUrlInput, setBackendUrlInput] = useState<string>(getCustomBackendUrl());
+  const [activeBackendUrl, setActiveBackendUrl] = useState<string>(apiBase());
+  const [backendPingResult, setBackendPingResult] = useState<{ status: 'online' | 'degraded' | 'offline'; latencyMs: number; message: string } | null>(null);
+  const [isPingingBackend, setIsPingingBackend] = useState(false);
+  const [copiedEnvVar, setCopiedEnvVar] = useState<string | null>(null);
 
   // Health & Diagnostics Data
   const [healthData, setHealthData] = useState<HealthResponse | null>(null);
   const [isLoadingHealth, setIsLoadingHealth] = useState(false);
+  const [lastHealthCheckTime, setLastHealthCheckTime] = useState<string>(new Date().toLocaleTimeString());
   const [isRefreshingCatalog, setIsRefreshingCatalog] = useState(false);
   const [catalogRefreshMsg, setCatalogRefreshMsg] = useState('');
 
@@ -89,6 +118,7 @@ export const Settings: React.FC<SettingsProps> = () => {
     try {
       const data = await aiFetchHealth();
       setHealthData(data);
+      setLastHealthCheckTime(new Date().toLocaleTimeString());
     } catch (err) {
       console.warn('[Settings] Health fetch error:', err);
     } finally {
@@ -138,7 +168,7 @@ export const Settings: React.FC<SettingsProps> = () => {
   const handleSaveKeys = async (provider: ProviderName, keysInput: string) => {
     if (!keysInput.trim()) return;
     setSavingProvider(provider);
-    setProviderFeedback((prev) => ({ ...prev, [provider]: { type: 'info', message: 'Saving securely to server...' } }));
+    setProviderFeedback((prev) => ({ ...prev, [provider]: { type: 'info', message: 'Saving securely to server key pool...' } }));
 
     try {
       const res = await aiSaveProviderKeys(provider, keysInput);
@@ -155,6 +185,8 @@ export const Settings: React.FC<SettingsProps> = () => {
         if (provider === 'nim') setNimKeyInput('');
         if (provider === 'huggingface') setHuggingfaceKeyInput('');
         if (provider === 'cloudflare') setCloudflareKeyInput('');
+        if (provider === 'gemini-web') setGeminiWebKeyInput('');
+        if (provider === 'freellmapi') setFreellmapiKeyInput('');
 
         // Refresh health data
         fetchHealthData();
@@ -174,13 +206,53 @@ export const Settings: React.FC<SettingsProps> = () => {
     }
   };
 
+  // Clear Provider Keys from Server
+  const handleClearKeys = async (provider: ProviderName) => {
+    const providerLabel = provider.toUpperCase();
+    if (!window.confirm(`Clear all stored server keys for ${providerLabel}? This removes the key from the active server pool.`)) {
+      return;
+    }
+
+    setClearingProvider(provider);
+    setProviderFeedback((prev) => ({ ...prev, [provider]: { type: 'info', message: `Clearing ${providerLabel} keys...` } }));
+
+    try {
+      const res = await aiClearProviderKeys(provider);
+      if (res.success) {
+        setProviderFeedback((prev) => ({
+          ...prev,
+          [provider]: { type: 'success', message: `${providerLabel} keys cleared from server.` },
+        }));
+        if (provider === 'custom') {
+          setCustomEndpoint('');
+          setCustomModel('');
+          setCustomKey('');
+        }
+        fetchHealthData();
+      } else {
+        setProviderFeedback((prev) => ({
+          ...prev,
+          [provider]: { type: 'error', message: res.message || 'Failed to clear keys' },
+        }));
+      }
+    } catch (err: any) {
+      setProviderFeedback((prev) => ({
+        ...prev,
+        [provider]: { type: 'error', message: err.message || 'Failed to clear provider' },
+      }));
+    } finally {
+      setClearingProvider(null);
+    }
+  };
+
   // Test Provider Connection
   const handleTestProvider = async (provider: ProviderName, keyInput?: string) => {
     setTestingProvider(provider);
     setProviderFeedback((prev) => ({ ...prev, [provider]: { type: 'info', message: 'Testing connection...' } }));
-
+    const checkTime = Date.now();
     try {
       const res = await aiTestProvider(provider, keyInput?.trim() || undefined);
+      setProviderCheckTimes((prev) => ({ ...prev, [provider]: checkTime }));
       if (res.success) {
         setProviderFeedback((prev) => ({
           ...prev,
@@ -200,12 +272,46 @@ export const Settings: React.FC<SettingsProps> = () => {
       }
       fetchHealthData();
     } catch (err: any) {
+      setProviderCheckTimes((prev) => ({ ...prev, [provider]: checkTime }));
       setProviderFeedback((prev) => ({
         ...prev,
         [provider]: { type: 'error', message: err.message || 'Test failed' },
       }));
     } finally {
       setTestingProvider(null);
+    }
+  };
+
+  // Test All Provider Connections Concurrently
+  const handleTestAllProviders = async () => {
+    setTestingAllProviders(true);
+    const providersToTest: ProviderName[] = ['openrouter', 'nim', 'huggingface', 'cloudflare', 'gemini-web', 'freellmapi', 'custom'];
+    const checkTime = Date.now();
+    try {
+      await Promise.allSettled(
+        providersToTest.map(async (p) => {
+          try {
+            const res = await aiTestProvider(p);
+            setProviderCheckTimes((prev) => ({ ...prev, [p]: checkTime }));
+            setProviderFeedback((prev) => ({
+              ...prev,
+              [p]: {
+                type: res.success ? 'success' : 'error',
+                message: res.success ? `${res.message} (${res.latencyMs}ms)` : (res.message || res.error || 'Connection failed'),
+              },
+            }));
+          } catch (err: any) {
+            setProviderCheckTimes((prev) => ({ ...prev, [p]: checkTime }));
+            setProviderFeedback((prev) => ({
+              ...prev,
+              [p]: { type: 'error', message: err.message || 'Test failed' },
+            }));
+          }
+        })
+      );
+      await fetchHealthData();
+    } finally {
+      setTestingAllProviders(false);
     }
   };
 
@@ -221,12 +327,57 @@ export const Settings: React.FC<SettingsProps> = () => {
     } finally { setSavingProvider(null); }
   };
 
+  // Test Backend Gateway Ping
+  const handlePingBackend = async () => {
+    setIsPingingBackend(true);
+    try {
+      const res = await aiPingBackend();
+      setBackendPingResult({
+        status: res.status,
+        latencyMs: res.latencyMs,
+        message: res.message,
+      });
+      if (res.success) {
+        fetchHealthData();
+      }
+    } catch (err: any) {
+      setBackendPingResult({
+        status: 'offline',
+        latencyMs: 0,
+        message: err.message || 'Failed to connect to backend',
+      });
+    } finally {
+      setIsPingingBackend(false);
+    }
+  };
+
+  const handleSaveBackendUrl = () => {
+    setCustomBackendUrl(backendUrlInput);
+    setActiveBackendUrl(apiBase());
+    setBackendPingResult(null);
+    fetchHealthData();
+  };
+
+  const handleResetBackendUrl = () => {
+    resetCustomBackendUrl();
+    setBackendUrlInput('');
+    setActiveBackendUrl(apiBase());
+    setBackendPingResult(null);
+    fetchHealthData();
+  };
+
+  const copyEnvVar = (varName: string) => {
+    navigator.clipboard?.writeText(varName);
+    setCopiedEnvVar(varName);
+    setTimeout(() => setCopiedEnvVar(null), 2000);
+  };
+
   // Refresh AI Model Catalog
   const handleRefreshCatalog = async () => {
     setIsRefreshingCatalog(true);
     setCatalogRefreshMsg('Discovering provider models...');
     try {
-      const res = await aiRefreshModels({ freeOnly: modelPolicy.freeModelsOnly });
+      const res = await aiRefreshModels();
       setCatalogRefreshMsg(`Catalog refreshed: ${res.count} models available.`);
       fetchHealthData();
     } catch (err: any) {
@@ -265,9 +416,18 @@ export const Settings: React.FC<SettingsProps> = () => {
         return <span className="editorial-badge bg-rose-500/20 text-rose-400 border-rose-500/30">INVALID KEY</span>;
       case 'no_models':
       default:
-        return <span className="editorial-badge bg-zinc-500/20 text-zinc-400 border-zinc-500/30">NO MODELS</span>;
+        return <span className="editorial-badge bg-zinc-500/20 text-zinc-400 border-zinc-500/30">NO KEYS</span>;
     }
   };
+
+  /** Format a timestamp as "Xs ago" / "Xm ago" / "Xh ago" */
+  function timeAgo(ts: number): string {
+    const diff = Date.now() - ts;
+    if (diff < 1000) return 'just now';
+    if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
+    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+    return `${Math.floor(diff / 3_600_000)}h ago`;
+  }
 
   return (
     <div className="editorial-page max-w-full w-full mx-auto px-4 py-8">
@@ -311,19 +471,6 @@ export const Settings: React.FC<SettingsProps> = () => {
         >
           <Key className="w-4 h-4" />
           <span>AI Providers</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('localModels')}
-          className={`flex items-center gap-2 px-4 py-2.5 font-mono text-xs font-bold uppercase tracking-wider border-b-2 transition-all whitespace-nowrap flex-shrink-0 ${
-            activeTab === 'localModels'
-              ? 'border-[var(--editorial-coral)] text-[var(--editorial-ink)] bg-[var(--editorial-surface)]'
-              : 'border-transparent text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]'
-          }`}
-        >
-          <Cpu className="w-4 h-4" />
-          <span>Local Models</span>
         </button>
 
         <button
@@ -608,7 +755,10 @@ export const Settings: React.FC<SettingsProps> = () => {
                         : 'border-zinc-500/30 bg-zinc-500/10 text-zinc-300'
                     }`}
                   >
-                    {providerFeedback.custom.message}
+                    <div>{providerFeedback.custom.message}</div>
+                    {providerCheckTimes.custom ? (
+                      <div className="text-[10px] opacity-60 mt-0.5">Last checked: {timeAgo(providerCheckTimes.custom)}</div>
+                    ) : null}
                   </div>
                 )}
 
@@ -691,7 +841,10 @@ export const Settings: React.FC<SettingsProps> = () => {
                         : 'border-zinc-500/30 bg-zinc-500/10 text-zinc-300'
                     }`}
                   >
-                    {providerFeedback.openrouter.message}
+                    <div>{providerFeedback.openrouter.message}</div>
+                    {providerCheckTimes.openrouter ? (
+                      <div className="text-[10px] opacity-60 mt-0.5">Last checked: {timeAgo(providerCheckTimes.openrouter)}</div>
+                    ) : null}
                   </div>
                 )}
 
@@ -774,7 +927,10 @@ export const Settings: React.FC<SettingsProps> = () => {
                         : 'border-zinc-500/30 bg-zinc-500/10 text-zinc-300'
                     }`}
                   >
-                    {providerFeedback.nim.message}
+                    <div>{providerFeedback.nim.message}</div>
+                    {providerCheckTimes.nim ? (
+                      <div className="text-[10px] opacity-60 mt-0.5">Last checked: {timeAgo(providerCheckTimes.nim)}</div>
+                    ) : null}
                   </div>
                 )}
 
@@ -857,7 +1013,10 @@ export const Settings: React.FC<SettingsProps> = () => {
                         : 'border-zinc-500/30 bg-zinc-500/10 text-zinc-300'
                     }`}
                   >
-                    {providerFeedback.huggingface.message}
+                    <div>{providerFeedback.huggingface.message}</div>
+                    {providerCheckTimes.huggingface ? (
+                      <div className="text-[10px] opacity-60 mt-0.5">Last checked: {timeAgo(providerCheckTimes.huggingface)}</div>
+                    ) : null}
                   </div>
                 )}
 
@@ -940,7 +1099,10 @@ export const Settings: React.FC<SettingsProps> = () => {
                         : 'border-zinc-500/30 bg-zinc-500/10 text-zinc-300'
                     }`}
                   >
-                    {providerFeedback.cloudflare.message}
+                    <div>{providerFeedback.cloudflare.message}</div>
+                    {providerCheckTimes.cloudflare ? (
+                      <div className="text-[10px] opacity-60 mt-0.5">Last checked: {timeAgo(providerCheckTimes.cloudflare)}</div>
+                    ) : null}
                   </div>
                 )}
 
@@ -966,12 +1128,183 @@ export const Settings: React.FC<SettingsProps> = () => {
                 </div>
               </div>
             </div>
+
+            <div className="editorial-panel">
+              <div className="editorial-panel__header">
+                <div className="flex items-center gap-2">
+                  <span className="editorial-badge editorial-badge--teal">GEMINI WEB</span>
+                  <h3 className="editorial-panel__title m-0 text-base">Gemini Web2API</h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  {getProviderStatusBadge('gemini-web')}
+                </div>
+              </div>
+
+              <div className="editorial-panel__body flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex justify-between items-center">
+                    <label className="font-mono text-xs font-bold text-[var(--editorial-muted)] uppercase">
+                      Proxy API Key (optional)
+                    </label>
+                    {healthData?.providerStatuses?.['gemini-web']?.maskedKeys?.length ? (
+                      <span className="font-mono text-[11px] text-[var(--editorial-muted)]">
+                        Server configured: {healthData.providerStatuses['gemini-web'].maskedKeys.join(', ')}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showGeminiWebKey ? 'text' : 'password'}
+                      value={geminiWebKeyInput}
+                      onChange={(e) => setGeminiWebKeyInput(e.target.value)}
+                      placeholder="Leave blank for anonymous access (key = none)"
+                      className="w-full bg-[var(--editorial-surface)] border border-[var(--editorial-rule)] px-3 py-2 text-xs font-mono text-[var(--editorial-ink)] focus:border-[var(--editorial-coral)] outline-none pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowGeminiWebKey((prev) => !prev)}
+                      className="absolute right-2.5 top-2.5 text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
+                      title={showGeminiWebKey ? 'Hide key' : 'Show key'}
+                    >
+                      {showGeminiWebKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className="font-mono text-[10.5px] text-[var(--editorial-muted)] m-0">
+                    Local gemini-web2api proxy on 127.0.0.1:8081 — all 9 models free (Flash 3.7/3.6/3.5,
+                    thinking + lite, Pro, Pro Enhanced, Auto, Flash Lite). Set GEMINI_WEB_BASE_URL to move it.
+                  </p>
+                </div>
+
+                {providerFeedback['gemini-web'] && (
+                  <div
+                    className={`p-2.5 text-xs font-mono border ${
+                      providerFeedback['gemini-web'].type === 'success'
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                        : providerFeedback['gemini-web'].type === 'error'
+                          ? 'border-rose-500/30 bg-rose-500/10 text-rose-400'
+                          : 'border-zinc-500/30 bg-zinc-500/10 text-zinc-300'
+                    }`}
+                  >
+                    <div>{providerFeedback['gemini-web'].message}</div>
+                    {providerCheckTimes['gemini-web'] ? (
+                      <div className="text-[10px] opacity-60 mt-0.5">Last checked: {timeAgo(providerCheckTimes['gemini-web'])}</div>
+                    ) : null}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSaveKeys('gemini-web', geminiWebKeyInput)}
+                    disabled={savingProvider === 'gemini-web'}
+                    className="editorial-button editorial-button--primary editorial-button--sm"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{savingProvider === 'gemini-web' ? 'Saving...' : 'Save Key'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTestProvider('gemini-web', geminiWebKeyInput)}
+                    disabled={testingProvider === 'gemini-web'}
+                    className="editorial-button editorial-button--secondary editorial-button--sm"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${testingProvider === 'gemini-web' ? 'animate-spin' : ''}`} />
+                    <span>{testingProvider === 'gemini-web' ? 'Testing...' : 'Test Connection'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="editorial-panel">
+              <div className="editorial-panel__header">
+                <div className="flex items-center gap-2">
+                  <span className="editorial-badge editorial-badge--teal">FREE ROUTER</span>
+                  <h3 className="editorial-panel__title m-0 text-base">FreeLLMAPI Gateway</h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  {getProviderStatusBadge('freellmapi')}
+                </div>
+              </div>
+
+              <div className="editorial-panel__body flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex justify-between items-center">
+                    <label className="font-mono text-xs font-bold text-[var(--editorial-muted)] uppercase">
+                      Unified API Key
+                    </label>
+                    {healthData?.providerStatuses?.freellmapi?.maskedKeys?.length ? (
+                      <span className="font-mono text-[11px] text-[var(--editorial-muted)]">
+                        Server configured: {healthData.providerStatuses.freellmapi.maskedKeys.join(', ')}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showFreellmapiKey ? 'text' : 'password'}
+                      value={freellmapiKeyInput}
+                      onChange={(e) => setFreellmapiKeyInput(e.target.value)}
+                      placeholder="Paste FreeLLMAPI key (freellmapi-...)"
+                      className="w-full bg-[var(--editorial-surface)] border border-[var(--editorial-rule)] px-3 py-2 text-xs font-mono text-[var(--editorial-ink)] focus:border-[var(--editorial-coral)] outline-none pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowFreellmapiKey((prev) => !prev)}
+                      className="absolute right-2.5 top-2.5 text-[var(--editorial-muted)] hover:text-[var(--editorial-ink)]"
+                      title={showFreellmapiKey ? 'Hide key' : 'Show key'}
+                    >
+                      {showFreellmapiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className="font-mono text-[10.5px] text-[var(--editorial-muted)] m-0">
+                    Local router on 127.0.0.1:3001 with automatic failover. Only genuinely free models are
+                    listed — paid and unavailable entries are filtered out. Set FREELLMAPI_BASE_URL to move it.
+                  </p>
+                </div>
+
+                {providerFeedback.freellmapi && (
+                  <div
+                    className={`p-2.5 text-xs font-mono border ${
+                      providerFeedback.freellmapi.type === 'success'
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                        : providerFeedback.freellmapi.type === 'error'
+                          ? 'border-rose-500/30 bg-rose-500/10 text-rose-400'
+                          : 'border-zinc-500/30 bg-zinc-500/10 text-zinc-300'
+                    }`}
+                  >
+                    <div>{providerFeedback.freellmapi.message}</div>
+                    {providerCheckTimes.freellmapi ? (
+                      <div className="text-[10px] opacity-60 mt-0.5">Last checked: {timeAgo(providerCheckTimes.freellmapi)}</div>
+                    ) : null}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSaveKeys('freellmapi', freellmapiKeyInput)}
+                    disabled={!freellmapiKeyInput.trim() || savingProvider === 'freellmapi'}
+                    className="editorial-button editorial-button--primary editorial-button--sm"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{savingProvider === 'freellmapi' ? 'Saving...' : 'Save Key'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTestProvider('freellmapi', freellmapiKeyInput)}
+                    disabled={testingProvider === 'freellmapi'}
+                    className="editorial-button editorial-button--secondary editorial-button--sm"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${testingProvider === 'freellmapi' ? 'animate-spin' : ''}`} />
+                    <span>{testingProvider === 'freellmapi' ? 'Testing...' : 'Test Connection'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
       {/* SECTION B2: LOCAL MODELS */}
-      {activeTab === 'localModels' && <LocalModelsPanel />}
 
       {/* SECTION C: MODEL POLICY */}
       {activeTab === 'policy' && (
@@ -985,42 +1318,6 @@ export const Settings: React.FC<SettingsProps> = () => {
             </div>
 
             <div className="editorial-panel__body flex flex-col gap-6">
-              {/* Free Models Only Toggle */}
-              <div className="flex items-center justify-between p-3.5 border border-[var(--editorial-rule)] bg-[var(--editorial-surface)]">
-                <div>
-                  <div className="font-mono text-xs font-bold text-[var(--editorial-ink)]">
-                    Free Models Only (Recommended)
-                  </div>
-                  <div className="font-mono text-[11px] text-[var(--editorial-muted)] mt-0.5">
-                    Strictly routes only to models with <code>verifiedFree === true</code> ($0 cost).
-                  </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={modelPolicy.freeModelsOnly}
-                  onChange={(e) => handleUpdatePolicy({ freeModelsOnly: e.target.checked })}
-                  className="w-4 h-4 accent-[var(--editorial-coral)] cursor-pointer"
-                />
-              </div>
-
-              {/* Allow Paid Models Toggle */}
-              <div className="flex items-center justify-between p-3.5 border border-[var(--editorial-rule)] bg-[var(--editorial-surface)]">
-                <div>
-                  <div className="font-mono text-xs font-bold text-[var(--editorial-ink)]">
-                    Allow Paid Models
-                  </div>
-                  <div className="font-mono text-[11px] text-[var(--editorial-muted)] mt-0.5">
-                    Permits routing to premium paid endpoints if keys are funded.
-                  </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={modelPolicy.allowPaidModels}
-                  onChange={(e) => handleUpdatePolicy({ allowPaidModels: e.target.checked })}
-                  className="w-4 h-4 accent-[var(--editorial-coral)] cursor-pointer"
-                />
-              </div>
-
               {/* Auto Refresh Interval */}
               <div>
                 <label className="block font-mono text-xs font-bold uppercase tracking-wider text-[var(--editorial-muted)] mb-2">
@@ -1133,15 +1430,6 @@ export const Settings: React.FC<SettingsProps> = () => {
               </span>
               <span className="font-mono text-2xl font-bold text-[var(--editorial-ink)]">
                 {healthData?.registryStats?.totalModels ?? '-'}
-              </span>
-            </div>
-
-            <div className="p-4 border border-[var(--editorial-rule)] bg-[var(--editorial-surface)] flex flex-col gap-1">
-              <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--editorial-coral)]">
-                VERIFIED FREE
-              </span>
-              <span className="font-mono text-2xl font-bold text-[var(--editorial-coral)]">
-                {healthData?.registryStats?.verifiedFreeModels ?? '-'}
               </span>
             </div>
 

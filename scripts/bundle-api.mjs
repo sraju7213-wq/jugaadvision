@@ -1,28 +1,23 @@
 import esbuild from 'esbuild';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
-const srcDir = path.resolve('api-src');
-const outDir = path.resolve('api');
-
-function getAllFiles(dir, fileList = []) {
-  if (!fs.existsSync(dir)) return fileList;
-  const files = fs.readdirSync(dir);
-  for (const file of files) {
-    const fullPath = path.join(dir, file);
-    if (fs.statSync(fullPath).isDirectory()) {
-      if (!file.startsWith('_')) {
-        getAllFiles(fullPath, fileList);
-      }
-    } else if (file.endsWith('.ts') && !file.startsWith('_')) {
-      fileList.push(fullPath);
-    }
-  }
-  return fileList;
-}
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(scriptDir, '..');
+const srcDir = path.join(repoRoot, 'api-src');
+const outDir = path.join(repoRoot, 'api');
 
 async function bundleAll() {
-  const entryPoints = getAllFiles(srcDir);
+  // Keep the function count below Vercel Hobby's 12-function limit. The
+  // catch-all handlers own all nested API routes, including the former
+  // static model/health/generate/test endpoints.
+  const entryPoints = [
+    path.join(srcDir, 'ai/[...slug].ts'),
+    path.join(srcDir, 'settings/[...slug].ts'),
+    path.join(srcDir, 'creative-mix.ts'),
+    path.join(srcDir, 'remove-bg.ts'),
+  ];
   console.log(`[bundle-api] Bundling ${entryPoints.length} serverless endpoints...`);
 
   for (const entry of entryPoints) {
@@ -41,15 +36,10 @@ async function bundleAll() {
       target: 'node18',
       format: 'esm',
       outfile: outFile,
-      minify: false,
+      minify: true,
       sourcemap: false,
       alias: {
-        // Local GGUF inference cannot run on Vercel (read-only/ephemeral disk),
-        // and @vercel/nft would otherwise trace node-llama-cpp + every
-        // @node-llama-cpp/* platform binary (~1 GB) into each of the functions,
-        // OOM-killing the build container. The stub throws only when local
-        // inference is actually attempted.
-        'node-llama-cpp': path.resolve('scripts/node-llama-cpp.serverless.stub.js'),
+        '@jugaad/api': path.join(repoRoot, 'services/api/src'),
       },
       external: [
         'node:*',
@@ -67,10 +57,6 @@ async function bundleAll() {
         'net',
         'tls',
         'zlib',
-        // node-llama-cpp uses native .node bindings — must stay external
-        'node-llama-cpp',
-        '@reflink/reflink-linux-x64-gnu',
-        '@node-llama-cpp/*',
       ],
     });
     console.log(`  ✓ ${relPath} -> ${path.relative(process.cwd(), outFile)}`);

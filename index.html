@@ -101,13 +101,8 @@
             contain: layout style paint;
         }
 
-        /* Optimized card transitions */
-        .glass-card,
-        [class*="rounded-3xl"],
-        [class*="rounded-2xl"] {
-            will-change: transform;
-            transform: translateZ(0);
-        }
+        /* Card borders render fine without forced GPU layers; promoting every
+           rounded card to its own compositor layer wastes memory on mobile. */
 
         /* Custom scrollbar */
         ::-webkit-scrollbar {

@@ -6,7 +6,7 @@ import React, {
   useMemo,
 } from "react";
 import { ProcessingAnimation } from "./ProcessingAnimation";
-import { Platform, Prompt, TokenItem, FormulaSlots, PromptQualityReport, DissectedPrompt } from "../types";
+import { Platform, Prompt, TokenItem, FormulaSlots, PromptQualityReport, DissectedPrompt } from "@jugaad/core/types";
 import {
   SMART_WORD_LIBRARY,
   MASTER_FORMULA_ARCHETYPES,
@@ -15,7 +15,7 @@ import {
   RANDOM_SETTINGS,
   RANDOM_MOODS,
   RANDOM_STYLES,
-} from "../constants";
+} from "@jugaad/core/constants";
 import {
   aiElaboratePrompt,
   aiCompressPrompt,
@@ -25,14 +25,13 @@ import {
   aiGenerateSmartNegative,
   aiMolecularRecombination,
   aiQuantumEntropyMutate,
-} from "../services/geminiService";
-import { convertToStructuredPrompt } from "../services/cinematicPromptService";
+} from "@jugaad/services/geminiService";
+import { convertToStructuredPrompt } from "@jugaad/services/cinematicPromptService";
 
 import TemplateGallery from "./template-library/TemplateGallery";
-import GuidedTour from "./accessibility/GuidedTour";
 import AnalyticsDashboard from "./analytics/AnalyticsDashboard";
-import { usePromptVersion } from "../hooks/usePromptVersion";
-import { runCreativeFusion } from "../services/creativeFusionService";
+import { usePromptVersion } from "@jugaad/services/usePromptVersion";
+import { runCreativeFusion } from "@jugaad/services/creativeFusionService";
 import QuickImageGenerators from "./QuickImageGenerators";
 import ModelSelector from "./ModelSelector";
 
@@ -68,9 +67,9 @@ import {
   Network,
   Workflow,
 } from "lucide-react";
-import useSpeechToText from "../hooks/useSpeechToText";
+import useSpeechToText from "@jugaad/services/useSpeechToText";
 import Tooltip from "./Tooltip";
-import { shareContent, triggerHaptic } from "../services/nativeMedia";
+import { shareContent, triggerHaptic } from "@jugaad/services/nativeMedia";
 
 interface PromptBuilderProps {
   prompts: Prompt[];
@@ -2174,7 +2173,6 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({
           </div>
         </div>
       </div>
-      <GuidedTour />
       <div aria-live="polite" aria-atomic="true" className="sr-only">{isFusing ? "Fusing compounds" : ""}{isMutating ? "Mutating" : ""}{isBrainstorming ? "Brainstorming fusion" : ""}</div>
 
       {/* 3-VARIATIONS GENERATOR MODAL */}

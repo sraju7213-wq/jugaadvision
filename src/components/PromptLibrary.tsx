@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { Prompt, Platform } from "../types";
+import { Prompt, Platform } from "@jugaad/core/types";
 import {
   CopyIcon,
   CheckIcon,
@@ -67,6 +67,8 @@ const PromptCard: React.FC<{
           <img
             src={prompt.imageUrl}
             alt="Saved prompt preview"
+            loading="lazy"
+            decoding="async"
             className="w-full h-full object-cover transition-transform duration-500 hover:scale-105"
           />
         </div>

@@ -10,10 +10,13 @@ export const config = {
 };
 
 export default async function handler(req: any, res: any) {
-  let path = '/api/settings';
-  if (req.query?.slug) {
-    const slugStr = Array.isArray(req.query.slug) ? req.query.slug.join('/') : req.query.slug;
-    path = `/api/settings/${slugStr}`;
-  }
+  const querySlug = req.query?.slug
+    ? (Array.isArray(req.query.slug) ? req.query.slug.join('/') : req.query.slug)
+    : '';
+  const urlSlug = typeof req.url === 'string'
+    ? (req.url.split('?')[0].match(/^\/api\/settings\/(.+)$/)?.[1] || '')
+    : '';
+  const slug = querySlug || urlSlug;
+  const path = slug ? `/api/settings/${slug}` : '/api/settings';
   return forwardToHandler(path, req, res);
 }

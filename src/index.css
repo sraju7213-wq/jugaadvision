@@ -61,10 +61,11 @@ html[data-font-scale="large"] {
 
 html {
   scroll-behavior: smooth;
+  min-height: 100%;
 }
 
 body {
-  min-height: 100vh;
+  min-height: 100%;
   margin: 0;
   padding: 0;
   background-color: var(--ui-bg);
@@ -74,6 +75,43 @@ body {
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.6;
   color: var(--ui-ink);
+  overscroll-behavior-y: none;
+}
+
+#root,
+.app-canvas {
+  min-height: 100dvh;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (max-width: 767px) {
+  /* Keep content clear of the mobile bottom navigation and gesture area. */
+  #main-content {
+    padding-bottom: calc(6.75rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  #main-content.homepage-main {
+    padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .editorial-page__content {
+    padding-left: max(0.75rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.75rem, env(safe-area-inset-right, 0px));
+  }
+
+  /* Avoid hover-only affordances on touch screens and make controls easier to hit. */
+  .editorial-button,
+  button,
+  [role="button"] {
+    min-height: 2.5rem;
+  }
 }
 
 .dark body,

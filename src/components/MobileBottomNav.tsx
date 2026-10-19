@@ -14,7 +14,7 @@ import {
   Sparkles,
   Palette,
 } from "lucide-react";
-import { triggerHaptic } from "../services/nativeMedia";
+import { triggerHaptic } from "@jugaad/services/nativeMedia";
 
 /**
  * Phone-first bottom nav: 5 targets only.

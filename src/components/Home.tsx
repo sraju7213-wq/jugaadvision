@@ -357,6 +357,7 @@ const Home: React.FC = () => {
   }, []);
 
   const handleHeroPointer = (e: React.PointerEvent<HTMLElement>) => {
+    if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
     const hero = heroRef.current;
     if (!hero) return;
     const rect = hero.getBoundingClientRect();

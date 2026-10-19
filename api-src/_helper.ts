@@ -1,11 +1,13 @@
-import { handleAIRequest } from '../server/ai/serverHandler';
+import { handleAIRequest } from '@jugaad/api/ai/serverHandler';
 
 export async function forwardToHandler(defaultPath: string, req: any, res: any) {
   try {
     if ((req.method || 'GET').toUpperCase() === 'OPTIONS') {
       res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,HEAD');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With, Origin, X-Custom-Auth, Range');
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining');
+      res.setHeader('Access-Control-Max-Age', '86400');
       res.status(204).end();
       return;
     }
@@ -32,10 +34,11 @@ export async function forwardToHandler(defaultPath: string, req: any, res: any) 
 
     const result = await handleAIRequest(url, method, body, clientIp);
 
-    // Always set CORS so Capacitor WebView (Origin: capacitor://localhost) works
+    // Always set CORS so preview hosts and self-hosted frontends can call the API
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,HEAD');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With, Origin, X-Custom-Auth, Range');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining');
 
     if (result.headers) {
       for (const [k, v] of Object.entries(result.headers)) {

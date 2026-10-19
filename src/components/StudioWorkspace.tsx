@@ -4,16 +4,16 @@ import {
   describeImageToText,
   rewritePrompt,
   extractPromptFromImage,
-} from "../services/geminiService";
+} from "@jugaad/services/geminiService";
 import useLocalStorage from "../hooks/useLocalStorage";
-import { Platform } from "../types";
+import { Platform } from "@jugaad/core/types";
 import {
   RANDOM_SUBJECTS,
   RANDOM_SETTINGS,
   RANDOM_MOODS,
   RANDOM_STYLES,
   NEGATIVE_PROMPT_SUGGESTIONS,
-} from "../constants";
+} from "@jugaad/core/constants";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -36,7 +36,7 @@ import {
   XIcon,
 } from "./icons";
 import { Loader2, Dices, Star, Download, Search, Plus } from "lucide-react";
-import useSpeechToText from "../hooks/useSpeechToText";
+import useSpeechToText from "@jugaad/services/useSpeechToText";
 import QuickImageGenerators from "./QuickImageGenerators";
 import ModelSelector from "./ModelSelector";
 
@@ -804,7 +804,7 @@ const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
               <div className="mb-4 flex flex-wrap gap-2">
                 {images.map((img, i) => (
                   <div key={i} className="relative w-20 h-20 border border-[var(--editorial-rule)] overflow-hidden bg-[var(--editorial-surface-strong)]">
-                    <img src={img.preview} alt={img.name} className="w-full h-full object-cover" />
+                    <img src={img.preview} alt={img.name} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                     <button type="button" onClick={() => removeImage(i)} className="absolute top-0.5 right-0.5 p-0.5 bg-black/70 text-white hover:bg-red-500" aria-label="Remove reference">
                       <XIcon className="w-3 h-3" />
                     </button>

@@ -42,4 +42,18 @@ public/styles.css
 .vercel
 .kilo
 .local-models
+.local-keys.json
+
+# Stryker mutation testing
+/reports/
+/.stryker-tmp/
+/stryker.log
+.vercel
+coverage
 .env*
+
+# TypeScript incremental build artifacts
+*.tsbuildinfo
+
+# Local tooling state
+.commandcode/
