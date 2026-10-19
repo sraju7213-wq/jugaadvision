@@ -1,13 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
-  Home as HomeIcon,
   Camera,
   Plus,
+  X,
   Bookmark,
   Settings as SettingsIcon,
-  MoreVertical,
-  X,
   Wand2,
   FlaskConical,
   Layers,
@@ -18,12 +16,14 @@ import { triggerHaptic } from "@jugaad/services/nativeMedia";
 
 /**
  * Phone-first bottom nav: 5 targets only.
- * Home / Photo / +Create (FAB) / Ideas / Settings.
- * Power routes (mixer, batch, pro, studio, help) live inside Create/Home,
- * not as tabs — keeps first-time users unblocked.
+ * Builder / Photo / +Create (FAB) / Library / Settings.
+ * Power routes (mixer, batch, pro, studio) live inside Create,
+ * not as tabs — keeps first-time users unblocked. The marketing
+ * landing page stays at `/` but is only reached via the logo,
+ * so a tab is never spent on it.
  */
 const TABS_LEFT = [
-  { id: "home", label: "Home", path: "/", icon: HomeIcon },
+  { id: "builder", label: "Build", path: "/prompt-builder", icon: Wand2 },
   { id: "photo", label: "Photo", path: "/image-to-prompt", icon: Camera },
 ];
 
@@ -33,7 +33,6 @@ const TABS_RIGHT = [
 ];
 
 const OVERFLOW_ITEMS = [
-  { id: "builder", label: "Prompt Builder", path: "/prompt-builder", icon: Wand2 },
   { id: "mixer", label: "Creative Mixer", path: "/creative-mixer", icon: FlaskConical },
   { id: "batch", label: "Batch Generator", path: "/batch-generator", icon: Layers },
   { id: "pro", label: "Pro Prompter", path: "/pro-prompter", icon: Sparkles },
